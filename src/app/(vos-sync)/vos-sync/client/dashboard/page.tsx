@@ -3,6 +3,7 @@ import * as React from "react";
 import { PortalPageHeader } from "@/components/shared/layout/PortalPageHeader";
 import { PageContainer } from "@/components/shared/layout/PageContainer";
 import DashboardModule from "@/modules/client/dashboard";
+import RegistrationUploadNotice from "@/components/shared/RegistrationUploadNotice";
 import { cookies } from "next/headers";
 import { getClientProfile } from "@/modules/client/settings/services/client-profile.service";
 import { getClientDashboardData } from "@/modules/client/dashboard/services/client-dashboard.service";
@@ -41,6 +42,7 @@ export default async function clientDashboardPage() {
             <PortalPageHeader user={headerUser} />
 
             <PageContainer>
+                <RegistrationUploadNotice />
                 <DashboardModule userName={headerUser.name} initialData={initialDashboardData} />
             </PageContainer>
         </div>

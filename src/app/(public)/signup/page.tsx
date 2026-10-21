@@ -516,7 +516,6 @@ function SignupPageContent() {
   const [verifiedDestination, setVerifiedDestination] = useState<string | null>(null);
   const [verifiedRole, setVerifiedRole] = useState<RegistrationRole | null>(null);
   const [attachmentUploadToken, setAttachmentUploadToken] = useState<string | null>(null);
-  const [attachmentUploadError, setAttachmentUploadError] = useState<string | null>(null);
 
   const resetRegistrationState = useCallback((resetView = false) => {
     clearRegistration();
@@ -527,7 +526,6 @@ function SignupPageContent() {
     setVerifiedDestination(null);
     setVerifiedRole(null);
     setAttachmentUploadToken(null);
-    setAttachmentUploadError(null);
     if (resetView) {
       setStep('selection');
       setUserType(null);
@@ -1936,25 +1934,8 @@ function SignupPageContent() {
           <p className="text-sm text-muted-foreground">
             {loading
               ? 'Your selected files are being uploaded securely.'
-              : attachmentUploadError
-                ? 'Upload the required files before continuing.'
-                : 'Finishing your registration...'}
+              : 'Finishing your registration...'}
           </p>
-
-          {attachmentUploadError && !loading && (
-            <div className="mt-6 space-y-3">
-              <p className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-left text-sm text-destructive">
-                {attachmentUploadError}
-              </p>
-              <Button
-                type="button"
-                onClick={() => void completeVerifiedRegistration(verifiedRole, verifiedDestination, attachmentUploadToken)}
-                className="w-full rounded-full py-6"
-              >
-                Retry file upload
-              </Button>
-            </div>
-          )}
         </div>
       );
     }
@@ -2641,24 +2622,28 @@ function SignupPageContent() {
     }
   };
 
+  const withUploadFailedFlag = (destination: string): string => {
+    return destination.includes('?') ? `${destination}&upload=failed` : `${destination}?upload=failed`;
+  };
+
   const completeVerifiedRegistration = async (
     role: RegistrationRole,
     destination: string,
     uploadToken: string,
   ): Promise<void> => {
     setLoading(true);
-    setAttachmentUploadError(null);
+    let uploadFailed = false;
     try {
       await uploadRegistrationAttachments(role, uploadToken);
       if (hasRegistrationAttachments(role)) {
         toast.success('Files uploaded', { description: 'Your registration documents were saved.' });
       }
-      window.location.assign(destination);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'The selected files could not be uploaded.';
-      setAttachmentUploadError(message);
+    } catch {
+      uploadFailed = true;
     } finally {
       setLoading(false);
+      const target = uploadFailed ? withUploadFailedFlag(destination) : destination;
+      window.location.assign(target);
     }
   };
 
