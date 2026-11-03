@@ -4,9 +4,12 @@ import { Interview, InterviewFormData, EvaluationFormData, InterviewStatus } fro
 
 const BASE = "/api/client/interviews";
 
-export async function fetchInterviews(status?: InterviewStatus | "ALL"): Promise<Interview[]> {
+export async function fetchInterviews(
+  status?: InterviewStatus | "ALL",
+  signal?: AbortSignal
+): Promise<Interview[]> {
   const query = status && status !== "ALL" ? `?status=${status}` : "";
-  const res = await fetch(`${BASE}${query}`, { cache: "no-store" });
+  const res = await fetch(`${BASE}${query}`, { cache: "no-store", signal });
   const json = await res.json();
   if (!res.ok) {
     throw new Error(json.error ?? "Failed to fetch interviews.");
@@ -14,7 +17,7 @@ export async function fetchInterviews(status?: InterviewStatus | "ALL"): Promise
   return json.interviews ?? [];
 }
 
-export async function createInterviewSchedule(data: InterviewFormData): Promise<Interview> {
+export async function createInterviewSchedule(data: InterviewFormData): Promise<string[]> {
   const res = await fetch(BASE, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -24,7 +27,7 @@ export async function createInterviewSchedule(data: InterviewFormData): Promise<
   if (!res.ok) {
     throw new Error(json.error ?? "Failed to schedule interview.");
   }
-  return json.interview;
+  return json.warnings ?? [];
 }
 
 export async function updateInterviewDetails(
@@ -44,7 +47,7 @@ export async function updateInterviewDetails(
 
 export async function submitInterviewEvaluation(
   payload: EvaluationFormData
-): Promise<void> {
+): Promise<string[]> {
   const res = await fetch(`${BASE}/${payload.interview_application_id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -54,4 +57,5 @@ export async function submitInterviewEvaluation(
   if (!res.ok) {
     throw new Error(json.error ?? "Failed to submit evaluation.");
   }
+  return json.warnings ?? [];
 }

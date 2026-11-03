@@ -3,17 +3,35 @@ import { sendInterviewScheduledEmail, isEmailEnabledForUser } from "@/lib/mail";
 import { createSystemMessage } from "@/lib/messaging/system-message";
 import { createFreelancerNotification } from "@/lib/notifications/services/freelancer-notifications";
 import { createEmployerNotification } from "@/lib/notifications/services/employer-notifications";
-import { getPHTimeString } from "@/lib/utils";
-import { getJobPipeline } from "@/modules/client/pipeline/services/job-pipeline.service";
+import { getPHTimeString, toPHWallClock } from "@/lib/utils";
+import { getJobPipelinesForJobs } from "@/modules/client/pipeline/services/job-pipeline.service";
 import { JobPipelineVersion, JobPipelineStage } from "@/modules/client/pipeline/types";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { resolveReviewerCompany } from "@/modules/client/assessment-review/services/context";
+import { safeErrorMessage } from "@/lib/api-error";
+import { mapPool } from "@/lib/server/pool";
+import { directusItemsWhereIn } from "@/lib/server/directus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/**
+ * `status` is interpolated into a Directus filter query string, so only these
+ * enums are accepted — anything else is rejected rather than passed through.
+ */
+const ALLOWED_INTERVIEW_STATUSES = new Set([
+  "SCHEDULED",
+  "CONFIRMED",
+  "RESCHEDULED",
+  "CANCELLED",
+  "COMPLETED",
+  "CONCLUDED",
+  "ENDED",
+  "NO_SHOW",
+]);
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
@@ -119,6 +137,31 @@ interface DirectusJob {
 
 // ─── GET — List interviews for company ─────────────────────────────────
 
+/**
+ * Reads a collection with an `_in=` id list, in bounded batches. A single
+ * request cannot carry every id once a company's calendar is long, and an
+ * over-long URL fails at the transport layer, which used to be answered with
+ * whichever rows did come back — an interview then renders as though nobody
+ * was scheduled for it.
+ */
+async function readBatched<T>(
+  collection: string,
+  field: string,
+  ids: (number | string)[],
+  fields: string,
+  label: string,
+  extra?: string
+): Promise<{ data: T[] } | { error: string }> {
+  try {
+    return {
+      data: await directusItemsWhereIn<T>(collection, field, ids, fields, extra ? { extra } : {}),
+    };
+  } catch (err) {
+    console.error(`/api/client/interviews: ${collection} read failed`, err);
+    return { error: `${label} could not be read. Please try again.` };
+  }
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
@@ -130,51 +173,75 @@ export async function GET(req: NextRequest) {
     const userId = Number(session.userId);
     if (!userId || isNaN(userId)) return NextResponse.json({ error: "Invalid token." }, { status: 401 });
 
-    const companyId = await resolveReviewerCompany(session.userId);
+    const reviewer = await resolveReviewerCompany(session.userId);
+    if (reviewer.unavailable) {
+      return NextResponse.json(
+        { error: "Your company association could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+    const companyId = reviewer.companyId;
     if (!companyId) return NextResponse.json({ error: "Company not found." }, { status: 404 });
 
     const { searchParams } = new URL(req.url);
     const status = searchParams.get("status");
 
+    if (status && status !== "ALL" && !ALLOWED_INTERVIEW_STATUSES.has(status)) {
+      return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
+    }
+
     let filterQuery = `filter[company_id][_eq]=${companyId}`;
-    if (status && status !== "ALL") filterQuery += `&filter[interview_status][_eq]=${status}`;
+    if (status && status !== "ALL") filterQuery += `&filter[interview_status][_eq]=${encodeURIComponent(status)}`;
 
     const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_interview?${filterQuery}&sort[]=-created_at&sort[]=-interview_id&fields=*`,
+      `${DIRECTUS_BASE}/items/vs_interview?${filterQuery}&sort[]=-created_at&sort[]=-interview_id&fields=*&limit=-1`,
       { headers: getHeaders(), cache: "no-store" }
     );
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error ?? "Failed to fetch interviews.");
+    if (!res.ok) {
+      return NextResponse.json(
+        { error: "Interviews could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
 
-    const rawInterviews: DirectusInterview[] = json.data ?? [];
+    const rawInterviews: DirectusInterview[] = (await res.json()).data ?? [];
     if (rawInterviews.length === 0) return NextResponse.json({ interviews: [] });
 
     const interviewIds = rawInterviews.map((iv) => iv.interview_id);
 
-    // Fetch junction table records vs_interview_application
-    const junctionRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_in]=${interviewIds.join(",")}&fields=*&limit=500`,
-      { headers: getHeaders(), cache: "no-store" }
+    const junction = await readBatched<DirectusInterviewApp>(
+      "vs_interview_application",
+      "interview_id",
+      interviewIds,
+      "*",
+      "Interview attendance"
     );
-
-    const junctionApps: DirectusInterviewApp[] = junctionRes.ok
-      ? (await junctionRes.json()).data ?? []
-      : [];
+    // A failed attach read used to answer with an empty candidate list, which
+    // looks exactly like an interview nobody was scheduled for.
+    if ("error" in junction) {
+      return NextResponse.json({ error: junction.error }, { status: 502 });
+    }
+    const junctionApps = junction.data;
 
     const appIds = [...new Set(junctionApps.map((ja) => ja.application_id).filter(Boolean))];
 
     const appsMap: Record<number, ApplicationSummary> = {};
     if (appIds.length > 0) {
-      const appsRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_application?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,user_id,job_id,application_status,current_stage_id&limit=500`,
-        { headers: getHeaders(), cache: "no-store" }
+      const apps = await readBatched<ApplicationSummary>(
+        "vs_job_application",
+        "application_id",
+        appIds,
+        "application_id,user_id,job_id,application_status,current_stage_id",
+        "Candidate details"
       );
-      if (appsRes.ok) {
-        const appsJson = await appsRes.json();
-        (appsJson.data ?? []).forEach((a: ApplicationSummary) => {
-          appsMap[a.application_id] = a;
-        });
+      // A missing application row is rendered as `Applicant #0` on an unknown
+      // role, so a partial read has to fail the whole list instead.
+      if ("error" in apps) {
+        return NextResponse.json({ error: apps.error }, { status: 502 });
       }
+      apps.data.forEach((a) => {
+        appsMap[a.application_id] = a;
+      });
     }
 
     const userIds = [...new Set(Object.values(appsMap).map((a) => a.user_id).filter(Boolean))];
@@ -182,40 +249,39 @@ export async function GET(req: NextRequest) {
 
     const usersMap: Record<number, VsUser> = {};
     if (userIds.length > 0) {
-      const usersRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_contact,profile_image_url&limit=500`,
-        { headers: getHeaders(), cache: "no-store" }
+      const users = await readBatched<VsUser>(
+        "vs_user",
+        "user_id",
+        userIds,
+        "user_id,user_fname,user_lname,user_email,user_contact,profile_image_url",
+        "Candidate profiles"
       );
-      if (usersRes.ok) {
-        (await usersRes.json()).data?.forEach((u: VsUser) => {
-          usersMap[u.user_id] = u;
-        });
+      if ("error" in users) {
+        return NextResponse.json({ error: users.error }, { status: 502 });
       }
+      users.data.forEach((u) => {
+        usersMap[u.user_id] = u;
+      });
     }
 
     const jobsMap: Record<number, string> = {};
-    const jobPipelineMap: Record<number, JobPipelineVersion | null> = {};
+    let jobPipelineMap: Record<number, JobPipelineVersion | null> = {};
     if (jobIds.length > 0) {
-      const jobsRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,job_title&limit=500`,
-        { headers: getHeaders(), cache: "no-store" }
+      const jobs = await readBatched<DirectusJob>(
+        "vs_job_posting",
+        "job_id",
+        jobIds,
+        "job_id,job_title",
+        "Job titles"
       );
-      if (jobsRes.ok) {
-        (await jobsRes.json()).data?.forEach((j: DirectusJob) => {
-          jobsMap[j.job_id] = j.job_title;
-        });
+      if ("error" in jobs) {
+        return NextResponse.json({ error: jobs.error }, { status: 502 });
       }
+      jobs.data.forEach((j) => {
+        jobsMap[j.job_id] = j.job_title;
+      });
 
-      await Promise.all(
-        jobIds.map(async (jId) => {
-          try {
-            const pipe = await getJobPipeline(jId);
-            jobPipelineMap[jId] = pipe;
-          } catch {
-            jobPipelineMap[jId] = null;
-          }
-        })
-      );
+      jobPipelineMap = await getJobPipelinesForJobs(jobIds, companyId);
     }
 
     // Map candidates to interviews
@@ -309,7 +375,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/interviews error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -328,17 +394,30 @@ export async function POST(req: NextRequest) {
     const userId = Number(session.userId);
     if (!userId || isNaN(userId)) return NextResponse.json({ error: "Invalid token." }, { status: 401 });
 
-    const companyId = await resolveReviewerCompany(session.userId);
+    const reviewer = await resolveReviewerCompany(session.userId);
+    if (reviewer.unavailable) {
+      return NextResponse.json(
+        { error: "Your company association could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+    const companyId = reviewer.companyId;
     if (!companyId) return NextResponse.json({ error: "Company not found." }, { status: 404 });
 
     const body = await req.json().catch(() => null);
     if (!body) return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
 
-    const rawAppIds: number[] = Array.isArray(body.application_ids)
-      ? body.application_ids.map(Number).filter(Boolean)
-      : body.application_id
-      ? [Number(body.application_id)]
-      : [];
+    // Deduplicated here so one candidate cannot be written into the junction (and
+    // emailed) twice from a repeated id in the payload.
+    const rawAppIds: number[] = [
+      ...new Set<number>(
+        Array.isArray(body.application_ids)
+          ? body.application_ids.map(Number).filter(Boolean)
+          : body.application_id
+          ? [Number(body.application_id)]
+          : []
+      ),
+    ];
 
     const errors: string[] = [];
     if (rawAppIds.length === 0) errors.push("At least one candidate application is required.");
@@ -357,58 +436,102 @@ export async function POST(req: NextRequest) {
     // Tenant ownership gate: every scheduled application must belong to the
     // caller's company (application -> job_id -> vs_job_posting.company_id).
     // Reject before any interview, junction, or notification side effect.
-    for (const appId of rawAppIds) {
-      const appRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_application/${appId}?fields=application_id,job_id`,
-        { headers: getHeaders(), cache: "no-store" }
+    // Two batched `_in=` reads instead of 2 fetches per candidate.
+    {
+      const uniqueAppIds = [...new Set(rawAppIds)];
+      const apps = await readBatched<{ application_id: number; job_id: number | string | null }>(
+        "vs_job_application",
+        "application_id",
+        uniqueAppIds,
+        "application_id,job_id",
+        "Applications"
       );
-      if (!appRes.ok) {
-        return NextResponse.json({ error: "Application not found." }, { status: 404 });
+      if ("error" in apps) {
+        return NextResponse.json(
+          { error: `${apps.error} Nothing was scheduled.` },
+          { status: 502 }
+        );
       }
-      const appRow = (await appRes.json()).data;
-      const jobId = Number(appRow?.job_id);
-      if (!Number.isSafeInteger(jobId) || jobId <= 0) {
-        return NextResponse.json({ error: "Application not found." }, { status: 404 });
+
+      const appToJob = new Map<number, number>();
+      for (const row of apps.data) {
+        const appId = Number(row.application_id);
+        const jobId = Number(row.job_id);
+        if (!Number.isSafeInteger(appId) || appId <= 0) continue;
+        if (!Number.isSafeInteger(jobId) || jobId <= 0) continue;
+        appToJob.set(appId, jobId);
       }
-      const jobRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_posting/${jobId}?fields=job_id,company_id`,
-        { headers: getHeaders(), cache: "no-store" }
+
+      const jobIds = [...new Set([...appToJob.values()])];
+      const jobs = await readBatched<{ job_id: number; company_id: number | string }>(
+        "vs_job_posting",
+        "job_id",
+        jobIds,
+        "job_id,company_id",
+        "Jobs"
       );
-      if (!jobRes.ok) {
-        return NextResponse.json({ error: "Application not found." }, { status: 404 });
+      if ("error" in jobs) {
+        return NextResponse.json(
+          { error: `${jobs.error} Nothing was scheduled.` },
+          { status: 502 }
+        );
       }
-      const jobRow = (await jobRes.json()).data;
-      if (!jobRow || Number(jobRow.company_id) !== companyId) {
+
+      const ownedJobIds = new Set<number>();
+      for (const row of jobs.data) {
+        if (Number(row.company_id) === companyId) ownedJobIds.add(Number(row.job_id));
+      }
+
+      // Missing rows, null/invalid job ids and foreign jobs all collapse to the
+      // same 404 the per-application gate returned.
+      const allOwned =
+        appToJob.size === uniqueAppIds.length &&
+        [...appToJob.values()].every((jobId) => ownedJobIds.has(jobId));
+      if (!allOwned) {
         return NextResponse.json({ error: "Application not found." }, { status: 404 });
       }
     }
 
     // Check if any selected candidate already has an active, uncompleted scheduled interview session
-    const candidateActiveIvRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_in]=${rawAppIds.join(",")}&fields=application_id,interview_id&limit=100`,
-      { headers: getHeaders(), cache: "no-store" }
+    const candidateIvJunction = await readBatched<{ application_id: number; interview_id: number }>(
+      "vs_interview_application",
+      "application_id",
+      rawAppIds,
+      "application_id,interview_id",
+      "Existing interviews"
     );
-    if (candidateActiveIvRes.ok) {
-      const candidateIvRows: { application_id: number; interview_id: number }[] =
-        (await candidateActiveIvRes.json()).data ?? [];
-      const ivIds = candidateIvRows.map((r) => r.interview_id).filter(Boolean);
-      if (ivIds.length > 0) {
-        const activeCheckRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${ivIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id,scheduled_at&limit=10`,
-          { headers: getHeaders(), cache: "no-store" }
+    if ("error" in candidateIvJunction) {
+      return NextResponse.json(
+        { error: "Existing interviews could not be checked. Nothing was scheduled." },
+        { status: 502 }
+      );
+    }
+    const ivIds = candidateIvJunction.data
+      .map((r) => r.interview_id)
+      .filter(Boolean);
+    if (ivIds.length > 0) {
+      const activeCheck = await readBatched<DirectusInterview>(
+        "vs_interview",
+        "interview_id",
+        ivIds,
+        "interview_id,scheduled_at",
+        "Existing interviews",
+        "filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED"
+      );
+      if ("error" in activeCheck) {
+        return NextResponse.json(
+          { error: "Existing interviews could not be checked. Nothing was scheduled." },
+          { status: 502 }
         );
-        if (activeCheckRes.ok) {
-          const activeIvs: DirectusInterview[] = (await activeCheckRes.json()).data ?? [];
-          if (activeIvs.length > 0) {
-            return NextResponse.json(
-              {
-                error:
-                  "One or more selected candidates already have an active scheduled interview session. Please complete or evaluate their current interview before scheduling a new one.",
-              },
-              { status: 400 }
-            );
-          }
-        }
+      }
+      if (activeCheck.data.length > 0) {
+        return NextResponse.json(
+          {
+            error:
+              "One or more selected candidates already have an active scheduled interview session. Please complete or evaluate their current interview before scheduling a new one.",
+          },
+          { status: 400 }
+        );
       }
     }
 
@@ -418,32 +541,47 @@ export async function POST(req: NextRequest) {
       const durationMs = (Number(body.duration_minutes) || 60) * 60 * 1000;
       const includeBuffer = body.include_buffer !== false;
       const bufferMs = includeBuffer ? 15 * 60 * 1000 : 0;
+      const newEnd = newStart + durationMs;
+
+      // Read the day before/after the slot instead of the first 100 active
+      // interviews: a company whose backlog is bigger than that used to have the
+      // rest of its schedule ignored, so a genuine clash passed the check.
+      const windowFrom = toPHWallClock(newStart - 24 * 60 * 60 * 1000);
+      const windowTo = toPHWallClock(newEnd + 24 * 60 * 60 * 1000);
+      const windowFilter =
+        windowFrom && windowTo
+          ? `&filter[scheduled_at][_between]=${encodeURIComponent(windowFrom)},${encodeURIComponent(windowTo)}`
+          : "";
 
       const overlapRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_interview?filter[company_id][_eq]=${companyId}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id,scheduled_at,duration_minutes,interview_status&limit=100`,
+        `${DIRECTUS_BASE}/items/vs_interview?filter[company_id][_eq]=${companyId}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED${windowFilter}&fields=interview_id,scheduled_at,duration_minutes,interview_status&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
+      if (!overlapRes.ok) {
+        // Skipping the check on a failed read would double-book the company.
+        return NextResponse.json(
+          { error: "The company schedule could not be checked. Nothing was scheduled." },
+          { status: 502 }
+        );
+      }
 
-      if (overlapRes.ok) {
-        const existingActive: DirectusInterview[] = (await overlapRes.json()).data ?? [];
+      const existingActive: DirectusInterview[] = (await overlapRes.json()).data ?? [];
 
-        const newEnd = newStart + durationMs;
-        for (const existing of existingActive) {
-          const exStart = new Date(existing.scheduled_at.replace(" ", "T")).getTime();
-          if (isNaN(exStart)) continue;
-          const exEnd = exStart + (existing.duration_minutes || 60) * 60 * 1000;
+      for (const existing of existingActive) {
+        const exStart = new Date(existing.scheduled_at.replace(" ", "T")).getTime();
+        if (isNaN(exStart)) continue;
+        const exEnd = exStart + (existing.duration_minutes || 60) * 60 * 1000;
 
-          const isDirectOverlap = (newStart >= exStart && newStart < exEnd) || (newStart < exStart && newEnd > exStart);
-          const isBufferOverlap = bufferMs > 0 && (newStart >= exEnd && newStart < (exEnd + bufferMs));
+        const isDirectOverlap = (newStart >= exStart && newStart < exEnd) || (newStart < exStart && newEnd > exStart);
+        const isBufferOverlap = bufferMs > 0 && (newStart >= exEnd && newStart < (exEnd + bufferMs));
 
-          if (isDirectOverlap || isBufferOverlap) {
-            return NextResponse.json(
-              {
-                error: `Schedule Conflict: An active interview is already scheduled for this company at ${formatInterviewDateTime(existing.scheduled_at)}${includeBuffer ? " (including 15m buffer)" : ""}.`,
-              },
-              { status: 409 }
-            );
-          }
+        if (isDirectOverlap || isBufferOverlap) {
+          return NextResponse.json(
+            {
+              error: `Schedule Conflict: An active interview is already scheduled for this company at ${formatInterviewDateTime(existing.scheduled_at)}${includeBuffer ? " (including 15m buffer)" : ""}.`,
+            },
+            { status: 409 }
+          );
         }
       }
     }
@@ -498,195 +636,246 @@ export async function POST(req: NextRequest) {
       created_at: nowPH,
     }));
 
-    await fetch(`${DIRECTUS_BASE}/items/vs_interview_application`, {
+    const junctionRes = await fetch(`${DIRECTUS_BASE}/items/vs_interview_application`, {
       method: "POST",
       headers: getHeaders(),
       body: JSON.stringify(junctionPayloads),
     });
 
-    // 3. Update application status to INTERVIEWING & dispatch emails/notifications
-    //    Active-interview duplicate guard: reject if candidate already has an active
-    //    interview session (SCHEDULED/CONFIRMED/RESCHEDULED) on a DIFFERENT interview.
-    for (const appId of rawAppIds) {
-      const dupRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_eq]=${appId}&fields=interview_id&limit=100`,
-        { headers: getHeaders(), cache: "no-store" }
+    if (!junctionRes.ok) {
+      const text = await junctionRes.text().catch(() => "");
+      console.error("Directus create vs_interview_application error:", text);
+      // Left in place, the interview row is an empty slot on the calendar and
+      // every candidate below gets emailed an interview they are not linked to.
+      await fetch(`${DIRECTUS_BASE}/items/vs_interview/${newInterviewId}`, {
+        method: "DELETE",
+        headers: getHeaders(),
+      }).catch(() => {});
+      return NextResponse.json(
+        { error: "Failed to attach the candidates to the interview. Nothing was scheduled." },
+        { status: 502 }
       );
-      if (dupRes.ok) {
-        const linkedInterviews: { interview_id: number }[] = (await dupRes.json()).data ?? [];
-        const otherInterviewIds = linkedInterviews
-          .map((r) => r.interview_id)
-          .filter((id) => id !== newInterviewId);
+    }
 
-        if (otherInterviewIds.length > 0) {
-          const activeRes = await fetch(
-            `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${otherInterviewIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id&limit=1`,
-            { headers: getHeaders(), cache: "no-store" }
-          );
-          if (activeRes.ok) {
-            const activeRows = (await activeRes.json()).data ?? [];
-            if (activeRows.length > 0) {
-              // Rollback: delete the interview and any junction rows already created
-              await fetch(`${DIRECTUS_BASE}/items/vs_interview/${newInterviewId}`, {
-                method: "DELETE",
-                headers: getHeaders(),
-              }).catch(() => {});
-              return NextResponse.json(
-                { error: `Candidate (Application #${appId}) already has an active interview session. Complete or cancel the existing interview before scheduling another.` },
-                { status: 409 }
-              );
-            }
-          }
-        }
-      }
+    // 3. Update application status to INTERVIEWING & dispatch emails/notifications
+    //
+    // Every read is issued once for the whole panel instead of six serial
+    // requests per candidate. A ten-candidate schedule used to hold this
+    // request open long enough for the client to give up while the interview
+    // row stayed created.
+    const warnings: string[] = [];
+
+    const appsRead = await readBatched<ApplicationSummary>(
+      "vs_job_application",
+      "application_id",
+      rawAppIds,
+      "application_id,user_id,job_id,application_status,current_stage_id",
+      "Candidate applications"
+    );
+    const appRows = "data" in appsRead ? appsRead.data : [];
+    if (!("data" in appsRead)) {
+      warnings.push(
+        "The interview is scheduled, but the candidate rows could not be re-read, so their stages and notifications were not touched."
+      );
+    }
+
+    const panelJobIds = [...new Set(appRows.map((a) => Number(a.job_id)).filter(Boolean))];
+    const panelUserIds = [...new Set(appRows.map((a) => Number(a.user_id)).filter(Boolean))];
+
+    const pipelineMap =
+      panelJobIds.length > 0
+        ? await getJobPipelinesForJobs(panelJobIds, companyId)
+        : {};
+
+    const usersRead = await readBatched<VsUser>(
+      "vs_user",
+      "user_id",
+      panelUserIds,
+      "user_id,user_fname,user_lname,user_email",
+      "Candidate profiles"
+    );
+    const usersById: Record<number, VsUser> = {};
+    if ("data" in usersRead) {
+      usersRead.data.forEach((u) => {
+        usersById[Number(u.user_id)] = u;
+      });
+    } else {
+      warnings.push(
+        "The interview is scheduled, but candidate contact details could not be read, so nobody was notified."
+      );
+    }
+
+    const jobsRead = await readBatched<DirectusJob>(
+      "vs_job_posting",
+      "job_id",
+      panelJobIds,
+      "job_id,job_title",
+      "Job titles"
+    );
+    const jobsById: Record<number, string> = {};
+    if ("data" in jobsRead) {
+      jobsRead.data.forEach((j) => {
+        jobsById[Number(j.job_id)] = j.job_title;
+      });
+    }
+
+    // The ownership gate above already proved every job in the panel belongs to
+    // this company, so the name is read once instead of once per candidate.
+    let companyName = "Employer";
+    const companyRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_company/${companyId}?fields=company_name`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (companyRes.ok) {
+      companyName = (await companyRes.json()).data?.company_name || companyName;
+    }
+
+    const teamUsersRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_company_user?filter[company_id][_eq]=${companyId}&filter[user_id][_neq]=${userId}&fields=user_id&limit=-1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    const teamMembers: { user_id: number }[] = teamUsersRes.ok
+      ? (await teamUsersRes.json()).data ?? []
+      : [];
+    // An empty list from a failed read still has to be reported: the recruiters
+    // on this panel would otherwise assume they had simply been left out.
+    const teamReadFailed = !teamUsersRes.ok;
+
+    const advanceFailures: number[] = [];
+    const notNotified: number[] = [];
+    const emailSkipped: number[] = [];
+
+    await mapPool(appRows, async (app) => {
+      const appId = Number(app.application_id);
 
       // Only system-advance candidates whose current pipeline stage is an
       // INTERVIEW stage. Candidates at ASSESSMENT (or other) stages keep
       // their stage; the interview record above is still created.
-      let shouldAdvanceToInterviewing = false;
-      try {
-        const appStageRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_job_application/${appId}?fields=job_id,current_stage_id`,
-          { headers: getHeaders(), cache: "no-store" }
-        );
-        if (appStageRes.ok) {
-          const appStage = (await appStageRes.json()).data;
-          if (appStage?.job_id) {
-            const pipe = await getJobPipeline(Number(appStage.job_id));
-            const current =
-              appStage.current_stage_id === null || appStage.current_stage_id === undefined
-                ? undefined
-                : pipe?.stages?.find((s) => s.id === Number(appStage.current_stage_id));
-            shouldAdvanceToInterviewing = current?.stage_type === "INTERVIEW";
-          }
-        }
-      } catch (e) {
-        console.error("Error resolving stage for interview status advance:", e);
-      }
+      const pipe = app.job_id ? pipelineMap[Number(app.job_id)] : null;
+      const currentStage =
+        app.current_stage_id === null || app.current_stage_id === undefined
+          ? undefined
+          : pipe?.stages?.find((s) => s.id === Number(app.current_stage_id));
 
-      if (shouldAdvanceToInterviewing) {
-        await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${appId}`, {
+      if (currentStage?.stage_type === "INTERVIEW") {
+        const patchRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${appId}`, {
           method: "PATCH",
           headers: getHeaders(),
           body: JSON.stringify({ application_status: "INTERVIEWING" }),
-        }).catch((e) => console.error("Error updating app status:", e));
+        }).catch(() => null);
+        // Left unchecked, the candidate stayed on their old stage while the
+        // calendar showed them booked.
+        if (!patchRes?.ok) advanceFailures.push(appId);
       }
 
-      // Dispatch notifications to candidate
-      try {
-        const appRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_job_application/${appId}?fields=user_id,job_id`,
-          { headers: getHeaders(), cache: "no-store" }
-        );
-        if (appRes.ok) {
-          const appData = (await appRes.json()).data;
-          if (appData?.user_id) {
-            const candidateUserId = appData.user_id;
+      const candidate = app.user_id ? usersById[Number(app.user_id)] : undefined;
+      if (!candidate?.user_email) {
+        notNotified.push(appId);
+        return;
+      }
 
-            const userRes = await fetch(
-              `${DIRECTUS_BASE}/items/vs_user/${candidateUserId}?fields=user_email,user_fname,user_lname`,
-              { headers: getHeaders(), cache: "no-store" }
-            );
+      const candidateUserId = Number(candidate.user_id);
+      const jobTitle = app.job_id
+        ? jobsById[Number(app.job_id)] ?? "Unknown Position"
+        : "Unknown Position";
 
-            if (userRes.ok) {
-              const candidate = (await userRes.json()).data;
-              if (candidate?.user_email) {
-                let jobTitle = "Unknown Position";
-                let companyName = "Employer";
+      const emailPreference =
+        "data" in usersRead
+          ? await isEmailEnabledForUser(candidateUserId, "INTERVIEW_SCHEDULED")
+          : null;
 
-                if (appData.job_id) {
-                  const jobRes = await fetch(
-                    `${DIRECTUS_BASE}/items/vs_job_posting/${appData.job_id}?fields=job_title,company_id`,
-                    { headers: getHeaders(), cache: "no-store" }
-                  );
-                  if (jobRes.ok) {
-                    const jData = (await jobRes.json()).data;
-                    if (jData?.job_title) jobTitle = jData.job_title;
-                    if (jData?.company_id) {
-                      const compRes = await fetch(
-                        `${DIRECTUS_BASE}/items/vs_company/${jData.company_id}?fields=company_name`,
-                        { headers: getHeaders(), cache: "no-store" }
-                      );
-                      if (compRes.ok) {
-                        companyName = (await compRes.json()).data?.company_name || companyName;
-                      }
-                    }
-                  }
-                }
+      // `null` is an unread preference, not an opt-out. The mail is skipped and
+      // reported: an interview email the candidate switched off cannot be unsent,
+      // while a missed one is still covered by the in-app message below.
+      if (emailPreference === null) emailSkipped.push(appId);
 
-                const emailEnabled = await isEmailEnabledForUser(candidateUserId, "INTERVIEW_SCHEDULED");
-                if (emailEnabled) {
-                  await sendInterviewScheduledEmail(candidate.user_email, {
-                    candidateName: `${candidate.user_fname} ${candidate.user_lname}`.trim(),
-                    companyName,
-                    jobTitle,
-                    scheduledAt,
-                    timezone: body.timezone || "Asia/Manila",
-                    durationMinutes: Number(body.duration_minutes) || 60,
-                    interviewFormat: body.interview_format,
-                    meetingLink: cleanMeetingLink,
-                    meetingLocation: body.meeting_location?.trim() || null,
-                    candidateNotes: body.candidate_notes?.trim() || null,
-                  }).catch((e) => console.error("Error sending scheduled email:", e));
-                }
+      if (emailPreference === true) {
+        await sendInterviewScheduledEmail(candidate.user_email, {
+          candidateName: `${candidate.user_fname} ${candidate.user_lname}`.trim(),
+          companyName,
+          jobTitle,
+          scheduledAt,
+          timezone: body.timezone || "Asia/Manila",
+          durationMinutes: Number(body.duration_minutes) || 60,
+          interviewFormat: body.interview_format,
+          meetingLink: cleanMeetingLink,
+          meetingLocation: body.meeting_location?.trim() || null,
+          candidateNotes: body.candidate_notes?.trim() || null,
+        }).catch((e) => console.error("Error sending scheduled email:", e));
+      }
 
-                await createSystemMessage({
-                  clientId: userId,
-                  freelancerId: candidateUserId,
-                  jobId: appData.job_id ?? null,
-                  text: `Interview scheduled for ${formatInterviewDateTime(scheduledAt)}.`,
-                  senderId: userId,
-                  systemEventType: "INTERVIEW_SCHEDULED",
-                  interviewId: newInterviewId,
-                }).catch((e) => console.error("Error sending system msg:", e));
+      await createSystemMessage({
+        clientId: userId,
+        freelancerId: candidateUserId,
+        jobId: app.job_id ?? null,
+        text: `Interview scheduled for ${formatInterviewDateTime(scheduledAt)}.`,
+        senderId: userId,
+        systemEventType: "INTERVIEW_SCHEDULED",
+        interviewId: newInterviewId,
+      }).catch((e) => console.error("Error sending system msg:", e));
 
-                await createFreelancerNotification({
-                  event_type: "interview_scheduled",
-                  recipient_user_id: candidateUserId,
-                  entity_type: "vs_interview",
-                  entity_id: newInterviewId,
-                  category: "INTERVIEW",
-                  title: "New Interview Scheduled",
-                  message: `You have an interview scheduled with ${companyName} for ${formatInterviewDateTime(scheduledAt)}.`,
-                  action_url: "/vos-sync/freelancer/applications",
-                }).catch((e) => console.error("Error sending notification:", e));
+      await createFreelancerNotification({
+        event_type: "interview_scheduled",
+        recipient_user_id: candidateUserId,
+        entity_type: "vs_interview",
+        entity_id: newInterviewId,
+        category: "INTERVIEW",
+        title: "New Interview Scheduled",
+        message: `You have an interview scheduled with ${companyName} for ${formatInterviewDateTime(scheduledAt)}.`,
+        action_url: "/vos-sync/freelancer/applications",
+      }).catch((e) => console.error("Error sending notification:", e));
+    });
 
-                // Dispatch TEAM_ACTIVITY to other recruiters/team members (actor suppressed)
-                if (companyId) {
-                  const teamUsersRes = await fetch(
-                    `${DIRECTUS_BASE}/items/vs_company_user?filter[company_id][_eq]=${companyId}&filter[user_id][_neq]=${userId}&fields=user_id`,
-                    { headers: getHeaders(), cache: "no-store" }
-                  );
-                  if (teamUsersRes.ok) {
-                    const teamMembers: { user_id: number }[] = (await teamUsersRes.json()).data ?? [];
-                    for (const member of teamMembers) {
-                      await createEmployerNotification({
-                        event_type: "TEAM_ACTIVITY",
-                        recipient_user_id: member.user_id,
-                        entity_type: "vs_interview",
-                        entity_id: newInterviewId,
-                        category: "TEAM_ACTIVITY",
-                        title: "Team Activity: Interview Scheduled",
-                        message: `A team member scheduled an interview for "${jobTitle}" on ${formatInterviewDateTime(scheduledAt)}.`,
-                        action_url: `/vos-sync/client/interviews`,
-                      }).catch((e) => console.error("Error sending team activity notification:", e));
-                    }
-                  }
-                }
-              }
-            }
-          }
+    // Dispatch TEAM_ACTIVITY to other recruiters (actor suppressed) — once per
+    // job in the panel. It used to sit inside the candidate loop, so a ten-candidate
+    // interview put ten copies of the same activity in every teammate's inbox.
+    if (teamMembers.length > 0) {
+      await mapPool(panelJobIds, async (jobId) => {
+        const jobTitle = jobsById[jobId] ?? "Unknown Position";
+        for (const member of teamMembers) {
+          await createEmployerNotification({
+            event_type: "TEAM_ACTIVITY",
+            recipient_user_id: member.user_id,
+            entity_type: "vs_interview",
+            entity_id: newInterviewId,
+            category: "TEAM_ACTIVITY",
+            title: "Team Activity: Interview Scheduled",
+            message: `A team member scheduled an interview for "${jobTitle}" on ${formatInterviewDateTime(scheduledAt)}.`,
+            action_url: `/vos-sync/client/interviews`,
+          }).catch((e) => console.error("Error sending team activity notification:", e));
         }
-      } catch (notifyErr) {
-        console.error("Error during candidate notification pipeline:", notifyErr);
-      }
+      });
     }
 
-    return NextResponse.json({ interview: createdInterview });
+    if (advanceFailures.length > 0) {
+      warnings.push(
+        `The interview is scheduled, but ${advanceFailures.length} candidate(s) could not be moved to the Interviewing stage (${advanceFailures
+          .map((id) => `#${id}`)
+          .join(", ")}).`
+      );
+    }
+    if (notNotified.length > 0) {
+      warnings.push(
+        `${notNotified.length} candidate(s) have no usable email on file and were not notified.`
+      );
+    }
+    if (emailSkipped.length > 0) {
+      warnings.push(
+        `${emailSkipped.length} candidate(s) had notification settings that could not be read, so no email was sent to them.`
+      );
+    }
+    if (teamReadFailed) {
+      warnings.push("The hiring team could not be listed, so no teammate was notified of this interview.");
+    }
+
+    return NextResponse.json({
+      interview: createdInterview,
+      ...(warnings.length > 0 ? { warnings } : {}),
+    });
   } catch (err: unknown) {
     console.error("POST /api/client/interviews error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
