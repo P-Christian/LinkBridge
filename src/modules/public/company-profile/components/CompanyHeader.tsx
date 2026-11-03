@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { copyToClipboard } from "@/lib/utils";
+import { safeUrl } from "@/lib/safe-url";
 
 interface HeaderProps {
   company: PublicCompanyProfile;
@@ -57,6 +58,7 @@ export function CompanyHeader({ company, onTabChange }: HeaderProps) {
   } | null>(null);
 
   const verified = verification_status === "VERIFIED";
+  const websiteHref = safeUrl(company_website);
 
   const session = useAuthSession();
   const isOwnCompany = Boolean(
@@ -218,14 +220,14 @@ export function CompanyHeader({ company, onTabChange }: HeaderProps) {
             </Button>
 
             {/* Visit Website action */}
-            {company_website && (
+            {websiteHref && (
               <Button
                 variant="outline"
                 size="default"
                 className="rounded-xl font-semibold cursor-pointer shrink-0 h-11 md:h-9"
                 asChild
               >
-                <a href={company_website} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
+                <a href={websiteHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2">
                   <Globe className="w-4 h-4" />
                   Website
                 </a>

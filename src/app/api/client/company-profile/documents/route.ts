@@ -43,7 +43,7 @@ async function resolveClientCompany(
   baseUrl: string,
   token: string,
   userId: string | number,
-): Promise<string | number | null> {
+): Promise<{ companyId: string | number | null; unavailable: boolean }> {
   const params = new URLSearchParams({
     "filter[user_id][_eq]": String(userId),
     fields: "company_id",
@@ -53,13 +53,13 @@ async function resolveClientCompany(
     headers: getHeaders(token),
     cache: "no-store",
   });
-  if (!response.ok) return null;
+  if (!response.ok) return { companyId: null, unavailable: true };
   const json = (await response.json()) as { data?: Array<{ company_id?: CompanyDoc["company_id"] }> };
   for (const link of json.data ?? []) {
     const id = companyIdOf(link.company_id as CompanyDoc["company_id"]);
-    if (id !== null) return id;
+    if (id !== null) return { companyId: id, unavailable: false };
   }
-  return null;
+  return { companyId: null, unavailable: false };
 }
 
 function sameId(left: unknown, right: unknown): boolean {
@@ -81,7 +81,9 @@ export async function GET(req: NextRequest) {
   try {
     // The query-string companyId is a legacy UI hint only. Authorization is
     // always resolved from the signed session's current company link.
-    const companyId = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    const link = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    if (link.unavailable) return errorResponse("Your company association could not be read. Please try again.", 502);
+    const companyId = link.companyId;
     if (companyId === null) return errorResponse("No company is associated with this account.", 403);
 
     const { searchParams } = new URL(req.url);
@@ -145,7 +147,9 @@ export async function DELETE(req: NextRequest) {
   if (!config) return errorResponse("Directus base URL not configured.", 503);
 
   try {
-    const companyId = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    const link = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    if (link.unavailable) return errorResponse("Your company association could not be read. Please try again.", 502);
+    const companyId = link.companyId;
     if (companyId === null) return errorResponse("No company is associated with this account.", 403);
 
     // Safeguard: Only allow deletion if company is DRAFT or REJECTED

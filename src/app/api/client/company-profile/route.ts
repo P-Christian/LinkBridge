@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { randomInt } from "crypto";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { getClientCompanyProfileData } from "@/modules/client/company-profile/services/client-company-profile.service";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +23,32 @@ function getHeaders(): Record<string, string> {
   };
   if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
   return h;
+}
+
+const COMPANY_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const COMPANY_CODE_LENGTH = 6;
+const COMPANY_CODE_MAX_ATTEMPTS = 5;
+
+/**
+ * The code keys an unauthenticated public lookup (/companies/[companyCode]), so
+ * it must not be derivable from Math.random() the way the legacy mint was.
+ */
+function buildCompanyCode(): string {
+  let suffix = "";
+  for (let i = 0; i < COMPANY_CODE_LENGTH; i += 1) {
+    suffix += COMPANY_CODE_ALPHABET[randomInt(COMPANY_CODE_ALPHABET.length)];
+  }
+  return `COMP-${suffix}`;
+}
+
+async function isCompanyCodeTaken(code: string): Promise<boolean> {
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company?filter[company_code][_eq]=${encodeURIComponent(code)}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!res.ok) return false;
+  const json = await res.json().catch(() => null);
+  return ((json?.data?.length ?? 0) > 0);
 }
 
 /** Recalculate company profile completion percentage */
@@ -116,6 +144,9 @@ export async function GET(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     if (!DIRECTUS_BASE) {
       return NextResponse.json(
@@ -138,7 +169,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/company-profile error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -153,6 +184,9 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     if (!DIRECTUS_BASE) {
       return NextResponse.json(
@@ -166,6 +200,15 @@ export async function POST(req: NextRequest) {
     // Check if company association already exists
     const linkUrl = `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`;
     const linkRes = await fetch(linkUrl, { headers: getHeaders(), cache: "no-store" });
+    // A failed read is indistinguishable from "not linked yet" here, and the
+    // create below cannot be undone: it would leave a second vs_company row for
+    // the same account and fork the company-code / TIN uniqueness checks.
+    if (!linkRes.ok) {
+      return NextResponse.json(
+        { error: "Your existing company link could not be verified. Nothing was created. Please try again." },
+        { status: 502 }
+      );
+    }
     const linkJson = await linkRes.json();
     if (linkJson.data && linkJson.data.length > 0) {
       return NextResponse.json(
@@ -207,7 +250,21 @@ export async function POST(req: NextRequest) {
     }
 
     // 1. Create company record in vs_company
-    const randomCode = `COMP-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+    let randomCode = "";
+    for (let attempt = 0; attempt < COMPANY_CODE_MAX_ATTEMPTS; attempt += 1) {
+      const candidate = buildCompanyCode();
+      if (!(await isCompanyCodeTaken(candidate))) {
+        randomCode = candidate;
+        break;
+      }
+    }
+    if (!randomCode) {
+      return NextResponse.json(
+        { error: "Could not allocate a unique company code. Please try again." },
+        { status: 502 }
+      );
+    }
+
     const companyPayload = {
       company_name: company_name.trim(),
       company_legal_name: company_legal_name.trim(),
@@ -287,7 +344,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/client/company-profile error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -301,6 +358,9 @@ export async function PATCH(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     if (!DIRECTUS_BASE) {
@@ -320,6 +380,14 @@ export async function PATCH(req: NextRequest) {
     // Only OWNER or primary contact may update
     const linkUrl = `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id,company_user_role&limit=1`;
     const linkRes = await fetch(linkUrl, { headers: getHeaders(), cache: "no-store" });
+    // An unreadable link must not become "you have no company" — that answers
+    // 404 to the owner of a real company every time Directus blips.
+    if (!linkRes.ok) {
+      return NextResponse.json(
+        { error: "Your company association could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
     const linkJson = await linkRes.json();
     const link = linkJson.data?.[0];
 
@@ -712,7 +780,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/client/company-profile error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

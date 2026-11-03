@@ -39,9 +39,6 @@ interface UploadedDoc {
 interface CompanyDocumentsProps {
   companyId?: number;
   verificationStatus?: string;
-  organizationTypeId?: number | null;
-  registrationNo?: string | null;
-  companyTin?: string | null;
   onDocsChange?: (count: number) => void;
 }
 

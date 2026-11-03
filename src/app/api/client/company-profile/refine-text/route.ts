@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,15 +10,15 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => ({}));
     const text = (body.text || "").trim();
@@ -114,7 +115,7 @@ ${text || "(Empty — generate from scratch)"}
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: (err as Error).message || "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

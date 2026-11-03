@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   Dialog,
   DialogContent,
@@ -74,6 +75,7 @@ export default function AIProfileAssistantModal({
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(null);
+  const abortGenerate = useRequestAbort();
 
   // Field selection toggles (default all true, mission & vision omitted)
   const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({
@@ -109,10 +111,15 @@ export default function AIProfileAssistantModal({
     setError(null);
     setSuggestions(null);
 
+    // Two clicks can both start a read before the button state commits, so only
+    // the newest one may own the spinner and the panel — otherwise its proposals
+    // land under a client who is already ticking boxes against the first set.
+    const signal = abortGenerate();
     try {
       const res = await fetch("/api/client/company-profile/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           company_name: currentCompany.company_name,
           website: currentCompany.company_website,
@@ -123,22 +130,25 @@ export default function AIProfileAssistantModal({
         }),
       });
 
+      if (signal.aborted) return;
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || "Failed to generate AI profile suggestions.");
       }
 
       const json = await res.json();
+      if (signal.aborted) return;
       if (json.data) {
         setSuggestions(json.data);
       } else {
         throw new Error("Invalid response format from AI service.");
       }
     } catch (err: unknown) {
+      if (signal.aborted) return;
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to generate profile suggestions.");
     } finally {
-      setIsGenerating(false);
+      if (!signal.aborted) setIsGenerating(false);
     }
   };
 
