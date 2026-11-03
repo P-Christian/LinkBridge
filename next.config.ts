@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   experimental: {
     agentUpgrade: 'security',
     staleTimes: {
-      dynamic: 30,
+      dynamic: 0,
       static: 180,
     },
     serverActions: {
@@ -30,6 +30,10 @@ const nextConfig: NextConfig = {
           {
             key: "X-Content-Type-Options",
             value: "nosniff",
+          },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=15552000; includeSubDomains",
           },
           {
             key: "Referrer-Policy",

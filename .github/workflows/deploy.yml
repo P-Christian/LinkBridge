@@ -8,10 +8,14 @@ concurrency:
   group: cd-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   deploy:
     name: Deploy to Production
     runs-on: self-hosted 
+    environment: production
     timeout-minutes: 30
     env:
       NODE_OPTIONS: --max-old-space-size=8192
@@ -25,7 +29,9 @@ jobs:
           git reset --hard origin/master
           node --version
           npm --version
-          npm ci
+          # Lifecycle scripts are the supply-chain -> host-RCE path on this runner; only bcrypt is rebuilt deliberately.
+          npm ci --ignore-scripts
+          npm rebuild bcrypt
           npm run build
           pm2 restart "vos-sync" || PORT=4000 pm2 start npm --name "vos-sync" -- start
           sudo tailscale serve --bg 4000
