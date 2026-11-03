@@ -9,6 +9,13 @@ let cachedAuditConfig: AuditCategoryConfig | null = null;
 let lastConfigFetchTime = 0;
 const CONFIG_CACHE_TTL_MS = 30 * 1000; // 30 seconds
 
+// Hard ceiling for any single Directus page/export request.
+const MAX_DIRECTUS_LIMIT = 5000;
+
+// A role wider than this cannot be turned into an `actor_user_id _in` list: the
+// encoded id list would outgrow the URL before Directus ever sees it.
+const ACTOR_ROLE_CEILING = 500;
+
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
     "Content-Type": "application/json",
@@ -18,42 +25,75 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+/**
+ * Resolve the actor_type role bucket to concrete user ids.
+ *
+ * Both failure modes here used to substitute a different search: an unreachable
+ * Directus dropped the condition entirely (every actor matched), and a role with
+ * more members than the ceiling matched only the first `limit` of them while the
+ * pager still reported "that is everything". A role too large to express as an
+ * id list is now an error the admin can read.
+ */
+async function resolveActorUserIds(
+  targetRoleId: number
+): Promise<number[]> {
+  const uRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_user?filter[role_id][_eq]=${targetRoleId}&fields=user_id&sort=user_id&limit=${ACTOR_ROLE_CEILING}&meta=filter_count`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!uRes.ok) {
+    throw new Error(`Could not read the members of role #${targetRoleId} to filter the audit trail.`);
+  }
+  const uJson = (await uRes.json().catch(() => null)) as {
+    data?: unknown;
+    meta?: { filter_count?: unknown };
+  } | null;
+  const rows = Array.isArray(uJson?.data) ? uJson.data : [];
+  const total = Number(uJson?.meta?.filter_count);
+  if (Number.isSafeInteger(total) && total > rows.length) {
+    throw new Error(
+      `${total} accounts hold this role, which is too many to filter the audit trail by. Filter by a specific user instead.`
+    );
+  }
+  return rows
+    .map((u: { user_id: number }) => u.user_id)
+    .filter(Boolean);
+}
+
 export async function fetchAuditLogsRepo(
   filters: AuditFilters
 ): Promise<{ records: AuditRecord[]; total: number }> {
   const queries: string[] = [];
 
   // Pagination
-  if (filters.limit > 0) {
-    queries.push(`limit=${filters.limit}`);
-    queries.push(`page=${filters.page}`);
-  } else {
-    queries.push('limit=-1');
-  }
+  const limit = filters.limit > 0 ? filters.limit : MAX_DIRECTUS_LIMIT;
+  const page = filters.page > 0 ? filters.page : 1;
+  queries.push(`limit=${Math.min(limit, MAX_DIRECTUS_LIMIT)}`);
+  queries.push(`page=${page}`);
   queries.push('meta=filter_count');
   queries.push('sort=-created_at');
 
-  // Build filter array for Directus
-  const filterParams: string[] = [];
+  // Build filter object for Directus (serialized + encoded below)
+  const filter: Record<string, unknown> = {};
 
   if (filters.event_category && filters.event_category !== "ALL") {
-    filterParams.push(`"event_category":{"_eq":"${filters.event_category}"}`);
+    filter.event_category = { _eq: filters.event_category };
   }
 
   if (filters.action && filters.action !== "ALL") {
-    filterParams.push(`"action":{"_eq":"${filters.action}"}`);
+    filter.action = { _eq: filters.action };
   }
 
   if (filters.status && filters.status !== "ALL") {
-    filterParams.push(`"status":{"_eq":"${filters.status}"}`);
+    filter.status = { _eq: filters.status };
   }
 
   if (filters.actor_type && filters.actor_type !== "ALL") {
     const act = filters.actor_type.toUpperCase();
     if (act === "ADMIN") {
-      filterParams.push(`"_or":[{"actor_type":{"_eq":"ADMIN"}},{"actor_type":{"_eq":"SYSTEM"}}]`);
+      filter._or = [{ actor_type: { _eq: "ADMIN" } }, { actor_type: { _eq: "SYSTEM" } }];
     } else if (act === "SYSTEM") {
-      filterParams.push(`"actor_type":{"_eq":"SYSTEM"}`);
+      filter.actor_type = { _eq: "SYSTEM" };
     } else {
       // For specific roles (SCH_ADMIN, CLIENT, FREELANCER), resolve target role_ids
       let targetRoleId: number | null = null;
@@ -62,64 +102,52 @@ export async function fetchAuditLogsRepo(
       else if (act === "SCH_ADMIN" || act === "SCHOOL_ADMIN") targetRoleId = 4;
 
       if (targetRoleId !== null) {
-        // Query users with this role_id
-        try {
-          const uRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?filter[role_id][_eq]=${targetRoleId}&fields=user_id&limit=500`, { headers: getHeaders(), cache: "no-store" });
-          if (uRes.ok) {
-            const uJson = await uRes.json();
-            const uIds = (uJson.data || []).map((u: { user_id: number }) => u.user_id).filter(Boolean);
-            if (uIds.length > 0) {
-              filterParams.push(`"actor_user_id":{"_in":[${uIds.join(",")}]}`);
-            } else {
-              filterParams.push(`"actor_user_id":{"_eq":-1}`);
-            }
-          }
-        } catch (e) {
-          console.warn("[audit.repo] Role filter resolution error:", e);
-        }
+        const uIds = await resolveActorUserIds(targetRoleId);
+        filter.actor_user_id =
+          uIds.length > 0 ? { _in: uIds } : { _eq: -1 };
       } else {
-        filterParams.push(`"actor_type":{"_eq":"${filters.actor_type}"}`);
+        filter.actor_type = { _eq: filters.actor_type };
       }
     }
   }
 
   if (filters.organization_type && filters.organization_type !== "ALL") {
-    filterParams.push(`"organization_type":{"_eq":"${filters.organization_type}"}`);
+    filter.organization_type = { _eq: filters.organization_type };
   }
 
   if (filters.resource_type && filters.resource_type.trim()) {
-    filterParams.push(`"resource_type":{"_icontains":"${filters.resource_type.trim()}"}`);
+    filter.resource_type = { _icontains: filters.resource_type.trim() };
   }
 
-  if (filters.actor_user_id) {
-    filterParams.push(`"actor_user_id":{"_eq":${filters.actor_user_id}}`);
+  if (filters.actor_user_id && Number.isSafeInteger(filters.actor_user_id)) {
+    filter.actor_user_id = { _eq: filters.actor_user_id };
   }
 
   if (filters.date_from && filters.date_to) {
     const cleanFrom = filters.date_from.trim().split("T")[0];
     const cleanTo = filters.date_to.trim().split("T")[0];
-    filterParams.push(`"created_at":{"_gte":"${cleanFrom}T00:00:00","_lte":"${cleanTo}T23:59:59"}`);
+    filter.created_at = { _gte: `${cleanFrom}T00:00:00`, _lte: `${cleanTo}T23:59:59` };
   } else if (filters.date_from) {
     const cleanFrom = filters.date_from.trim().split("T")[0];
-    filterParams.push(`"created_at":{"_gte":"${cleanFrom}T00:00:00"}`);
+    filter.created_at = { _gte: `${cleanFrom}T00:00:00` };
   } else if (filters.date_to) {
     const cleanTo = filters.date_to.trim().split("T")[0];
-    filterParams.push(`"created_at":{"_lte":"${cleanTo}T23:59:59"}`);
+    filter.created_at = { _lte: `${cleanTo}T23:59:59` };
   }
 
   if (filters.search && filters.search.trim()) {
     const cleanSearch = filters.search.trim();
-    filterParams.push(`"_or":[
-      {"event_type":{"_icontains":"${cleanSearch}"}},
-      {"reason":{"_icontains":"${cleanSearch}"}},
-      {"resource_id":{"_icontains":"${cleanSearch}"}},
-      {"resource_type":{"_icontains":"${cleanSearch}"}},
-      {"correlation_id":{"_icontains":"${cleanSearch}"}}
-    ]`);
+    filter._or = [
+      { event_type: { _icontains: cleanSearch } },
+      { reason: { _icontains: cleanSearch } },
+      { resource_id: { _icontains: cleanSearch } },
+      { resource_type: { _icontains: cleanSearch } },
+      { correlation_id: { _icontains: cleanSearch } },
+    ];
   }
 
-  if (filterParams.length > 0) {
-    queries.push(`filter={${filterParams.join(',')}}`);
+  if (Object.keys(filter).length > 0) {
+    queries.push(`filter=${encodeURIComponent(JSON.stringify(filter))}`);
   }
 
   const queryString = queries.length > 0 ? `?${queries.join('&')}` : '';
@@ -327,36 +355,36 @@ export async function fetchAuditKPIsRepo(filters?: AuditFilters): Promise<AuditK
   const fromDateStr = filters?.date_from || phDateParts;
   const toDateStr = filters?.date_to || fromDateStr;
 
-  const baseFilterParts: string[] = [];
+  const baseFilter: Record<string, unknown> = {};
   if (fromDateStr && toDateStr) {
     const cleanFrom = fromDateStr.trim().split("T")[0];
     const cleanTo = toDateStr.trim().split("T")[0];
-    baseFilterParts.push(`"created_at":{"_gte":"${cleanFrom}T00:00:00","_lte":"${cleanTo}T23:59:59"}`);
+    baseFilter.created_at = { _gte: `${cleanFrom}T00:00:00`, _lte: `${cleanTo}T23:59:59` };
   } else if (fromDateStr) {
     const cleanFrom = fromDateStr.trim().split("T")[0];
-    baseFilterParts.push(`"created_at":{"_gte":"${cleanFrom}T00:00:00"}`);
+    baseFilter.created_at = { _gte: `${cleanFrom}T00:00:00` };
   } else if (toDateStr) {
     const cleanTo = toDateStr.trim().split("T")[0];
-    baseFilterParts.push(`"created_at":{"_lte":"${cleanTo}T23:59:59"}`);
+    baseFilter.created_at = { _lte: `${cleanTo}T23:59:59` };
   }
   if (filters?.event_category && filters.event_category !== "ALL") {
-    baseFilterParts.push(`"event_category":{"_eq":"${filters.event_category}"}`);
+    baseFilter.event_category = { _eq: filters.event_category };
   }
   if (filters?.action && filters.action !== "ALL") {
-    baseFilterParts.push(`"action":{"_eq":"${filters.action}"}`);
+    baseFilter.action = { _eq: filters.action };
   }
   if (filters?.organization_type && filters.organization_type !== "ALL") {
-    baseFilterParts.push(`"organization_type":{"_eq":"${filters.organization_type}"}`);
+    baseFilter.organization_type = { _eq: filters.organization_type };
   }
-  if (filters?.actor_user_id) {
-    baseFilterParts.push(`"actor_user_id":{"_eq":${filters.actor_user_id}}`);
+  if (filters?.actor_user_id && Number.isSafeInteger(filters.actor_user_id)) {
+    baseFilter.actor_user_id = { _eq: filters.actor_user_id };
   }
   if (filters?.actor_type && filters.actor_type !== "ALL") {
     const act = filters.actor_type.toUpperCase();
     if (act === "ADMIN") {
-      baseFilterParts.push(`"_or":[{"actor_type":{"_eq":"ADMIN"}},{"actor_type":{"_eq":"SYSTEM"}}]`);
+      baseFilter._or = [{ actor_type: { _eq: "ADMIN" } }, { actor_type: { _eq: "SYSTEM" } }];
     } else if (act === "SYSTEM") {
-      baseFilterParts.push(`"actor_type":{"_eq":"SYSTEM"}`);
+      baseFilter.actor_type = { _eq: "SYSTEM" };
     } else {
       let targetRoleId: number | null = null;
       if (act === "FREELANCER") targetRoleId = 1;
@@ -364,59 +392,52 @@ export async function fetchAuditKPIsRepo(filters?: AuditFilters): Promise<AuditK
       else if (act === "SCH_ADMIN" || act === "SCHOOL_ADMIN") targetRoleId = 4;
 
       if (targetRoleId !== null) {
-        try {
-          const uRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?filter[role_id][_eq]=${targetRoleId}&fields=user_id&limit=500`, { headers: getHeaders(), cache: "no-store" });
-          if (uRes.ok) {
-            const uJson = await uRes.json();
-            const uIds = (uJson.data || []).map((u: { user_id: number }) => u.user_id).filter(Boolean);
-            if (uIds.length > 0) {
-              baseFilterParts.push(`"actor_user_id":{"_in":[${uIds.join(",")}]}`);
-            } else {
-              baseFilterParts.push(`"actor_user_id":{"_eq":-1}`);
-            }
-          }
-        } catch (e) {
-          console.warn("[audit.repo] Role filter resolution error for KPIs:", e);
-        }
+        const uIds = await resolveActorUserIds(targetRoleId);
+        baseFilter.actor_user_id =
+          uIds.length > 0 ? { _in: uIds } : { _eq: -1 };
       } else {
-        baseFilterParts.push(`"actor_type":{"_eq":"${filters.actor_type}"}`);
+        baseFilter.actor_type = { _eq: filters.actor_type };
       }
     }
   }
 
-  const buildFilterQuery = (extraConditions: string[] = []): string => {
-    const combined = [...baseFilterParts, ...extraConditions];
-    return combined.length > 0 ? `&filter={${combined.join(",")}}` : "";
+  const buildFilterQuery = (extraConditions: Record<string, unknown> = {}): string => {
+    const combined = { ...baseFilter, ...extraConditions };
+    return Object.keys(combined).length > 0
+      ? `&filter=${encodeURIComponent(JSON.stringify(combined))}`
+      : "";
   };
 
   const todayFilter = buildFilterQuery();
-  const failedFilter = buildFilterQuery([`"status":{"_eq":"FAILED"}`]);
-  const deniedFilter = buildFilterQuery([`"status":{"_eq":"DENIED"}`]);
-  const adminFilter = buildFilterQuery([`"_or":[{"actor_type":{"_eq":"ADMIN"}},{"actor_type":{"_eq":"SYSTEM"}}]`]);
+  const failedFilter = buildFilterQuery({ status: { _eq: "FAILED" } });
+  const deniedFilter = buildFilterQuery({ status: { _eq: "DENIED" } });
+  const adminFilter = buildFilterQuery({ _or: [{ actor_type: { _eq: "ADMIN" } }, { actor_type: { _eq: "SYSTEM" } }] });
 
-  try {
-    const [todayRes, failedRes, deniedRes, adminRes] = await Promise.all([
-      fetch(`${DIRECTUS_BASE}/items/vs_audit_trail?limit=1&meta=filter_count${todayFilter}`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_audit_trail?limit=1&meta=filter_count${failedFilter}`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_audit_trail?limit=1&meta=filter_count${deniedFilter}`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_audit_trail?limit=1&meta=filter_count${adminFilter}`, { headers: getHeaders(), cache: "no-store" }),
-    ]);
+  // Each count is read on its own and answered as null when it could not be
+  // read. Returning a blanket set of zeros turned an unreachable Directus into a
+  // dashboard claiming "no failed events, no denied access today" — the two
+  // numbers a security review opens this page for.
+  const countOf = async (filter: string): Promise<number | null> => {
+    const res = await fetch(
+      `${DIRECTUS_BASE}/items/vs_audit_trail?limit=1&meta=filter_count${filter}`,
+      { headers: getHeaders(), cache: "no-store" }
+    ).catch(() => null);
+    if (!res?.ok) return null;
+    const json = (await res.json().catch(() => null)) as {
+      meta?: { filter_count?: unknown }
+    } | null;
+    const count = Number(json?.meta?.filter_count);
+    return Number.isSafeInteger(count) && count >= 0 ? count : null;
+  };
 
-    const todayJson = todayRes.ok ? await todayRes.json() : {};
-    const failedJson = failedRes.ok ? await failedRes.json() : {};
-    const deniedJson = deniedRes.ok ? await deniedRes.json() : {};
-    const adminJson = adminRes.ok ? await adminRes.json() : {};
+  const [todayEvents, failedEvents, deniedAccess, adminActions] = await Promise.all([
+    countOf(todayFilter),
+    countOf(failedFilter),
+    countOf(deniedFilter),
+    countOf(adminFilter),
+  ]);
 
-    return {
-      todayEvents: todayJson.meta?.filter_count ?? 0,
-      failedEvents: failedJson.meta?.filter_count ?? 0,
-      deniedAccess: deniedJson.meta?.filter_count ?? 0,
-      adminActions: adminJson.meta?.filter_count ?? 0,
-    };
-  } catch (err) {
-    console.error("Failed to fetch audit KPIs:", err);
-    return { todayEvents: 0, failedEvents: 0, deniedAccess: 0, adminActions: 0 };
-  }
+  return { todayEvents, failedEvents, deniedAccess, adminActions };
 }
 
 export async function fetchAuditConfigRepo(): Promise<AuditCategoryConfig> {
@@ -465,29 +486,40 @@ export async function fetchAuditConfigRepo(): Promise<AuditCategoryConfig> {
 export async function updateAuditConfigRepo(
   newConfig: AuditCategoryConfig,
   adminId?: number
-): Promise<AuditCategoryConfig> {
+): Promise<{ config: AuditCategoryConfig; warnings: string[] }> {
+  const warnings: string[] = [];
   try {
-    if (!DIRECTUS_BASE) return newConfig;
+    if (!DIRECTUS_BASE) {
+      return { config: newConfig, warnings: ["Audit settings were not saved: Directus is not configured."] };
+    }
     const url = `${DIRECTUS_BASE}/items/vs_audit_config`;
 
     // Fetch existing configuration rows
     const checkRes = await fetch(`${url}?limit=-1`, { headers: getHeaders(), cache: "no-store" });
     const existingMap: Record<string, number> = {};
 
-    if (checkRes.ok) {
-      const json = await checkRes.json();
-      const rows: Array<{ audit_config_id: number; event_category: string; event_type: string }> = json.data || [];
-      rows.forEach((r) => {
-        const key = `${r.event_category}::${r.event_type}`;
-        existingMap[key] = r.audit_config_id;
-      });
+    if (!checkRes.ok) {
+      // Without the existing rows every toggle would take the create branch and
+      // insert a second row for the same event, so nothing is written at all.
+      return {
+        config: newConfig,
+        warnings: ["The stored audit settings could not be read, so nothing was changed. Please try again."],
+      };
     }
+
+    const json = (await checkRes.json()) as {
+      data?: Array<{ audit_config_id: number; event_category: string; event_type: string }>;
+    };
+    (json.data || []).forEach((r) => {
+      const key = `${r.event_category}::${r.event_type}`;
+      existingMap[key] = r.audit_config_id;
+    });
 
     // Process actions
     const actionsMap = newConfig.actions || {};
     const categoriesMap = newConfig.categories || {};
 
-    const promises: Promise<Response>[] = [];
+    const writes: Array<{ label: string; res: Promise<Response> }> = [];
 
     // Category master toggles
     Object.entries(categoriesMap).forEach(([catKey, isEnabled]) => {
@@ -502,21 +534,23 @@ export async function updateAuditConfigRepo(
       };
 
       if (existingId) {
-        promises.push(
-          fetch(`${url}/${existingId}`, {
+        writes.push({
+          label: dbKey,
+          res: fetch(`${url}/${existingId}`, {
             method: 'PATCH',
             headers: getHeaders(),
             body: JSON.stringify(payload),
-          })
-        );
+          }),
+        });
       } else {
-        promises.push(
-          fetch(url, {
+        writes.push({
+          label: dbKey,
+          res: fetch(url, {
             method: 'POST',
             headers: getHeaders(),
             body: JSON.stringify({ ...payload, created_by: adminId || null }),
-          })
-        );
+          }),
+        });
       }
     });
 
@@ -534,37 +568,55 @@ export async function updateAuditConfigRepo(
         };
 
         if (existingId) {
-          promises.push(
-            fetch(`${url}/${existingId}`, {
+          writes.push({
+            label: dbKey,
+            res: fetch(`${url}/${existingId}`, {
               method: 'PATCH',
               headers: getHeaders(),
               body: JSON.stringify(payload),
-            })
-          );
+            }),
+          });
         } else {
-          promises.push(
-            fetch(url, {
+          writes.push({
+            label: dbKey,
+            res: fetch(url, {
               method: 'POST',
               headers: getHeaders(),
               body: JSON.stringify({ ...payload, created_by: adminId || null }),
-            })
-          );
+            }),
+          });
         }
       });
     });
 
-    await Promise.allSettled(promises);
+    const results = await Promise.allSettled(writes.map((w) => w.res));
+    const failed = writes
+      .map((w, i) => {
+        const result = results[i]!;
+        return result.status === 'fulfilled' && result.value.ok ? null : w.label;
+      })
+      .filter((label): label is string => label !== null);
+
+    if (failed.length > 0) {
+      warnings.push(`These audit settings did not save: ${failed.join(', ')}.`);
+      // The writer reads this cache to decide whether an event is recorded at
+      // all, so a partially applied config must not be kept as if it were.
+      cachedAuditConfig = null;
+      lastConfigFetchTime = 0;
+      return { config: newConfig, warnings };
+    }
 
     cachedAuditConfig = { ...newConfig };
     lastConfigFetchTime = Date.now();
-    return cachedAuditConfig;
+    return { config: cachedAuditConfig, warnings };
   } catch (err) {
     console.error("[updateAuditConfigRepo] Error updating audit config:", err);
+    warnings.push("Audit settings could not be saved.");
   }
 
-  cachedAuditConfig = { ...newConfig };
-  lastConfigFetchTime = Date.now();
-  return cachedAuditConfig;
+  cachedAuditConfig = null;
+  lastConfigFetchTime = 0;
+  return { config: newConfig, warnings };
 }
 
 export function getPHISOTimestamp(): string {
@@ -582,44 +634,75 @@ export function getPHISOTimestamp(): string {
   return dtf.format(now).replace(" ", "T") + "+08:00";
 }
 
+/**
+ * vs_audit_trail.created_at is a zone-less DATETIME that Directus fills from a
+ * UTC-normalised value, and both audit readers assume naive means UTC. A caller
+ * that hands over a bare wall-clock string (the repo-wide getPHTimeString()
+ * convention, e.g. the verification services) would otherwise be stored eight
+ * hours off, so state the Manila offset before it is written.
+ */
+function auditTimestamp(value: string): string {
+  if (/Z$/i.test(value) || /[+-]\d{2}:?\d{2}$/.test(value)) return value;
+  const naive = value.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})/);
+  return naive ? `${naive[1]}T${naive[2]}+08:00` : value;
+}
+
+async function insertAuditRecord(payload: Partial<AuditRecord>): Promise<void> {
+  if (!DIRECTUS_BASE) throw new Error("Audit trail base URL is not configured.");
+
+  // Check category and action toggle settings before inserting log
+  if (payload.event_category) {
+    const config = await fetchAuditConfigRepo();
+    const cat = String(payload.event_category);
+    const act = payload.action ? String(payload.action) : null;
+
+    // 1. Check category master toggle
+    if (config.categories && config.categories[cat] === false) {
+      return;
+    }
+
+    // 2. Check individual action toggle
+    if (act && config.actions && config.actions[cat] && config.actions[cat][act] === false) {
+      return;
+    }
+  }
+
+  const recordPayload = {
+    ...payload,
+    created_at: payload.created_at ? auditTimestamp(payload.created_at) : getPHISOTimestamp(),
+  };
+
+  const url = `${DIRECTUS_BASE}/items/vs_audit_trail`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: getHeaders(),
+    body: JSON.stringify(recordPayload),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`Audit record rejected (${res.status}): ${errText.slice(0, 200)}`);
+  }
+}
+
+/**
+ * Best-effort log. Every un-awaited caller across the auth routes relies on this
+ * never rejecting, so a lost row is only visible in the server log.
+ */
 export async function createAuditRecordRepo(payload: Partial<AuditRecord>): Promise<void> {
   try {
-    if (!DIRECTUS_BASE) return;
-
-    // Check category and action toggle settings before inserting log
-    if (payload.event_category) {
-      const config = await fetchAuditConfigRepo();
-      const cat = String(payload.event_category);
-      const act = payload.action ? String(payload.action) : null;
-
-      // 1. Check category master toggle
-      if (config.categories && config.categories[cat] === false) {
-        return;
-      }
-
-      // 2. Check individual action toggle
-      if (act && config.actions && config.actions[cat] && config.actions[cat][act] === false) {
-        return;
-      }
-    }
-
-    const recordPayload = {
-      ...payload,
-      created_at: payload.created_at || new Date().toISOString(),
-    };
-
-    const url = `${DIRECTUS_BASE}/items/vs_audit_trail`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify(recordPayload),
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      console.warn("[createAuditRecordRepo] Failed to insert audit log:", res.status, errText);
-    }
+    await insertAuditRecord(payload);
   } catch (err) {
     console.error("[createAuditRecordRepo] Audit record emission error:", err);
   }
+}
+
+/**
+ * For the admin actions that have to be provable after the fact — an export, a
+ * status transition, a verification decision. Unlike the best-effort variant this
+ * rejects when the row was not stored, so the caller can say the action went
+ * unrecorded instead of implying it was logged.
+ */
+export async function createAuditRecordStrictRepo(payload: Partial<AuditRecord>): Promise<void> {
+  await insertAuditRecord(payload);
 }
 

@@ -98,10 +98,11 @@ export interface AuditFilters {
 }
 
 export interface AuditKPIData {
-  todayEvents: number;
-  failedEvents: number;
-  deniedAccess: number;
-  adminActions: number;
+  // null means the count could not be read, which the cards must not render as 0.
+  todayEvents: number | null;
+  failedEvents: number | null;
+  deniedAccess: number | null;
+  adminActions: number | null;
 }
 
 export interface AuditConfigRow {
