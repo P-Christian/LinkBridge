@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getMySchool, updateMySchool } from "@/modules/school-admin/services/school-admin.service";
+import { updateSchoolProfileSchema } from "@/modules/school-admin/school-profile/types/school-profile.schema";
 import { checkRestriction } from "@/lib/status-validator";
 import { authenticateCookieSession } from "@/lib/authenticated-session";
+
+/**
+ * Closed-world PATCH body (SEC-035): only the profile columns the school
+ * dashboard edits are forwarded. Verification, status, audit and ownership
+ * keys are rejected instead of reaching the Directus spread, so a school admin
+ * can no longer self-verify or flip their own suspension.
+ */
+const strictUpdateSchoolBodySchema = updateSchoolProfileSchema.partial().strict();
 
 async function getUserIdFromToken() {
   const session = await authenticateCookieSession();
@@ -40,11 +49,12 @@ export async function PATCH(req: NextRequest) {
     const school = await getMySchool(userId);
     if (!school) return NextResponse.json({ error: "School not found." }, { status: 404 });
 
-    const body = await req.json();
-    
-    // In a real implementation, we would use zod for validation here.
-    // For MVP, we pass the body to the service.
-    const updated = await updateMySchool(school.school_id, body, userId);
+    const parsed = strictUpdateSchoolBodySchema.safeParse(await req.json().catch(() => null));
+    if (!parsed.success) {
+      return NextResponse.json({ error: "Invalid school profile payload." }, { status: 400 });
+    }
+
+    const updated = await updateMySchool(school.school_id, parsed.data, userId);
 
     return NextResponse.json({ school: updated });
   } catch (err: unknown) {

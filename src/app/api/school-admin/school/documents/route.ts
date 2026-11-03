@@ -5,7 +5,13 @@ import {
   isAdministratorSession,
   AuthenticatedSession,
 } from "@/lib/authenticated-session";
+import {
+  SCHOOL_DOCUMENT_UPLOAD_POLICY,
+  getUploadedFile,
+  validateUploadedFile,
+} from "@/lib/file-upload";
 import { getPHTimeString } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -151,7 +157,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("GET /api/school-admin/school/documents error:", error);
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -180,12 +186,18 @@ export async function POST(req: NextRequest) {
     const userSchoolId = await getSchoolIdForUser(userId);
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
     const documentType = (formData.get("document_type") as string) || "OTHER_DOCUMENT";
     const schoolIdStr = formData.get("school_id") as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided." }, { status: 400 });
+    let file: File;
+    try {
+      file = getUploadedFile(formData);
+      await validateUploadedFile(file, SCHOOL_DOCUMENT_UPLOAD_POLICY);
+    } catch (error: unknown) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Invalid file." },
+        { status: 400 }
+      );
     }
 
     let targetSchoolId: number | null = null;
@@ -238,12 +250,15 @@ export async function POST(req: NextRequest) {
     // 2. If it is a singular document type, clean up any existing document record for this type
     if (documentType !== "OTHER_DOCUMENT") {
       try {
-        const existingUrl = `${DIRECTUS_BASE}/items/vs_school_document?filter[school_id][_eq]=${targetSchoolId}&filter[document_type][_eq]=${documentType}&fields=school_document_id,directus_file_id`;
+        const existingUrl = `${DIRECTUS_BASE}/items/vs_school_document?filter[school_id][_eq]=${encodeURIComponent(String(targetSchoolId))}&filter[document_type][_eq]=${encodeURIComponent(documentType)}&fields=school_document_id,directus_file_id,school_id,document_type`;
         const existingRes = await fetch(existingUrl, { headers: getHeaders(), cache: "no-store" });
         if (existingRes.ok) {
           const existingJson = await existingRes.json();
           const existingDocs: SchoolDoc[] = existingJson.data || [];
           for (const oldDoc of existingDocs) {
+            if (Number(oldDoc.school_id) !== Number(targetSchoolId) || oldDoc.document_type !== documentType) {
+              continue;
+            }
             // Delete metadata row
             await fetch(`${DIRECTUS_BASE}/items/vs_school_document/${oldDoc.school_document_id}`, {
               method: "DELETE",
@@ -303,7 +318,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (error: unknown) {
     console.error("POST /api/school-admin/school/documents error:", error);
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -395,7 +410,7 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: true, message: "School document deleted successfully." });
   } catch (error: unknown) {
     console.error("DELETE /api/school-admin/school/documents error:", error);
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
