@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Briefcase, Plus, Loader2, Check, ShieldAlert, Pencil, Trash2 } from "lucide-react";
+import { Briefcase, Plus, Loader2, Check, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,13 +17,13 @@ const LEVELS: ExperienceLevel[] = ["ENTRY", "JUNIOR", "MID", "SENIOR", "LEAD", "
 export function StandardRoleManager() {
   const { categories } = useJobCategories();
   const [selectedCatId, setSelectedCatId] = useState<number | undefined>(undefined);
-  const { roles, loading, error, addRole, editRole, removeRole } = useStandardRoles(selectedCatId);
+  const { roles, loading, addRole, editRole, removeRole } = useStandardRoles(selectedCatId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingRole, setEditingRole] = useState<StandardRole | null>(null);
 
   const [roleName, setRoleName] = useState("");
-  const [catId, setCatId] = useState<number>(1);
+  const [catId, setCatId] = useState<number>(0);
   const [expLevel, setExpLevel] = useState<ExperienceLevel>("MID");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -31,7 +31,7 @@ export function StandardRoleManager() {
   const openCreateModal = () => {
     setEditingRole(null);
     setRoleName("");
-    setCatId(categories[0]?.category_id || 1);
+    setCatId(categories[0]?.category_id ?? 0);
     setExpLevel("MID");
     setFormError("");
     setOpenModal(true);
@@ -113,13 +113,6 @@ export function StandardRoleManager() {
           </Button>
         </div>
       </div>
-
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-xs">

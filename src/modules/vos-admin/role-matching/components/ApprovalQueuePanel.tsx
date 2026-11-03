@@ -623,24 +623,23 @@ function ReviewDialog({
 // ── Main Panel ────────────────────────────────────────────────────────────────
 
 export function ApprovalQueuePanel() {
-  const { requests, loading, error, loadRequests, approveRequest, rejectRequest } =
-    useIntelligenceRequests();
+  const [filterStatus, setFilterStatus] = useState<FilterOption>("PENDING");
+  // The hook loads from this value, so a tab switch is one state write and one
+  // fetch; calling loadRequests here as well fetched the same tab twice.
+  const queueStatus = filterStatus === "ALL" ? undefined : filterStatus;
+  const { requests, loading, loadRequests, approveRequest, rejectRequest } =
+    useIntelligenceRequests(queueStatus);
   const { categories } = useJobCategories();
 
-  const [filterStatus, setFilterStatus] = useState<FilterOption>("PENDING");
   const [reviewingRequest, setReviewingRequest] = useState<IntelligenceRequest | null>(null);
 
-  const handleFilterChange = useCallback(
-    (status: FilterOption) => {
-      setFilterStatus(status);
-      loadRequests(status === "ALL" ? undefined : status);
-    },
-    [loadRequests]
-  );
+  const handleFilterChange = useCallback((status: FilterOption) => {
+    setFilterStatus(status);
+  }, []);
 
   const handleRefresh = useCallback(() => {
-    loadRequests(filterStatus === "ALL" ? undefined : filterStatus);
-  }, [loadRequests, filterStatus]);
+    loadRequests(queueStatus);
+  }, [loadRequests, queueStatus]);
 
   const filteredRequests = useMemo(() => requests, [requests]);
 
@@ -689,14 +688,6 @@ export function ApprovalQueuePanel() {
           Refresh
         </Button>
       </div>
-
-      {/* Error banner */}
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
 
       {/* Filter tabs */}
       <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/60 w-fit">

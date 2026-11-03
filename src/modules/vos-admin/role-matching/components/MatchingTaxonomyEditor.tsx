@@ -47,7 +47,6 @@ export function MatchingTaxonomyEditor() {
   const {
     categories,
     loading: catLoading,
-    error: catError,
     addCategory,
     editCategory,
     removeCategory,
@@ -56,7 +55,6 @@ export function MatchingTaxonomyEditor() {
   const {
     roles,
     loading: rolesLoading,
-    error: rolesError,
     addRole,
     editRole,
     removeRole,
@@ -191,8 +189,6 @@ export function MatchingTaxonomyEditor() {
     setCatSaving(false);
     if (ok) {
       setCategoryModalOpen(false);
-    } else {
-      setGeneralError("Failed to save category. Check if code already exists.");
     }
   };
 
@@ -251,8 +247,6 @@ export function MatchingTaxonomyEditor() {
     setRoleSaving(false);
     if (ok) {
       setRoleModalOpen(false);
-    } else {
-      setGeneralError("Failed to save standard role.");
     }
   };
 
@@ -328,11 +322,11 @@ export function MatchingTaxonomyEditor() {
         </div>
       </div>
 
-      {/* General Error Banner */}
-      {(catError || rolesError || generalError) && (
+      {/* Local validation messages only; save and read failures are toasted */}
+      {generalError && (
         <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 shrink-0" />
-          {catError || rolesError || generalError}
+          {generalError}
         </div>
       )}
 

@@ -4,7 +4,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import {
   FolderTree,
   Briefcase,
@@ -22,21 +22,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DashboardMetrics } from "../types";
 import { fetchDashboardMetrics } from "../services/roleMatchingService";
 import { MatchingTaxonomyEditor } from "./MatchingTaxonomyEditor";
+import { toast } from "sonner";
 
 export function MatchingIntelligenceDashboard() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    setLoadError(null);
     try {
       const m = await fetchDashboardMetrics();
       setMetrics(m);
     } catch (err: unknown) {
-      setLoadError((err as Error)?.message || "Failed to load metrics.");
       setMetrics(null);
+      toast.error((err as Error)?.message || "Failed to load metrics.");
     } finally {
       setLoading(false);
     }
@@ -48,33 +47,36 @@ export function MatchingIntelligenceDashboard() {
     });
   }, [loadData]);
 
+  // `—` rather than `0`: an unread taxonomy must not be reported as an empty one.
+  const shown = (value: number | undefined) => (value === undefined ? "—" : value);
+
   const metricsData = [
     {
       title: "Job Categories",
       icon: FolderTree,
       iconColor: "text-indigo-500",
-      value: metrics?.totalCategories ?? 0,
+      value: shown(metrics?.totalCategories),
       subtext: "High-level domains",
     },
     {
       title: "Standard Roles",
       icon: Briefcase,
       iconColor: "text-blue-500",
-      value: metrics?.totalStandardRoles ?? 0,
+      value: shown(metrics?.totalStandardRoles),
       subtext: "Classified job titles",
     },
     {
       title: "Keywords & Synonyms",
       icon: Search,
       iconColor: "text-emerald-500",
-      value: metrics?.totalSearchKeywords ?? 0,
+      value: shown(metrics?.totalSearchKeywords),
       subtext: "Search match terms",
     },
     {
       title: "Role Skill Mappings",
       icon: CheckCircle2,
       iconColor: "text-violet-500",
-      value: metrics?.totalRoleSkills ?? 0,
+      value: shown(metrics?.totalRoleSkills),
       subtext: "Weighted competencies",
     },
   ];
@@ -119,27 +121,6 @@ export function MatchingIntelligenceDashboard() {
         </div>
       </motion.div>
 
-      <AnimatePresence>
-        {loadError && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center justify-between"
-          >
-            <span>Failed to load live metrics: {loadError}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={loadData}
-              className="h-7 text-xs border-rose-300 cursor-pointer"
-            >
-              Retry
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* Metrics Row */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {metricsData.map((item, idx) => {
@@ -177,7 +158,7 @@ export function MatchingIntelligenceDashboard() {
               <Inbox className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-black text-amber-700 dark:text-amber-300">{metrics?.pendingRequests ?? 0}</div>
+              <div className="text-2xl font-black text-amber-700 dark:text-amber-300">{shown(metrics?.pendingRequests)}</div>
               <p className="text-xs text-amber-500/80 mt-1">Awaiting admin review</p>
             </CardContent>
           </Card>
