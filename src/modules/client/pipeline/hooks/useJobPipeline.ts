@@ -2,7 +2,7 @@
 // src/modules/client/pipeline/hooks/useJobPipeline.ts
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   CanonicalStageType,
@@ -21,26 +21,36 @@ export function useJobPipeline(jobId?: number | null) {
     setSuccess("");
   }, []);
 
+  // Switching jobs refetches, and the two responses can arrive in either order.
+  // A stale pipeline for job A rendered under job B would send A's stage ids to
+  // B's endpoints, so only the newest jobId may write.
+  const requestedJobIdRef = useRef<number | null>(null);
+
   const fetchPipeline = useCallback(async () => {
     if (!jobId) {
+      requestedJobIdRef.current = null;
       setPipeline(null);
       return;
     }
+    requestedJobIdRef.current = jobId;
+    const isCurrent = () => requestedJobIdRef.current === jobId;
     setLoading(true);
     setError("");
     try {
       const res = await fetch(`/api/client/jobs/${jobId}/pipeline`, { cache: "no-store" });
       const json = await res.json();
+      if (!isCurrent()) return;
       if (!res.ok) {
         throw new Error(json.error || "Failed to load job pipeline.");
       }
       setPipeline(json.pipeline ?? null);
     } catch (err) {
+      if (!isCurrent()) return;
       const msg = err instanceof Error ? err.message : "Error fetching job pipeline.";
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, [jobId]);
 
@@ -229,6 +239,10 @@ export function useJobPipeline(jobId?: number | null) {
         const msg = err instanceof Error ? err.message : "Failed to update transitions.";
         setError(msg);
         toast.error(msg);
+        // One route can fail to retire after the new ones are live, so re-read
+        // what the server actually holds instead of leaving the modal's choice
+        // on screen.
+        await fetchPipeline();
         return false;
       } finally {
         setSaving(false);

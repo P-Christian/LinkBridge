@@ -4,6 +4,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   CanonicalStageType,
   CompanyPipeline,
@@ -18,6 +19,8 @@ export function usePipelineSettings() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const abortRead = useRequestAbort();
+
   const clearMessages = useCallback(() => {
     setError("");
     setSuccess("");
@@ -26,9 +29,14 @@ export function usePipelineSettings() {
   const fetchPipelines = useCallback(async () => {
     setLoading(true);
     setError("");
+    // Every mutation below refetches the whole pipeline list, so a snapshot
+    // taken before a stage was added, renamed, moved or deleted can still land
+    // last and put the board back the way it looked before that change.
+    const signal = abortRead();
     try {
-      const res = await fetch("/api/client/pipelines");
+      const res = await fetch("/api/client/pipelines", { cache: "no-store", signal });
       const json = await res.json();
+      if (signal.aborted) return;
       if (!res.ok) {
         throw new Error(json.error || "Failed to load pipelines.");
       }
@@ -45,13 +53,14 @@ export function usePipelineSettings() {
         });
       }
     } catch (err) {
+      if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Error fetching pipelines.";
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [abortRead]);
 
   useEffect(() => {
     fetchPipelines();
@@ -430,6 +439,50 @@ export function usePipelineSettings() {
     [fetchPipelines]
   );
 
+  const deletePipeline = useCallback(
+    async (pipelineId: number) => {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+      try {
+        const res = await fetch(`/api/client/pipelines/${pipelineId}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to delete pipeline template.");
+        }
+
+        const msg = "Pipeline template deleted successfully.";
+        setSuccess(msg);
+        toast.success(msg);
+
+        // Optimistically update list and switch selected if needed
+        setPipelines((prev) => {
+          const remaining = prev.filter((p) => p.id !== pipelineId);
+          if (selectedPipelineId === pipelineId) {
+            const nextSelected = remaining.find((p) => p.is_default) ?? remaining[0] ?? null;
+            if (nextSelected) {
+              setSelectedPipelineId(nextSelected.id);
+            }
+          }
+          return remaining;
+        });
+
+        await fetchPipelines();
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to delete pipeline template.";
+        setError(msg);
+        toast.error(msg);
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [selectedPipelineId, fetchPipelines]
+  );
+
   return {
     pipelines,
     selectedPipeline,
@@ -443,6 +496,7 @@ export function usePipelineSettings() {
     fetchPipelines,
     createPipeline,
     setDefaultPipeline,
+    deletePipeline,
     addStage,
     updateStage,
     deleteStage,

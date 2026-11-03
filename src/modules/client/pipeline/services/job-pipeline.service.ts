@@ -22,6 +22,12 @@ import {
 } from "@/modules/freelancer/freelancer-applications/services/assessment/deadline";
 import { createNotification } from "@/lib/notifications";
 import { formatDateLong, getPHTimeString } from "@/lib/utils";
+import { chunk, mapPool } from "@/lib/server/pool";
+import {
+  directusItems,
+  directusItemsWhereIn,
+  directusSettled,
+} from "@/lib/server/directus";
 
 const DIRECTUS_BASE = (
   process.env.DIRECTUS_URL ||
@@ -102,9 +108,11 @@ export async function getJobApplicationCount(jobId: number): Promise<number> {
       if (!isNaN(count)) return count;
     }
 
-    // Fallback direct count fetch
+    // Fallback direct count fetch. Un-capped: this number is quoted back to the
+    // employer as the reason their pipeline is locked, and a short read made it a
+    // wrong figure rather than a missing one.
     const listRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&filter[application_status][_neq]=WITHDRAWN&fields=application_id&limit=100`,
+      `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&filter[application_status][_neq]=WITHDRAWN&fields=application_id&limit=-1`,
       { headers: getHeaders(), cache: "no-store" }
     );
     if (listRes.ok) {
@@ -118,6 +126,16 @@ export async function getJobApplicationCount(jobId: number): Promise<number> {
     console.error(`[job-pipeline.service] Error checking applications for job #${jobId}:`, err);
     return -1;
   }
+}
+
+/**
+ * `-1` means the count itself could not be read. Every write path calls
+ * `canModifyJobPipeline`, which refuses to edit in that case, so a read that
+ * reported the pipeline as editable promised an edit the server was about to
+ * answer with 409.
+ */
+function isPipelineLocked(applicationCount: number): boolean {
+  return applicationCount !== 0;
 }
 
 /**
@@ -155,12 +173,16 @@ export async function getJobCompanyId(jobId: number): Promise<number | null> {
       `${DIRECTUS_BASE}/items/vs_job_posting/${jobId}?fields=job_id,company_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
-    if (!res.ok) return null;
+    // 404 is the only answer that means "this job does not exist". Every other
+    // failure used to return null as well, so a Directus blip was reported to
+    // the recruiter as a missing job and their pipeline looked deleted.
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`Job lookup failed (${res.status}).`);
     const json = await res.json();
     return json.data?.company_id ?? null;
   } catch (err) {
     console.error(`[job-pipeline.service] Error fetching job #${jobId}:`, err);
-    return null;
+    throw err;
   }
 }
 
@@ -357,14 +379,31 @@ export async function snapshotCompanyPipeline(
 
     // 7. Deactivate previous active versions only after the full snapshot
     // succeeded, so a failed snapshot never leaves a partial active version.
-    await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_pipeline_versions?filter[job_id][_eq]=${jobId}&filter[is_active][_eq]=true&filter[id][_neq]=${jobPipeline.id}`,
-      {
-        method: "PATCH",
-        headers: getHeaders(),
-        body: JSON.stringify({ is_active: false }),
-      }
+    const prevActiveRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_job_pipeline_versions?filter[job_id][_eq]=${jobId}&filter[is_active][_eq]=true&filter[id][_neq]=${jobPipeline.id}&fields=id&limit=-1`,
+      { headers: getHeaders(), cache: "no-store" }
     );
+    if (prevActiveRes.ok) {
+      const prevActiveJson = await prevActiveRes.json();
+      const prevVersions: Array<{ id: number }> = prevActiveJson.data ?? [];
+      for (const prevVer of prevVersions) {
+        const deactivateRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_job_pipeline_versions/${prevVer.id}`,
+          {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({ is_active: false }),
+          }
+        );
+        // Two active versions would make the next read ambiguous, and an employer
+        // editing the retired template is worse than a re-sync that reports failure.
+        if (!deactivateRes.ok) {
+          return rollbackAndFail(
+            `could not retire the previous active pipeline version #${prevVer.id} (${deactivateRes.status})`
+          );
+        }
+      }
+    }
 
     return {
       ...jobPipeline,
@@ -400,10 +439,11 @@ export async function bootstrapJobPipeline(
     const snapshot = await snapshotCompanyPipeline(jobId, resolvedCompanyId);
     if (!snapshot) return null;
 
-    // Backward-compatible application migration:
-    // Resolve existing applications for this job and map them to their canonical stage
+    // Resolve existing applications for this job and map them to their canonical stage.
+    // Un-capped: applications past the limit never receive a stage on the new
+    // snapshot, so they drop off the hiring board without any error.
     const appsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&fields=application_id,application_status,current_stage_id&limit=1000`,
+      `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&fields=application_id,application_status,current_stage_id&limit=-1`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -434,11 +474,22 @@ export async function bootstrapJobPipeline(
 
           if (matchedStage) {
             // Update application with current_stage_id
-            await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${app.application_id}`, {
-              method: "PATCH",
-              headers: getHeaders(),
-              body: JSON.stringify({ current_stage_id: matchedStage.id }),
-            });
+            const patchRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_job_application/${app.application_id}`,
+              {
+                method: "PATCH",
+                headers: getHeaders(),
+                body: JSON.stringify({ current_stage_id: matchedStage.id }),
+              }
+            );
+            // A history row for a stage the application never got would put the
+            // audit trail and the candidate's actual position out of sync.
+            if (!patchRes.ok) {
+              console.error(
+                `[job-pipeline.service] legacy stage migration failed for application #${app.application_id}: ${patchRes.status}`
+              );
+              continue;
+            }
 
             // Write initial stage history record if none exists
             await fetch(`${DIRECTUS_BASE}/items/vs_application_stage_history`, {
@@ -475,16 +526,24 @@ export async function getJobPipeline(
 ): Promise<JobPipelineVersion | null> {
   try {
     // 1. Fetch active version
-    const verRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_pipeline_versions?filter[job_id][_eq]=${jobId}&filter[is_active][_eq]=true&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
+    // Sorted newest-first because legacy rows can leave two versions flagged
+    // active; without a sort, limit=1 would hand back an arbitrary one and the
+    // employer would edit the version they had just replaced.
+    const verRes = await directusSettled<{ data?: JobPipelineVersion[] }>(
+      "/items/vs_job_pipeline_versions",
+      {
+        query: `filter[job_id][_eq]=${jobId}&filter[is_active][_eq]=true&sort[]=-version&limit=1`,
+      }
     );
 
-    let activeVersion: JobPipelineVersion | null = null;
-    if (verRes.ok) {
-      const verJson = await verRes.json();
-      activeVersion = verJson.data?.[0] ?? null;
-    }
+    // A failed read used to fall straight into the bootstrap below, which
+    // INSERTS a new version with fresh stage ids. An unreachable Directus
+    // therefore duplicated a job's pipeline and remapped every application onto
+    // the copy. Only a read that succeeded and found nothing may bootstrap.
+    if (!verRes.ok) return null;
+
+    const activeVersionRow = verRes.data?.data?.[0] ?? null;
+    let activeVersion: JobPipelineVersion | null = activeVersionRow;
 
     // 2. If no active version exists, bootstrap from company default
     if (!activeVersion) {
@@ -493,20 +552,14 @@ export async function getJobPipeline(
     }
 
     // 3. Fetch stages for this job pipeline version
-    const stagesRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_pipeline_stages?filter[job_pipeline_id][_eq]=${activeVersion.id}&sort=stage_order`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const stagesJson = await stagesRes.json();
-    const stages: JobPipelineStage[] = stagesJson.data ?? [];
+    const stages = await directusItems<JobPipelineStage>("vs_job_pipeline_stages", {
+      query: `filter[job_pipeline_id][_eq]=${activeVersion.id}&sort=stage_order&limit=-1`,
+    });
 
     // 4. Fetch transitions
-    const transRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_pipeline_transitions?filter[job_pipeline_id][_eq]=${activeVersion.id}`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const transJson = await transRes.json();
-    const transitions: JobPipelineTransition[] = transJson.data ?? [];
+    const transitions = await directusItems<JobPipelineTransition>("vs_job_pipeline_transitions", {
+      query: `filter[job_pipeline_id][_eq]=${activeVersion.id}&limit=-1`,
+    });
 
     // 5. Enrich stages with allowed_next_stage_ids
     const stageIdSet = new Set(stages.map((s) => Number(s.id)));
@@ -528,20 +581,203 @@ export async function getJobPipeline(
       allowed_next_stage_ids: transitionMap.get(Number(s.id)) ?? [],
     }));
 
-    // 6. Check real-time application count and locking state
+    // 6. Locking state comes from the live application count
     const applicationCount = await getJobApplicationCount(jobId);
-    const isLocked = applicationCount > 0;
 
     return {
       ...activeVersion,
       stages: enrichedStages,
       transitions,
-      is_locked: isLocked,
+      is_locked: isPipelineLocked(applicationCount),
       application_count: applicationCount,
     };
   } catch (err) {
     console.error(`[job-pipeline.service] getJobPipeline error for job #${jobId}:`, err);
     return null;
+  }
+}
+
+/**
+ * Batch variant of `getJobPipeline` for list endpoints.
+ *
+ * The single-job path costs four round trips per job, so an applicants or
+ * interviews list over N jobs pays 4N sequentially — measured at 12 s for this
+ * company. This resolves every job's active pipeline in a fixed handful of
+ * `_in=` queries instead. Output is identical to calling `getJobPipeline` for
+ * each id, including bootstrap-on-missing and the `-1` application-count
+ * failure signal.
+ */
+export async function getJobPipelinesForJobs(
+  jobIds: readonly number[],
+  companyId?: number
+): Promise<Record<number, JobPipelineVersion | null>> {
+  const unique = [
+    ...new Set(jobIds.filter((id) => Number.isSafeInteger(id) && id > 0)),
+  ];
+  const result: Record<number, JobPipelineVersion | null> = {};
+  if (unique.length === 0) return result;
+
+  try {
+    // 1. Active versions for every job.
+    const wanted = new Set(unique);
+    const versionByJob = new Map<number, JobPipelineVersion>();
+    const versionRows = await directusItemsWhereIn<JobPipelineVersion>(
+      "vs_job_pipeline_versions",
+      "job_id",
+      unique,
+      "*",
+      { extra: "filter[is_active][_eq]=true&sort[]=-version" }
+    );
+    for (const version of versionRows) {
+      const jobId = Number(version.job_id);
+      if (wanted.has(jobId) && !versionByJob.has(jobId)) {
+        versionByJob.set(jobId, version);
+      }
+    }
+
+    // 2. Jobs with no active version bootstrap exactly as the single-job path does.
+    const missing = unique.filter((id) => !versionByJob.has(id));
+    if (missing.length > 0) {
+      const created = await mapPool(
+        missing,
+        (jobId) => bootstrapJobPipeline(jobId, companyId)
+      );
+      created.forEach((version, i) => {
+        if (version) versionByJob.set(missing[i], version);
+      });
+    }
+
+    const pipelineIds = [...versionByJob.values()]
+      .map((version) => Number(version.id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0);
+
+    // 3 + 4. Stages and transitions, independent so they overlap. Both read in
+    // batches and reject on failure: a pipeline that comes back with no stages
+    // is what the employer then saves, and the real stages are gone.
+    const [stageRows, transitionRows] = await Promise.all([
+      directusItemsWhereIn<JobPipelineStage>(
+        "vs_job_pipeline_stages",
+        "job_pipeline_id",
+        pipelineIds,
+        "*",
+        { extra: "sort=stage_order" }
+      ),
+      directusItemsWhereIn<JobPipelineTransition>(
+        "vs_job_pipeline_transitions",
+        "job_pipeline_id",
+        pipelineIds,
+        "*"
+      ),
+    ]);
+
+    const stagesByPipeline = new Map<number, JobPipelineStage[]>();
+    for (const stage of stageRows) {
+      const pid = Number(stage.job_pipeline_id);
+      const list = stagesByPipeline.get(pid);
+      if (list) list.push(stage);
+      else stagesByPipeline.set(pid, [stage]);
+    }
+    const transitionsByPipeline = new Map<number, JobPipelineTransition[]>();
+    for (const transition of transitionRows) {
+      const pid = Number(transition.job_pipeline_id);
+      const list = transitionsByPipeline.get(pid);
+      if (list) list.push(transition);
+      else transitionsByPipeline.set(pid, [transition]);
+    }
+
+    // 5. One grouped aggregate for the lock state; falls back to the per-job
+    //    counter (which returns -1 on failure) if the aggregate is unusable.
+    const countByJob = new Map<number, number>();
+    let countsSettled = true;
+    const countPages = await mapPool(chunk(unique, 200), async (batch) => {
+      const res = await fetch(
+        `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_in]=${batch.join(
+          ","
+        )}&filter[application_status][_neq]=WITHDRAWN&aggregate[count]=application_id&groupBy=job_id&limit=-1`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!res.ok) {
+        countsSettled = false;
+        return [];
+      }
+      const json = (await res.json()) as {
+        data?: {
+          job_id: number | string;
+          count?: { application_id?: string | number } | string | number;
+        }[];
+      };
+      return json.data ?? [];
+    });
+    for (const row of countPages.flat()) {
+      const raw =
+        row.count && typeof row.count === "object"
+          ? row.count.application_id
+          : row.count;
+      const count = Number(raw ?? 0);
+      countByJob.set(Number(row.job_id), isNaN(count) ? 0 : count);
+    }
+    if (!countsSettled) {
+      const counts = await mapPool(unique, (jobId) =>
+        getJobApplicationCount(jobId)
+      );
+      counts.forEach((count, i) => countByJob.set(unique[i], count));
+    }
+
+    for (const jobId of unique) {
+      const version = versionByJob.get(jobId);
+      if (!version) {
+        result[jobId] = null;
+        continue;
+      }
+      const stages = stagesByPipeline.get(Number(version.id)) ?? [];
+      const transitions = transitionsByPipeline.get(Number(version.id)) ?? [];
+
+      const stageIdSet = new Set(stages.map((s) => Number(s.id)));
+      const transitionMap = new Map<number, number[]>();
+      for (const t of transitions) {
+        const fromId = Number(t.from_stage_id);
+        const toId = Number(t.to_stage_id);
+        if (
+          !isNaN(fromId) &&
+          !isNaN(toId) &&
+          stageIdSet.has(fromId) &&
+          stageIdSet.has(toId)
+        ) {
+          const list = transitionMap.get(fromId) ?? [];
+          list.push(toId);
+          transitionMap.set(fromId, list);
+        }
+      }
+
+      const applicationCount = countByJob.get(jobId) ?? 0;
+      result[jobId] = {
+        ...version,
+        stages: stages.map((s) => ({
+          ...s,
+          is_system: Boolean(s.is_system),
+          is_terminal: Boolean(s.is_terminal),
+          allowed_next_stage_ids: transitionMap.get(Number(s.id)) ?? [],
+        })),
+        transitions,
+        is_locked: isPipelineLocked(applicationCount),
+        application_count: applicationCount,
+      };
+    }
+
+    return result;
+  } catch (err) {
+    console.error(
+      "[job-pipeline.service] getJobPipelinesForJobs error:",
+      err
+    );
+    // Never leave a list with null pipelines because the batch path broke.
+    const fallback = await mapPool(unique, (jobId) =>
+      getJobPipeline(jobId, companyId)
+    );
+    fallback.forEach((pipeline, i) => {
+      result[unique[i]] = pipeline;
+    });
+    return result;
   }
 }
 
@@ -730,7 +966,10 @@ export async function updateJobPipelineTransitions(
     if (!pipeline) return { success: false, error: "Job pipeline not found." };
 
     const stages = pipeline.stages ?? [];
-    const fromStage = stages.find((s) => s.id === fromStageId);
+    // Directus hands back these ids as numbers today, but every other read in
+    // this module coerces: a string id here would reject the employer's own
+    // stages as "does not belong to this job pipeline".
+    const fromStage = stages.find((s) => Number(s.id) === fromStageId);
     if (!fromStage) return { success: false, error: "Source stage not found in this job pipeline." };
 
     // Terminal integrity: Terminal stages cannot have outgoing transitions
@@ -739,7 +978,7 @@ export async function updateJobPipelineTransitions(
     }
 
     // Stage ownership validation: all targets must belong to this job pipeline
-    const stageIdSet = new Set(stages.map((s) => s.id));
+    const stageIdSet = new Set(stages.map((s) => Number(s.id)));
     for (const toId of targetStageIds) {
       if (!stageIdSet.has(toId)) {
         return { success: false, error: `Destination stage #${toId} does not belong to this job pipeline.` };
@@ -747,25 +986,26 @@ export async function updateJobPipelineTransitions(
       if (toId === fromStageId) {
         return { success: false, error: "Self-transitions are not permitted." };
       }
-      const targetStage = stages.find((s) => s.id === toId);
+      const targetStage = stages.find((s) => Number(s.id) === toId);
       if (targetStage?.stage_type === "APPLIED") {
         return { success: false, error: "Transitions targeting the initial intake stage (APPLIED) are not permitted." };
       }
     }
 
-    // 1. Delete existing transitions for this from_stage_id
-    const existing = (pipeline.transitions ?? []).filter((t) => t.from_stage_id === fromStageId);
-    for (const t of existing) {
-      await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_transitions/${t.id}`, {
-        method: "DELETE",
-        headers: getHeaders(),
-      });
-    }
-
-    // 2. Insert new transitions
+    // 1. Diff-and-apply: add the routes that are missing, then retire the ones
+    // the employer removed. Deleting first used to leave the stage with no
+    // outgoing routes whenever the insert half failed, and no write outcome was
+    // checked, so a rejected Directus call still reported success.
+    const existing = (pipeline.transitions ?? []).filter(
+      (t) => Number(t.from_stage_id) === fromStageId
+    );
+    const existingToIds = new Set(existing.map((t) => Number(t.to_stage_id)));
     const nowPH = getPHTimeString();
+
+    const createdIds: number[] = [];
     for (const toId of targetStageIds) {
-      await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_transitions`, {
+      if (existingToIds.has(toId)) continue;
+      const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_transitions`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
@@ -775,6 +1015,39 @@ export async function updateJobPipelineTransitions(
           created_at: nowPH,
         }),
       });
+      if (!res.ok) {
+        for (const id of createdIds) {
+          await deleteJobSnapshotItem("vs_job_pipeline_transitions", id);
+        }
+        return {
+          success: false,
+          error: `The route to stage #${toId} could not be saved. Existing routes are unchanged.`,
+        };
+      }
+      const resJson = await res.json().catch(() => null);
+      const newId = Number(resJson?.data?.id);
+      if (Number.isSafeInteger(newId)) createdIds.push(newId);
+    }
+
+    const keptToIds = new Set(targetStageIds);
+    const retiredFailures: number[] = [];
+    for (const t of existing) {
+      const toId = Number(t.to_stage_id);
+      if (keptToIds.has(toId)) continue;
+      const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_transitions/${t.id}`, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+      if (!res.ok) retiredFailures.push(toId);
+    }
+
+    if (retiredFailures.length > 0) {
+      return {
+        success: false,
+        error: `The saved routes are live, but the route to stage ${retiredFailures
+          .map((id) => `#${id}`)
+          .join(", ")} could not be retired.`,
+      };
     }
 
     return { success: true };
@@ -802,7 +1075,7 @@ export async function reorderJobPipelineStages(
     if (!pipeline) return { success: false, error: "Job pipeline not found." };
 
     const stages = pipeline.stages ?? [];
-    const stageMap = new Map(stages.map((s) => [s.id, s]));
+    const stageMap = new Map(stages.map((s) => [Number(s.id), s]));
 
     // Deduplicate requested stage IDs to guard against payload anomalies
     const deduplicatedIds = Array.from(new Set(orderedStageIds));
@@ -810,23 +1083,44 @@ export async function reorderJobPipelineStages(
     // Pin entry stage: APPLIED must always remain at position 1
     const appliedStage = stages.find((s) => s.stage_type === "APPLIED" || (s.is_system && s.stage_order === 1));
     const filteredOrderedIds = deduplicatedIds.filter(
-      (id) => (appliedStage ? id !== appliedStage.id : true)
+      (id) => (appliedStage ? id !== Number(appliedStage.id) : true)
     );
-    const finalOrderedIds = appliedStage ? [appliedStage.id, ...filteredOrderedIds] : deduplicatedIds;
+    const finalOrderedIds = appliedStage
+      ? [Number(appliedStage.id), ...filteredOrderedIds]
+      : deduplicatedIds;
 
     const nowPH = getPHTimeString();
     let order = 1;
+    const applied: { stageId: number; previousOrder: number }[] = [];
     for (const stageId of finalOrderedIds) {
-      if (stageMap.has(stageId)) {
-        await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_stages/${stageId}`, {
-          method: "PATCH",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            stage_order: order++,
-            updated_at: nowPH,
-          }),
-        });
+      const stage = stageMap.get(stageId);
+      if (!stage) continue;
+      const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_stages/${stageId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          stage_order: order++,
+          updated_at: nowPH,
+        }),
+      });
+      if (!res.ok) {
+        // Put the rows already written back the way they were: the hook rolls its
+        // optimistic order off the screen on failure, and half-applied orders
+        // would leave the table and every later read disagreeing about who is
+        // stage 3.
+        for (const done of applied.reverse()) {
+          await fetch(`${DIRECTUS_BASE}/items/vs_job_pipeline_stages/${done.stageId}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({ stage_order: done.previousOrder, updated_at: nowPH }),
+          });
+        }
+        return {
+          success: false,
+          error: `Stage #${stageId} could not be reordered. The sequence was left as it was.`,
+        };
       }
+      applied.push({ stageId, previousOrder: stage.stage_order });
     }
 
     return { success: true };

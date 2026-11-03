@@ -17,9 +17,10 @@ export async function readErrorMessage(res: Response): Promise<string> {
 }
 
 export async function fetchTaskList(
-  listUrl: string
+  listUrl: string,
+  signal?: AbortSignal
 ): Promise<CompanyAssessmentTaskRow[]> {
-  const res = await fetch(listUrl, { cache: "no-store" });
+  const res = await fetch(listUrl, { cache: "no-store", ...(signal ? { signal } : {}) });
   if (!res.ok) throw new Error(await readErrorMessage(res));
   const json = (await res.json()) as {
     tasks?: CompanyAssessmentTaskRow[];
