@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { formatAssetUrl } from "@/lib/utils";
+import { sanitizeArticleHtml } from "@/lib/sanitize-html";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Clock, Calendar, BookOpen } from "lucide-react";
@@ -168,7 +169,7 @@ export default async function ArticleReaderPage({ params }: PageProps) {
             [&_td]:border [&_td]:border-border [&_td]:p-3
             [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:rounded-xl [&_pre]:my-6
             [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:rounded [&_code]:font-mono [&_code]:text-xs"
-          dangerouslySetInnerHTML={{ __html: article.content }}
+          dangerouslySetInnerHTML={{ __html: sanitizeArticleHtml(article.content) }}
         />
 
         {/* Bottom Navigation */}
