@@ -1,14 +1,34 @@
 // src/modules/vos-admin/account-status-management/types/account-status.types.ts
 
-export type AccountStatus =
-  | 'PENDING_VERIFICATION'
-  | 'ACTIVE'
-  | 'LIMITED'
-  | 'SUSPENDED'
-  | 'BLOCKED'
-  | 'DEACTIVATED'
-  | 'PENDING_DELETION'
-  | 'DELETED';
+// The route validates against this list: an unrecognised value in vs_user.status
+// is not login-eligible, so a typo from a hand-built request locks the account
+// out with no status any screen knows how to clear.
+export const ACCOUNT_STATUSES = [
+  'PENDING_VERIFICATION',
+  'ACTIVE',
+  'LIMITED',
+  'SUSPENDED',
+  'BLOCKED',
+  'DEACTIVATED',
+  'PENDING_DELETION',
+  'DELETED',
+] as const;
+
+export type AccountStatus = (typeof ACCOUNT_STATUSES)[number];
+
+// A vs_user row whose status column is empty or holds a value this list does
+// not know. Reporting it as ACTIVE would show an unverifiable account as being
+// in good standing, and the screen has no way to say "unreadable" otherwise.
+export const UNKNOWN_ACCOUNT_STATUS = 'UNKNOWN';
+
+export type AccountStatusOrUnknown = AccountStatus | typeof UNKNOWN_ACCOUNT_STATUS;
+
+/** Narrows whatever the database held to a status the screens recognise. */
+export function toAccountStatus(value: unknown): AccountStatusOrUnknown {
+  return ACCOUNT_STATUSES.includes(value as AccountStatus)
+    ? (value as AccountStatus)
+    : UNKNOWN_ACCOUNT_STATUS;
+}
 
 export interface AccountRestriction {
   restriction_id: number;
@@ -71,7 +91,7 @@ export interface AccountStatusUser {
   user_lname: string;
   role: string;
   role_id: number | null;
-  status: AccountStatus;
+  status: AccountStatusOrUnknown;
   verification_status?: string | null;
   status_version: number;
   session_epoch?: string | null;

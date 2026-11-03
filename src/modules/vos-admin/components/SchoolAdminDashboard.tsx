@@ -63,16 +63,16 @@ export function SchoolAdminDashboard() {
       {/* Metric Cards Row */}
       <section>
         <AdminMetricCards kpis={data?.kpis || {
-          totalUsers: 0,
-          activeUsers: 0,
+          totalUsers: null,
+          activeUsers: null,
           pendingVerifications: 0,
           pendingCompanyVerifications: 0,
           pendingSchoolVerifications: 0,
           totalVerifiedSchools: 0,
           totalVerifiedCompanies: 0,
-          geminiHealthStatus: 'HEALTHY',
-          geminiSuccessRate: 100,
-          geminiAvgLatencyMs: 0,
+          geminiHealthStatus: 'NO_DATA',
+          geminiSuccessRate: null,
+          geminiAvgLatencyMs: null,
         }} isLoading={isLoading} />
       </section>
 

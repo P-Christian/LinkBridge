@@ -2,6 +2,7 @@
 
 // src/modules/vos-admin/career-advice-management/hooks/useCareerArticles.ts
 import { useState, useEffect, useCallback } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { CareerArticle, ArticleFilters, PaginatedArticlesResponse } from "../types/article.types";
 
 interface UseCareerArticlesReturn {
@@ -41,9 +42,12 @@ export function useCareerArticles(initialFilters?: Partial<ArticleFilters>): Use
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const abortRead = useRequestAbort();
+
   const fetchArticles = useCallback(async () => {
     setIsLoading(true);
     setError(null);
+    const signal = abortRead();
     try {
       const queryParams = new URLSearchParams();
       if (filters.page) queryParams.set("page", String(filters.page));
@@ -54,68 +58,33 @@ export function useCareerArticles(initialFilters?: Partial<ArticleFilters>): Use
       if (filters.sort_by) queryParams.set("sort_by", filters.sort_by);
       if (filters.sort_order) queryParams.set("sort_order", filters.sort_order);
 
-      const res = await fetch(`/api/vos-admin/career-articles?${queryParams.toString()}`);
+      const res = await fetch(`/api/vos-admin/career-articles?${queryParams.toString()}`, { signal });
       if (!res.ok) {
         const errorJson = await res.json().catch(() => ({}));
         throw new Error(errorJson.error || `HTTP ${res.status}`);
       }
 
       const json = await res.json();
+      if (signal.aborted) return;
       setData(json);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       console.error("[useCareerArticles] fetch error:", err);
       const message = err instanceof Error ? err.message : "Failed to load articles";
       setError(message);
     } finally {
-      setIsLoading(false);
+      if (!signal.aborted) {
+        setIsLoading(false);
+      }
     }
-  }, [filters]);
+  }, [filters, abortRead]);
 
   useEffect(() => {
-    let ignore = false;
-
-    const run = async () => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const queryParams = new URLSearchParams();
-        if (filters.page) queryParams.set("page", String(filters.page));
-        if (filters.limit) queryParams.set("limit", String(filters.limit));
-        if (filters.status && filters.status !== "ALL") queryParams.set("status", filters.status);
-        if (filters.category && filters.category !== "ALL") queryParams.set("category", filters.category);
-        if (filters.search) queryParams.set("search", filters.search);
-        if (filters.sort_by) queryParams.set("sort_by", filters.sort_by);
-        if (filters.sort_order) queryParams.set("sort_order", filters.sort_order);
-
-        const res = await fetch(`/api/vos-admin/career-articles?${queryParams.toString()}`);
-        if (!res.ok) {
-          const errorJson = await res.json().catch(() => ({}));
-          throw new Error(errorJson.error || `HTTP ${res.status}`);
-        }
-
-        const json = await res.json();
-        if (!ignore) {
-          setData(json);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          console.error("[useCareerArticles] fetch error:", err);
-          const message = err instanceof Error ? err.message : "Failed to load articles";
-          setError(message);
-        }
-      } finally {
-        if (!ignore) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    run();
-
-    return () => {
-      ignore = true;
-    };
-  }, [filters]);
+    // The rule reads through the useCallback; the only synchronous state here is
+    // the "loading" flag the fetch itself needs before its first await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchArticles();
+  }, [fetchArticles]);
 
   const updateFilter = useCallback(<K extends keyof ArticleFilters>(key: K, value: ArticleFilters[K]) => {
     setFilters((prev) => ({

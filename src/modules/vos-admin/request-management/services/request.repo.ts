@@ -13,29 +13,45 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+const PAGE_SIZE = 5000;
+// The demand dashboard sums these rows into requestCount / distinctRequesterCount.
+// Directus answers an un-paginated read with its default limit of 100, which made
+// those sums report only the newest 100 requests as if they were the whole queue.
+const MAX_ROWS = 50_000;
+
+async function readAllRows<T>(collection: string, query: string): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const res = await fetch(
+      `${DIRECTUS_BASE}/items/${collection}?${query}&limit=${PAGE_SIZE}&offset=${offset}`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!res.ok) throw new Error(`Failed to fetch ${collection} from database.`);
+    const json = await res.json();
+    const page: T[] = json.data || [];
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+  throw new Error(`Too many ${collection} rows to summarise safely (${MAX_ROWS}+). Filter the queue and try again.`);
+}
+
 export async function fetchSchoolRequestsRepo(status?: string): Promise<VsSchoolRequest[]> {
   let filterQuery = '';
   if (status && status !== 'ALL') {
-    filterQuery = `&filter[request_status][_eq]=${status}`;
+    filterQuery = `&filter[request_status][_eq]=${encodeURIComponent(status)}`;
   }
-  const url = `${DIRECTUS_BASE}/items/vs_school_request?fields=*,requested_by.user_id,requested_by.user_fname,requested_by.user_lname&sort=-created_at${filterQuery}`;
-  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch school requests from database.");
-  const json = await res.json();
-  return json.data || [];
+  const query = `fields=*,requested_by.user_id,requested_by.user_fname,requested_by.user_lname&sort=-created_at${filterQuery}`;
+  return readAllRows<VsSchoolRequest>("vs_school_request", query);
 }
 
 export async function fetchCourseRequestsRepo(status?: string): Promise<VsCourseRequest[]> {
   let filterQuery = '';
   if (status && status !== 'ALL') {
-    filterQuery = `&filter[request_status][_eq]=${status}`;
+    filterQuery = `&filter[request_status][_eq]=${encodeURIComponent(status)}`;
   }
   // Expand school_id to get school_name for the UI
-  const url = `${DIRECTUS_BASE}/items/vs_course_request?fields=*,requested_by.user_id,requested_by.user_fname,requested_by.user_lname,school_id.*&sort=-created_at${filterQuery}`;
-  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch course requests from database.");
-  const json = await res.json();
-  return json.data || [];
+  const query = `fields=*,requested_by.user_id,requested_by.user_fname,requested_by.user_lname,school_id.*&sort=-created_at${filterQuery}`;
+  return readAllRows<VsCourseRequest>("vs_course_request", query);
 }
 
 export async function reviewSchoolRequestRepo(id: number, payload: Partial<VsSchoolRequest>): Promise<VsSchoolRequest> {

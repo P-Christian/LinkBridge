@@ -3,23 +3,24 @@
 export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'NO_DATA';
 
 export interface AdminDashboardKPIs {
-  totalUsers: number;
-  activeUsers: number;
+  // null means the read failed, which the panels render as an em dash. A real
+  // zero and an unknown zero must stay distinguishable.
+  totalUsers: number | null;
+  activeUsers: number | null;
   pendingVerifications: number;
   pendingCompanyVerifications: number;
   pendingSchoolVerifications: number;
   totalVerifiedSchools: number;
   totalVerifiedCompanies: number;
   geminiHealthStatus: HealthStatus;
-  geminiSuccessRate: number;
-  geminiAvgLatencyMs: number;
+  geminiSuccessRate: number | null;
+  geminiAvgLatencyMs: number | null;
 }
 
 export interface VerificationVelocityPoint {
   month: string;
-  companies: number;
-  schools: number;
-  users: number;
+  companies: number | null;
+  schools: number | null;
 }
 
 export interface StatusDistributionItem {
@@ -42,5 +43,7 @@ export interface AdminDashboardOverviewData {
   velocity: VerificationVelocityPoint[];
   distribution: StatusDistributionItem[];
   pendingActions: PendingActionItem[];
+  /** Sources that could not be read; the figures they feed come back as null. */
+  errors: string[];
   lastUpdated: string;
 }

@@ -1,15 +1,16 @@
 // src/app/api/vos-admin/career-articles/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { requireAdministrator } from "@/lib/authenticated-session";
 import { CareerArticleService } from "@/modules/vos-admin/career-advice-management/services/article.service";
 import { UpdateCareerArticleSchema } from "@/modules/vos-admin/career-advice-management/types/article.schema";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -27,15 +28,15 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ data: article });
   } catch (err: unknown) {
     console.error("[api/career-articles/[id] GET] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to fetch article";
+    const message = safeErrorMessage(err, "Failed to fetch article");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -59,15 +60,15 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ data: updated });
   } catch (err: unknown) {
     console.error("[api/career-articles/[id] PATCH] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to update article";
+    const message = safeErrorMessage(err, "Failed to update article");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -81,7 +82,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ success: true, message: "Article deleted successfully" });
   } catch (err: unknown) {
     console.error("[api/career-articles/[id] DELETE] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to delete article";
+    const message = safeErrorMessage(err, "Failed to delete article");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

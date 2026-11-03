@@ -26,6 +26,7 @@ import { motion } from "framer-motion";
 export function SchoolVerificationModule() {
   const {
     records,
+    allRecords,
     loading,
     kpiData,
     statusFilter,
@@ -118,6 +119,7 @@ export function SchoolVerificationModule() {
       {/* KPI Stat Cards */}
       <SchoolVerificationKpis
         kpis={kpiData}
+        loading={loading && allRecords.length === 0}
         currentFilter={statusFilter}
         onFilterSelect={(status) => setStatusFilter(status)}
       />

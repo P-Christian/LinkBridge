@@ -6,6 +6,7 @@ import { CompanyVerificationRecord, CompanyVerificationKPIs, VerificationDecisio
 import { fetchCompanyVerifications, submitVerificationDecision } from "../services/companyVerification.service";
 import { calculateCompanyKPIs, filterCompanyRecords } from "../utils/companyVerification.utils";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 
 export function useCompanyVerification() {
   const searchParams = useSearchParams();
@@ -24,56 +25,47 @@ export function useCompanyVerification() {
   const [isRevisionModalOpen, setIsRevisionModalOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const loadData = useCallback(async () => {
+  const abortRead = useRequestAbort();
+
+  /**
+   * `followDeepLink` is only set by the read that runs for a `?companyId=` entry,
+   * so a later manual refresh cannot resurrect a detail modal the admin closed.
+   */
+  const loadData = useCallback(async (options?: { followDeepLink?: boolean }) => {
     setLoading(true);
+    // Each read gets a token; a superseded read must not write state, or a slow
+    // first page lands after a fast refresh and reverts the row just decided.
+    const signal = abortRead();
     try {
       const data = await fetchCompanyVerifications();
+      if (signal.aborted) return;
       setRecords(data);
+
+      if (options?.followDeepLink && targetCompanyId) {
+        const match = data.find((r) => String(r.company_id) === String(targetCompanyId));
+        if (match) {
+          setSelectedCompany(match);
+          setIsDetailModalOpen(true);
+        }
+      }
     } catch (err) {
+      if (signal.aborted) return;
       toast.error(
         err instanceof Error ? err.message : "Failed to load company verifications"
       );
+      // Rows from the last good read stay on screen: a failed refresh must not
+      // wipe the queue the admin is working through.
     } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    async function load() {
-      try {
-        const data = await fetchCompanyVerifications();
-        if (isMounted) {
-          setRecords(data);
-          setLoading(false);
-
-          if (targetCompanyId) {
-            const match = data.find((r) => String(r.company_id) === String(targetCompanyId));
-            if (match) {
-              setSelectedCompany(match);
-              setIsDetailModalOpen(true);
-            }
-          }
-        }
-      } catch (err) {
-        if (isMounted) {
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : "Failed to load company verifications"
-          );
-          setLoading(false);
-        }
+      if (!signal.aborted) {
+        setLoading(false);
       }
     }
+  }, [targetCompanyId, abortRead]);
 
-    load();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [targetCompanyId]);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadData({ followDeepLink: true });
+  }, [loadData]);
 
   // Pure filtered dataset
   const filteredRecords = useMemo(() => {
@@ -171,7 +163,12 @@ export function useCompanyVerification() {
     };
 
     try {
-      await submitVerificationDecision(payload);
+      const result = await submitVerificationDecision(payload);
+      // The company row moved, but the owner cascade, the workflow log or the
+      // audit row may not have. The optimistic row above cannot show that.
+      if (result.warnings?.length) {
+        toast.warning(result.warnings.join(" "));
+      }
     } catch (err) {
       // 2. Automatic Rollback on failure
       setRecords(previousRecords);

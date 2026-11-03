@@ -3,7 +3,7 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react";
 import { useAccountStatus } from "../hooks/useAccountStatus";
-import { AccountStatusUser, AccountStatus, StatusTransitionPayload, AppealDecisionPayload } from "../types/account-status.types";
+import { AccountStatusUser, AccountStatusOrUnknown, StatusTransitionPayload, AppealDecisionPayload } from "../types/account-status.types";
 import { DataTable } from "../../request-management/components/new-data-table";
 import { AccountStatusDetailModal } from "./AccountStatusDetailModal";
 import { ColumnDef } from "@tanstack/react-table";
@@ -52,7 +52,7 @@ export function AccountStatusManagementPage() {
     return success;
   };
 
-  const getStatusColor = (status: AccountStatus) => {
+  const getStatusColor = (status: AccountStatusOrUnknown) => {
     switch (status) {
       case "ACTIVE": return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300";
       case "LIMITED": return "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";

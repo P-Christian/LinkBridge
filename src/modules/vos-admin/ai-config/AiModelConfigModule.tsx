@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -107,6 +108,7 @@ export function AiModelConfigModule() {
 
   // Model Discovery Dialog
   const [discovering, setDiscovering] = useState(false);
+  const abortDiscovery = useRequestAbort();
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
   const [showDiscoveryDialog, setShowDiscoveryDialog] = useState(false);
 
@@ -226,26 +228,32 @@ export function AiModelConfigModule() {
   const handleDiscoverModels = useCallback(async (providerId: AiProviderId) => {
     setDiscovering(true);
     setDiscoveredModels([]);
+    // Catalog discovery is slow, and the dialog it opens is shared: only the
+    // newest provider's list may be shown, or B's dialog fills with A's models.
+    const signal = abortDiscovery();
     try {
       const res = await fetch("/api/vos-admin/ai-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           action: "discover_models",
           providerId,
         }),
       });
       const data = await res.json();
+      if (signal.aborted) return;
       if (data.models) {
         setDiscoveredModels(data.models);
         setShowDiscoveryDialog(true);
       }
     } catch (err) {
+      if (signal.aborted) return;
       toast.error(`Catalog discovery error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setDiscovering(false);
+      if (!signal.aborted) setDiscovering(false);
     }
-  }, []);
+  }, [abortDiscovery]);
 
   // Register model
   const handleRegisterModel = useCallback(

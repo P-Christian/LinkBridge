@@ -15,8 +15,8 @@ function getHeaders(): Record<string, string> {
 }
 
 export async function fetchArticlesFromRepo(filters: ArticleFilters): Promise<{ articles: CareerArticle[]; total: number }> {
-  const page = filters.page || 1;
-  const limit = filters.limit || 10;
+  const page = Math.max(1, Math.trunc(Number(filters.page)) || 1);
+  const limit = Math.min(100, Math.max(1, Math.trunc(Number(filters.limit)) || 10));
   const offset = (page - 1) * limit;
 
   const queryParams = new URLSearchParams();
@@ -91,13 +91,24 @@ export async function fetchArticleByIdFromRepo(articleId: number): Promise<Caree
 
   // Fetch linked assets from vs_career_article_assets
   const assetsRes = await fetch(
-    `${DIRECTUS_BASE}/items/vs_career_article_assets?filter[article_id][_eq]=${articleId}&sort=display_order,created_at`,
+    `${DIRECTUS_BASE}/items/vs_career_article_assets?filter[article_id][_eq]=${articleId}&sort=display_order,created_at&limit=-1`,
     {
       method: "GET",
       headers: getHeaders(),
       cache: "no-store",
     }
   );
+
+  // A failed asset read used to fall through as an empty list, so an editor
+  // opened during a CMS outage presented the article as having no images and a
+  // save from it could drop them. Only a missing collection is a real "no
+  // assets"; anything else has to fail the request.
+  if (!assetsRes.ok && assetsRes.status !== 404) {
+    const errorText = await assetsRes.text().catch(() => "");
+    throw new Error(
+      `Failed to fetch assets for article #${articleId}: HTTP ${assetsRes.status} - ${errorText}`
+    );
+  }
 
   let assets: ArticleAsset[] = [];
   if (assetsRes.ok) {
@@ -218,5 +229,13 @@ export async function deleteAssetFromRepo(assetId: number): Promise<boolean> {
     headers: getHeaders(),
   });
 
-  return res.ok || res.status === 404;
+  // The caller ignores the return value and answers the admin with "Asset
+  // deleted", so a rejected delete has to throw or the image disappears from
+  // the panel while still being served from the article.
+  if (!res.ok && res.status !== 404) {
+    const errorText = await res.text();
+    throw new Error(`Failed to delete asset #${assetId}: HTTP ${res.status} - ${errorText}`);
+  }
+
+  return true;
 }

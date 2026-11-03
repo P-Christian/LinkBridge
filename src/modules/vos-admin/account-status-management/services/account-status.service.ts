@@ -18,18 +18,16 @@ export async function getAccountStatusDetail(userId: number): Promise<AccountSta
 export async function changeUserStatus(
   userId: number,
   newStatus: string,
-  newVersion: number,
   adminEmail: string,
   reasonCode: string,
   publicReason: string,
   internalNote?: string,
   expiresAt?: string | null,
   restrictionsToApply?: string[]
-): Promise<boolean> {
+): Promise<string[]> {
   return updateUserStatusRepo(
     userId,
     newStatus,
-    newVersion,
     adminEmail,
     reasonCode,
     publicReason,
@@ -46,6 +44,6 @@ export async function resolveAppeal(
   adminEmail: string,
   internalNote?: string,
   publicNote?: string
-): Promise<boolean> {
+): Promise<string[]> {
   return updateAppealCaseRepo(caseId, userId, decision, adminEmail, internalNote, publicNote);
 }

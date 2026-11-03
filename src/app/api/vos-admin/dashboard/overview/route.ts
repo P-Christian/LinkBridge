@@ -9,6 +9,7 @@ import type {
   PendingActionItem,
 } from "@/modules/vos-admin/types/dashboard";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -24,6 +25,54 @@ function getDirectusHeaders(): Record<string, string> {
   return h;
 }
 
+const ROW_SCAN_LIMIT = 500;
+
+const phMonthLabel = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
+
+/**
+ * vs_* timestamps are written as Manila wall clock (getPHTimeString), so the
+ * monthly windows are built in that same frame: bucketing on the server's UTC
+ * clock would move the first eight hours of every month into the month before.
+ */
+function phMonthWindows(months: number): { label: string; from: string; to: string }[] {
+  const ph = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  const out: { label: string; from: string; to: string }[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const start = new Date(Date.UTC(ph.getUTCFullYear(), ph.getUTCMonth() - i, 1));
+    const end = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, 1));
+    out.push({
+      label: phMonthLabel.format(start),
+      from: `${start.toISOString().slice(0, 10)}T00:00:00`,
+      to: `${end.toISOString().slice(0, 10)}T00:00:00`,
+    });
+  }
+  return out;
+}
+
+/** A Directus aggregate count, or null when the read could not be answered. */
+async function countItems(url: string, headers: Record<string, string>): Promise<number | null> {
+  try {
+    const res = await fetch(`${DIRECTUS_BASE}/items/${url}`, { headers, cache: "no-store" });
+    if (!res.ok) {
+      console.error(`Dashboard count failed (${res.status}) for ${url}`);
+      return null;
+    }
+    const json: unknown = await res.json();
+    const first = (json as { data?: { count?: Record<string, unknown> | unknown }[] })?.data?.[0];
+    const raw = first?.count;
+    const value = Number(raw && typeof raw === "object" ? Object.values(raw)[0] : raw);
+    return Number.isFinite(value) ? value : null;
+  } catch (err: unknown) {
+    console.error(`Dashboard count threw for ${url}:`, err);
+    return null;
+  }
+}
+
+function rowsFrom(json: unknown): Record<string, unknown>[] {
+  const data = (json as { data?: unknown })?.data;
+  return Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
+}
+
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
@@ -34,73 +83,88 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    // Which sources could not be read. A dashboard figure that is unknown is
+    // returned as null and named here; it is never replaced with a plausible
+    // number, because an admin acting on invented totals is worse than one
+    // waiting for the read to come back.
+    const errors: string[] = [];
+
     let companies: Record<string, unknown>[] = [];
     let companyVerifications: Record<string, unknown>[] = [];
     let schools: Record<string, unknown>[] = [];
-    let usersCount = 0;
     let geminiTelemetry: Record<string, unknown> | null = null;
+    let totalUsers: number | null = null;
+    let activeUsers: number | null = null;
+
+    const velocityWindows = phMonthWindows(6);
+    const companyCounts = velocityWindows.map(() => null as number | null);
+    const schoolCounts = velocityWindows.map(() => null as number | null);
 
     if (DIRECTUS_BASE) {
       const headers = getDirectusHeaders();
+      const windowed = (pk: string, w: { from: string; to: string }) =>
+        `aggregate[count]=${pk}&filter[created_at][_gte]=${w.from}&filter[created_at][_lt]=${w.to}`;
 
       // Run fetches in parallel with resilient error handling
-      const [compRes, compVerifRes, schoolRes, userRes, geminiRes] = await Promise.allSettled([
-        fetch(`${DIRECTUS_BASE}/items/vs_company?fields=company_id,company_name,verification_status,created_at&limit=500`, { headers, cache: "no-store" }),
-        fetch(`${DIRECTUS_BASE}/items/vs_company_verifications?fields=id,company_id,status,created_at&sort=-created_at,-id&limit=500`, { headers, cache: "no-store" }),
-        fetch(`${DIRECTUS_BASE}/items/vs_school?fields=school_id,school_name,verification_status,school_status,created_at&limit=500`, { headers, cache: "no-store" }),
-        fetch(`${DIRECTUS_BASE}/items/vs_user?aggregate[count]=user_id`, { headers, cache: "no-store" }),
+      const [compRes, compVerifRes, schoolRes, geminiRes, countResults] = await Promise.all([
+        fetch(`${DIRECTUS_BASE}/items/vs_company?fields=company_id,company_name,verification_status,created_at&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
+        fetch(`${DIRECTUS_BASE}/items/vs_company_verifications?fields=id,company_id,status,created_at&sort=-created_at,-id&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
+        fetch(`${DIRECTUS_BASE}/items/vs_school?fields=school_id,school_name,verification_status,school_status,created_at&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
         fetch(new URL("/api/vos-admin/gemini-monitoring", req.url).toString(), {
           headers: {
             cookie: req.headers.get("cookie") || "",
             authorization: req.headers.get("authorization") || "",
           },
           cache: "no-store",
-        }),
+        }).catch(() => null),
+        Promise.all([
+          countItems("vs_user?aggregate[count]=user_id", headers),
+          countItems("vs_user?aggregate[count]=user_id&filter[status][_eq]=ACTIVE", headers),
+          ...velocityWindows.map((w) => countItems(`vs_company?${windowed("company_id", w)}`, headers)),
+          ...velocityWindows.map((w) => countItems(`vs_school?${windowed("school_id", w)}`, headers)),
+        ]),
       ]);
 
-      if (compRes.status === "fulfilled" && compRes.value.ok) {
-        try {
-          const compJson = await compRes.value.json();
-          companies = Array.isArray(compJson.data) ? compJson.data : [];
-        } catch {
-          companies = [];
-        }
+      if (compRes?.ok) {
+        companies = rowsFrom(await compRes.json().catch(() => null));
+      } else {
+        errors.push("Employer accounts");
       }
 
-      if (compVerifRes.status === "fulfilled" && compVerifRes.value.ok) {
-        try {
-          const compVerifJson = await compVerifRes.value.json();
-          companyVerifications = Array.isArray(compVerifJson.data) ? compVerifJson.data : [];
-        } catch {
-          companyVerifications = [];
-        }
+      if (compVerifRes?.ok) {
+        companyVerifications = rowsFrom(await compVerifRes.json().catch(() => null));
+      } else {
+        errors.push("Employer verification attempts");
       }
 
-      if (schoolRes.status === "fulfilled" && schoolRes.value.ok) {
-        try {
-          const schoolJson = await schoolRes.value.json();
-          schools = Array.isArray(schoolJson.data) ? schoolJson.data : [];
-        } catch {
-          schools = [];
-        }
+      if (schoolRes?.ok) {
+        schools = rowsFrom(await schoolRes.json().catch(() => null));
+      } else {
+        errors.push("Institutions");
       }
 
-      if (userRes.status === "fulfilled" && userRes.value.ok) {
-        try {
-          const userJson = await userRes.value.json();
-          usersCount = Number(userJson?.data?.[0]?.count?.user_id || userJson?.data?.[0]?.count || 0);
-        } catch {
-          usersCount = 0;
-        }
+      if (geminiRes?.ok) {
+        geminiTelemetry = (await geminiRes.json().catch(() => null)) as Record<string, unknown> | null;
+      } else {
+        errors.push("AI engine telemetry");
       }
 
-      if (geminiRes.status === "fulfilled" && geminiRes.value.ok) {
-        try {
-          geminiTelemetry = await geminiRes.value.json();
-        } catch {
-          geminiTelemetry = null;
-        }
+      [totalUsers, activeUsers] = countResults;
+      const offset = 2;
+      velocityWindows.forEach((_, i) => {
+        companyCounts[i] = countResults[offset + i] ?? null;
+        schoolCounts[i] = countResults[offset + velocityWindows.length + i] ?? null;
+      });
+      if (countResults.slice(2).some((v) => v === null)) {
+        errors.push("Monthly registration counts");
       }
+
+      // A capped row read silently undercounts every bucket derived from it, so
+      // the panels that need each record (not just a total) say so.
+      if (companies.length >= ROW_SCAN_LIMIT) errors.push(`Employer accounts (only the ${ROW_SCAN_LIMIT} newest read)`);
+      if (schools.length >= ROW_SCAN_LIMIT) errors.push(`Institutions (only the ${ROW_SCAN_LIMIT} newest read)`);
+    } else {
+      errors.push("Directus is not configured");
     }
 
     // Map latest verification attempt for each company
@@ -143,17 +207,28 @@ export async function GET(req: NextRequest) {
       return st === "VERIFIED" || st === "APPROVED";
     });
 
-    const totalUsers = Math.max(usersCount, companies.length + schools.length);
     const pendingVerifications = pendingCompanies.length + pendingSchools.length;
 
-    // Gemini telemetry values
-    const geminiHealthStatus = (geminiTelemetry?.serviceHealth as "HEALTHY" | "DEGRADED" | "UNAVAILABLE" | "NO_DATA") || "HEALTHY";
-    const geminiSuccessRate = typeof geminiTelemetry?.recentSuccessRate === "number" ? geminiTelemetry.recentSuccessRate : 100;
-    const geminiAvgLatencyMs = typeof geminiTelemetry?.recentAvgLatencyMs === "number" ? geminiTelemetry.recentAvgLatencyMs : 412;
+    // Gemini telemetry values. Absent telemetry is reported as no data, never
+    // as a 100% success rate or a latency the platform never measured.
+    const geminiHealthStatus = (geminiTelemetry?.serviceHealth as
+      | "HEALTHY"
+      | "DEGRADED"
+      | "UNAVAILABLE"
+      | "NO_DATA"
+      | undefined) ?? "NO_DATA";
+    const geminiSuccessRate =
+      typeof geminiTelemetry?.recentSuccessRate === "number"
+        ? geminiTelemetry.recentSuccessRate
+        : null;
+    const geminiAvgLatencyMs =
+      typeof geminiTelemetry?.recentAvgLatencyMs === "number"
+        ? geminiTelemetry.recentAvgLatencyMs
+        : null;
 
     const kpis: AdminDashboardKPIs = {
-      totalUsers: totalUsers || 42,
-      activeUsers: Math.round((totalUsers || 42) * 0.85),
+      totalUsers,
+      activeUsers,
       pendingVerifications,
       pendingCompanyVerifications: pendingCompanies.length,
       pendingSchoolVerifications: pendingSchools.length,
@@ -166,16 +241,19 @@ export async function GET(req: NextRequest) {
 
     // Pending Action Queue (top 5 pending, combined and sorted by submission date descending)
     const pendingActions: PendingActionItem[] = [
-      ...pendingCompanies.map((c) => ({
-        id: (c.company_id as string | number) || Math.random(),
+      ...pendingCompanies.map((c, i) => ({
+        // company_id is the key; a row without one still needs a stable key, so
+        // it falls back to its position rather than a random value that
+        // remounts the row on every refresh.
+        id: (c.company_id as string | number) ?? `company-${i}`,
         type: "COMPANY" as const,
         name: String(c.company_name || "Company Applicant"),
         submittedAt: (c.created_at as string) || null,
         detail: "Company Verification Review Required",
         reviewUrl: `/vos-sync/vos-admin/company-verification?companyId=${c.company_id}`,
       })),
-      ...pendingSchools.map((s) => ({
-        id: (s.school_id as string | number) || Math.random(),
+      ...pendingSchools.map((s, i) => ({
+        id: (s.school_id as string | number) ?? `school-${i}`,
         type: "SCHOOL" as const,
         name: String(s.school_name || "School Applicant"),
         submittedAt: (s.created_at as string) || null,
@@ -206,27 +284,26 @@ export async function GET(req: NextRequest) {
       },
     ];
 
-    // Monthly velocity trend points
-    const velocity: VerificationVelocityPoint[] = [
-      { month: "May", companies: 4, schools: 1, users: 18 },
-      { month: "Jun", companies: 7, schools: 2, users: 29 },
-      { month: "Jul", companies: 11, schools: 4, users: 44 },
-      { month: "Aug", companies: 16, schools: 5, users: 62 },
-      { month: "Sep", companies: Math.max(verifiedCompanies.length - 2, 21), schools: Math.max(verifiedSchools.length - 1, 7), users: Math.max(totalUsers - 5, 80) },
-      { month: "Oct", companies: Math.max(verifiedCompanies.length, 26), schools: Math.max(verifiedSchools.length, 8), users: Math.max(totalUsers, 98) },
-    ];
+    // Monthly registration velocity, counted in Directus so a month's total is
+    // the whole table, not whatever survived the 500-row scan above.
+    const velocity: VerificationVelocityPoint[] = velocityWindows.map((w, i) => ({
+      month: w.label,
+      companies: companyCounts[i],
+      schools: schoolCounts[i],
+    }));
 
     const responsePayload: AdminDashboardOverviewData = {
       kpis,
       velocity,
       distribution,
       pendingActions,
+      errors,
       lastUpdated: new Date().toISOString(),
     };
 
     return NextResponse.json(responsePayload);
   } catch (err: unknown) {
     console.error("Dashboard overview API error:", err);
-    return NextResponse.json({ error: (err as Error).message || "Internal server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Internal server error") }, { status: 500 });
   }
 }

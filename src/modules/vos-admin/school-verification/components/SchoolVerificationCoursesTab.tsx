@@ -62,9 +62,6 @@ export const SchoolVerificationCoursesTab: React.FC<SchoolVerificationCoursesTab
         </div>
 
         <div className="flex items-center gap-2 text-xs">
-          <Badge variant="outline" className="bg-muted/50 text-foreground border-border px-2.5 py-1">
-            Total: <span className="font-bold ml-1">{courses.length}</span>
-          </Badge>
           <Badge variant="outline" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20 px-2.5 py-1">
             Active: <span className="font-bold ml-1">{activeCount}</span>
           </Badge>

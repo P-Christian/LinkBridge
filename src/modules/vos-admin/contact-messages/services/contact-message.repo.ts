@@ -50,45 +50,40 @@ export async function fetchContactMessagesRepo(
   const safePageSize = Math.min(Math.max(1, pageSize), 100);
   const offset = (Math.max(1, page) - 1) * safePageSize;
 
-  const filters: string[] = [
-    // Exclude soft-deleted rows
-    `"deleted_at":{"_null":true}`,
-  ];
-
-  if (status && status !== "all") {
-    filters.push(`"status":{"_eq":"${status}"}`);
-  }
-  if (from) {
-    filters.push(`"created_at":{"_gte":"${from}"}`);
-  }
-  if (to) {
-    filters.push(`"created_at":{"_lte":"${to}"}`);
-  }
-
-  const filterStr = `filter={${filters.join(",")}}`;
-
   const baseFields = "id,name,email,company,subject,message,user_id,user_role,status,source,assigned_to,internal_note,reviewed_by,reviewed_at,ip_hash,created_at,updated_at,deleted_at";
 
-  // // Search: ILIKE on name, email, subject, company
-  // let searchFilter = "";
-  // if (q && q.trim()) {
-  //   const safe = encodeURIComponent(q.trim());
-  //   searchFilter = `&filter[_and][0][deleted_at][_null]=true&filter[_and][1][_or][0][name][_icontains]=${safe}&filter[_and][1][_or][1][email][_icontains]=${safe}&filter[_and][1][_or][2][subject][_icontains]=${safe}&filter[_and][1][_or][3][company][_icontains]=${safe}`;
-  // }
+  const search = q?.trim();
 
-  // If search is present, use a simpler filter string to avoid conflicts
-  let url: string;
-  if (q && q.trim()) {
-    const safe = encodeURIComponent(q.trim());
-    const extraStatus = status && status !== "all" ? `&filter[_and][2][status][_eq]=${encodeURIComponent(status)}` : "";
-    const extraFrom = from ? `&filter[_and][3][created_at][_gte]=${encodeURIComponent(from)}` : "";
-    const extraTo = to ? `&filter[_and][4][created_at][_lte]=${encodeURIComponent(to)}` : "";
-    url = `${DIRECTUS_BASE}/items/${COLLECTION}?fields=${baseFields}&limit=${safePageSize}&offset=${offset}&sort[]=-created_at&meta=total_count&filter[_and][0][deleted_at][_null]=true&filter[_and][1][_or][0][name][_icontains]=${safe}&filter[_and][1][_or][1][email][_icontains]=${safe}&filter[_and][1][_or][2][subject][_icontains]=${safe}&filter[_and][1][_or][3][company][_icontains]=${safe}${extraStatus}${extraFrom}${extraTo}`;
-  } else {
-    url = `${DIRECTUS_BASE}/items/${COLLECTION}?fields=${baseFields}&limit=${safePageSize}&offset=${offset}&sort[]=-created_at&meta=total_count&${filterStr}`;
+  // The search branch used to hard-code filter[_and][2]/[3]/[4] for status, from
+  // and to, so whichever of them was absent left a hole in the _and array and a
+  // constraint the admin had actually chosen was dropped. Serialising a real
+  // object also stops user-supplied values from rewriting the filter around a
+  // quote character.
+  const and: Record<string, unknown>[] = [
+    // Exclude soft-deleted rows
+    { deleted_at: { _null: true } },
+  ];
+  if (status && status !== "all") and.push({ status: { _eq: status } });
+  if (from) and.push({ created_at: { _gte: from } });
+  if (to) and.push({ created_at: { _lte: to } });
+  if (search) {
+    and.push({
+      _or: ["name", "email", "subject", "company"].map((field) => ({
+        [field]: { _icontains: search },
+      })),
+    });
   }
 
-  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+  const query = new URLSearchParams({
+    fields: baseFields,
+    limit: String(safePageSize),
+    offset: String(offset),
+    "sort[]": "-created_at",
+    meta: "total_count",
+    filter: JSON.stringify({ _and: and }),
+  });
+
+  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, { headers: getHeaders(), cache: "no-store" });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     console.warn(`[contact-messages] list failed ${res.status}: ${text}`);
@@ -108,9 +103,21 @@ export async function fetchContactMessagesRepo(
 
 /** Count messages where status = 'new' and not soft-deleted. */
 export async function countNewContactMessagesRepo(): Promise<number> {
-  const url = `${DIRECTUS_BASE}/items/${COLLECTION}?aggregate[count]=id&filter[status][_eq]=new&filter[deleted_at][_null]=true`;
-  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
-  if (!res.ok) return 0;
+  const query = new URLSearchParams({
+    "aggregate[count]": "id",
+    "filter[status][_eq]": "new",
+    "filter[deleted_at][_null]": "true",
+  });
+  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, { headers: getHeaders(), cache: "no-store" });
+  // A missing collection genuinely has no messages. Any other failed read would
+  // answer the sidebar badge with a fabricated 0 and overwrite the last real
+  // count, so let the caller's try/catch turn it into a 500 instead — both
+  // consumers keep the previous count when the request fails.
+  if (!res.ok) {
+    if (res.status === 403 || res.status === 404) return 0;
+    const text = await res.text().catch(() => "");
+    throw new Error(`[contact-messages] unread count failed ${res.status}: ${text}`);
+  }
   const json = await res.json();
   return Number(json.data?.[0]?.count?.id ?? 0);
 }
@@ -178,7 +185,7 @@ export async function markAsReadRepo(
   adminId: number,
   now: string
 ): Promise<void> {
-  await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}/${id}`, {
+  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}/${id}`, {
     method: "PATCH",
     headers: getHeaders(),
     body: JSON.stringify({
@@ -189,4 +196,8 @@ export async function markAsReadRepo(
     }),
     cache: "no-store",
   });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`[contact-messages] mark-as-read failed ${res.status}: ${text}`);
+  }
 }
