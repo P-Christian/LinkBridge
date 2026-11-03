@@ -196,25 +196,7 @@ const DEFAULT_WORKLOAD_ROUTING: Record<string, WorkloadRoutingRule> = {
   },
 };
 
-/** Load stored system config from disk */
-function readConfigFromDisk(): AiSystemConfig {
-  try {
-    if (fs.existsSync(CONFIG_FILE_PATH)) {
-      const raw = fs.readFileSync(CONFIG_FILE_PATH, "utf8");
-      const parsed = JSON.parse(raw);
-      return {
-        providers: { ...DEFAULT_PROVIDERS, ...(parsed.providers || {}) },
-        models: parsed.models?.length ? parsed.models : DEFAULT_MODELS,
-        workloadRouting: { ...DEFAULT_WORKLOAD_ROUTING, ...(parsed.workloadRouting || {}) },
-        globalFailoverEnabled: parsed.globalFailoverEnabled ?? true,
-        localAiOnlyMode: parsed.localAiOnlyMode ?? false,
-        updatedAt: parsed.updatedAt || new Date().toISOString(),
-      };
-    }
-  } catch (err) {
-    console.error("[ai-config-store] Error reading config file:", err);
-  }
-
+function defaultConfig(): AiSystemConfig {
   return {
     providers: DEFAULT_PROVIDERS,
     models: DEFAULT_MODELS,
@@ -225,18 +207,51 @@ function readConfigFromDisk(): AiSystemConfig {
   };
 }
 
-/** Save config to disk safely */
-function writeConfigToDisk(config: AiSystemConfig): void {
+/**
+ * `unreadable` means the file exists but could not be read or parsed. It is
+ * deliberately not merged into "no config yet": the caller has to be able to
+ * tell a half-written file (which must not be overwritten with defaults, and
+ * must not be allowed to re-enable cloud egress) from a clean install.
+ */
+function readConfigState(): { config: AiSystemConfig; unreadable: boolean } {
+  try {
+    if (fs.existsSync(CONFIG_FILE_PATH)) {
+      const raw = fs.readFileSync(CONFIG_FILE_PATH, "utf8");
+      const parsed = JSON.parse(raw);
+      return {
+        config: {
+          providers: { ...DEFAULT_PROVIDERS, ...(parsed.providers || {}) },
+          models: parsed.models?.length ? parsed.models : DEFAULT_MODELS,
+          workloadRouting: { ...DEFAULT_WORKLOAD_ROUTING, ...(parsed.workloadRouting || {}) },
+          globalFailoverEnabled: parsed.globalFailoverEnabled ?? true,
+          localAiOnlyMode: parsed.localAiOnlyMode ?? false,
+          updatedAt: parsed.updatedAt || new Date().toISOString(),
+        },
+        unreadable: false,
+      };
+    }
+  } catch (err) {
+    console.error("[ai-config-store] Error reading config file:", err);
+    return { config: defaultConfig(), unreadable: true };
+  }
+
+  return { config: defaultConfig(), unreadable: false };
+}
+
+/** Save config to disk safely. `false` means nothing reached disk. */
+function writeConfigToDisk(config: AiSystemConfig): boolean {
   try {
     fs.writeFileSync(CONFIG_FILE_PATH, JSON.stringify(config, null, 2), "utf8");
+    return true;
   } catch (err) {
     console.error("[ai-config-store] Error saving config file:", err);
+    return false;
   }
 }
 
 /** Get AI system config (safe for UI when maskCredentials is true) */
 export function getAiSystemConfig(maskCredentials = true): AiSystemConfig {
-  const config = readConfigFromDisk();
+  const config = readConfigState().config;
 
   if (maskCredentials) {
     const maskedProviders = { ...config.providers };
@@ -252,7 +267,7 @@ export function getAiSystemConfig(maskCredentials = true): AiSystemConfig {
 
 /** Get decrypted credentials for server-side execution */
 export function getDecryptedProviderCredentials(providerId: AiProviderId): { apiKey: string; baseUrl: string } {
-  const config = readConfigFromDisk();
+  const config = readConfigState().config;
   const prov = config.providers[providerId];
   if (!prov) {
     return { apiKey: "", baseUrl: "" };
@@ -264,7 +279,13 @@ export function getDecryptedProviderCredentials(providerId: AiProviderId): { api
   };
 }
 
-/** Save or update provider configuration (encrypts raw API key) */
+/**
+ * Save or update provider configuration (encrypts raw API key).
+ *
+ * `false` means the change was not persisted — either because the file could
+ * not be written, or because it could not be read and merging into defaults
+ * would erase every other stored credential.
+ */
 export function saveProviderConfig(
   providerId: AiProviderId,
   data: {
@@ -276,8 +297,14 @@ export function saveProviderConfig(
     lastTestLatencyMs?: number | null;
     lastTestError?: string | null;
   }
-): void {
-  const config = readConfigFromDisk();
+): boolean {
+  const { config, unreadable } = readConfigState();
+  if (unreadable) {
+    console.error(
+      "[ai-config-store] Refusing to write provider config: the existing config file is unreadable and overwriting it with defaults would drop stored credentials."
+    );
+    return false;
+  }
   const existing = config.providers[providerId] || {
     id: providerId,
     name: providerId.toUpperCase(),
@@ -301,12 +328,21 @@ export function saveProviderConfig(
 
   config.providers[providerId] = updated;
   config.updatedAt = new Date().toISOString();
-  writeConfigToDisk(config);
+  return writeConfigToDisk(config);
 }
 
-/** Register a new model or update an existing one */
-export function registerOrUpdateModel(model: RegisteredModel): void {
-  const config = readConfigFromDisk();
+/**
+ * Register a new model or update an existing one.
+ * `false` means the registry was not persisted. See {@link saveProviderConfig}.
+ */
+export function registerOrUpdateModel(model: RegisteredModel): boolean {
+  const { config, unreadable } = readConfigState();
+  if (unreadable) {
+    console.error(
+      "[ai-config-store] Refusing to write model registry: the existing config file is unreadable."
+    );
+    return false;
+  }
   const idx = config.models.findIndex((m) => m.id === model.id);
   if (idx >= 0) {
     config.models[idx] = model;
@@ -314,15 +350,24 @@ export function registerOrUpdateModel(model: RegisteredModel): void {
     config.models.push(model);
   }
   config.updatedAt = new Date().toISOString();
-  writeConfigToDisk(config);
+  return writeConfigToDisk(config);
 }
 
-/** Save workload assignments and failover settings */
+/**
+ * Save workload assignments and failover settings.
+ * `false` means the settings — including `localAiOnlyMode` — were not persisted.
+ */
 export function saveWorkloadRouting(
   routing: Record<string, WorkloadRoutingRule>,
   settings?: { globalFailoverEnabled?: boolean; localAiOnlyMode?: boolean }
-): void {
-  const config = readConfigFromDisk();
+): boolean {
+  const { config, unreadable } = readConfigState();
+  if (unreadable) {
+    console.error(
+      "[ai-config-store] Refusing to write workload routing: the existing config file is unreadable."
+    );
+    return false;
+  }
   config.workloadRouting = { ...config.workloadRouting, ...routing };
   if (settings?.globalFailoverEnabled !== undefined) {
     config.globalFailoverEnabled = settings.globalFailoverEnabled;
@@ -331,7 +376,19 @@ export function saveWorkloadRouting(
     config.localAiOnlyMode = settings.localAiOnlyMode;
   }
   config.updatedAt = new Date().toISOString();
-  writeConfigToDisk(config);
+  return writeConfigToDisk(config);
+}
+
+/**
+ * Admin toggle: when true, no prompt may leave the server for a cloud provider.
+ *
+ * An unreadable config file reports the restriction as *on*: this is the only
+ * gate keeping candidate PII off a cloud processor, so its failure mode cannot
+ * be the permissive default.
+ */
+export function isLocalAiOnlyMode(): boolean {
+  const { config, unreadable } = readConfigState();
+  return unreadable || config.localAiOnlyMode === true;
 }
 
 /** Resolve assigned model for an application feature */
@@ -340,7 +397,7 @@ export function resolveWorkloadModel(feature: string): {
   fallbackModel: RegisteredModel | null;
   enableFailover: boolean;
 } {
-  const config = readConfigFromDisk();
+  const config = readConfigState().config;
   const rule = config.workloadRouting[feature];
 
   const fallbackDefault = config.models.find((m) => m.id === "gemini-3.5-flash-lite") || config.models[0];

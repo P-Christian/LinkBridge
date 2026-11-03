@@ -1,4 +1,5 @@
 // src/lib/ai/adapters/GoogleGeminiAdapter.ts
+import { fetchWithSafeEgress } from "../egress";
 import {
   AiProviderAdapter,
   AiProviderId,
@@ -14,6 +15,11 @@ export class GoogleGeminiAdapter implements AiProviderAdapter {
 
   private getEffectiveKey(credentials: ProviderCredentials): string {
     return credentials.apiKey || process.env.GEMINI_API_KEY || "";
+  }
+
+  /** Key in a header only — query strings are captured by proxy and error-reporter logs. */
+  private authHeaders(key: string): Record<string, string> {
+    return { "Content-Type": "application/json", "x-goog-api-key": key };
   }
 
   async testConnection(
@@ -34,13 +40,13 @@ export class GoogleGeminiAdapter implements AiProviderAdapter {
 
     const cleanModel = modelId.replace(/^models\//, "");
     const base = credentials.baseUrl || "https://generativelanguage.googleapis.com";
-    const url = `${base}/v1beta/models/${cleanModel}:generateContent?key=${key}`;
+    const url = `${base}/v1beta/models/${cleanModel}:generateContent`;
     const start = Date.now();
 
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithSafeEgress(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.authHeaders(key),
         body: JSON.stringify({
           contents: [{ parts: [{ text: "Ping: Respond 'Active' in one word." }] }],
           generationConfig: { maxOutputTokens: 10 },
@@ -92,10 +98,13 @@ export class GoogleGeminiAdapter implements AiProviderAdapter {
     if (!key) return [];
 
     const base = credentials.baseUrl || "https://generativelanguage.googleapis.com";
-    const url = `${base}/v1beta/models?key=${key}`;
+    const url = `${base}/v1beta/models`;
 
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      const res = await fetchWithSafeEgress(url, {
+        headers: { "x-goog-api-key": key },
+        signal: AbortSignal.timeout(8000),
+      });
       if (!res.ok) return [];
       const data = await res.json();
       const models = data.models || [];
@@ -141,7 +150,7 @@ export class GoogleGeminiAdapter implements AiProviderAdapter {
 
     const cleanModel = req.modelId.replace(/^models\//, "");
     const base = credentials.baseUrl || "https://generativelanguage.googleapis.com";
-    const url = `${base}/v1beta/models/${cleanModel}:generateContent?key=${key}`;
+    const url = `${base}/v1beta/models/${cleanModel}:generateContent`;
     const start = Date.now();
 
     const bodyPayload: Record<string, unknown> = {
@@ -158,9 +167,9 @@ export class GoogleGeminiAdapter implements AiProviderAdapter {
       };
     }
 
-    const res = await fetch(url, {
+    const res = await fetchWithSafeEgress(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: this.authHeaders(key),
       body: JSON.stringify(bodyPayload),
       signal: AbortSignal.timeout(req.timeoutMs || 15000),
     });

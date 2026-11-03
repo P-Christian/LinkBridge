@@ -1,4 +1,5 @@
 // src/lib/ai/adapters/OpenAiAdapter.ts
+import { fetchWithSafeEgress } from "../egress";
 import {
   AiProviderAdapter,
   AiProviderId,
@@ -49,7 +50,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
     const start = Date.now();
 
     try {
-      const res = await fetch(`${base}/chat/completions`, {
+      const res = await fetchWithSafeEgress(`${base}/chat/completions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -109,7 +110,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
     const base = this.getBaseUrl(credentials);
 
     try {
-      const res = await fetch(`${base}/models`, {
+      const res = await fetchWithSafeEgress(`${base}/models`, {
         headers: { Authorization: `Bearer ${key}` },
         signal: AbortSignal.timeout(6000),
       });
@@ -148,7 +149,7 @@ export class OpenAiAdapter implements AiProviderAdapter {
     }
     messages.push({ role: "user", content: req.prompt });
 
-    const res = await fetch(`${base}/chat/completions`, {
+    const res = await fetchWithSafeEgress(`${base}/chat/completions`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

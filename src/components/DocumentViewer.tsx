@@ -7,19 +7,58 @@ import "react-pdf/dist/Page/AnnotationLayer.css";
 import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, AlertCircle, FileText, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
+import { cn } from "@/lib/utils";
 
 // Configure pdfjs worker to use local public worker (same-origin, strictly compliant with CSP and no external CDN dependency)
 if (typeof window !== "undefined") {
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 }
 
+// PRIV-010: previews are rendered from attacker-controllable uploads, so the
+// bytes pulled into the browser are capped before any parser sees them.
+const MAX_PREVIEW_BYTES = 10 * 1024 * 1024; // 10 MB
+
+class DocumentTooLargeError extends Error {}
+
+function tooLargeError(): DocumentTooLargeError {
+  return new DocumentTooLargeError(
+    `File is larger than ${Math.floor(MAX_PREVIEW_BYTES / (1024 * 1024))} MB and cannot be previewed. Please download it instead.`
+  );
+}
+
+async function fetchBoundedDocument(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) {
+    throw new Error(`Failed to load document (${res.status})`);
+  }
+
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_PREVIEW_BYTES) {
+    throw tooLargeError();
+  }
+
+  const buffer = await res.arrayBuffer();
+  // content-length may be missing or wrong, so also check the bytes read.
+  if (buffer.byteLength > MAX_PREVIEW_BYTES) {
+    throw tooLargeError();
+  }
+
+  return buffer;
+}
+
 interface DocumentViewerProps {
   fileUrl: string;
   fileName: string;
   hideDownloadButton?: boolean;
+  hideFileName?: boolean;
 }
 
-export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }: DocumentViewerProps) {
+export function DocumentViewer({
+  fileUrl,
+  fileName,
+  hideDownloadButton = false,
+  hideFileName = false,
+}: DocumentViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -96,13 +135,7 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
       }
     });
 
-    fetch(proxiedUrl, { credentials: "same-origin" })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to load document (${res.status})`);
-        }
-        return res.arrayBuffer();
-      })
+    fetchBoundedDocument(proxiedUrl)
       .then((buffer) => {
         if (!isMounted) return;
         setPdfData(buffer);
@@ -110,7 +143,11 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
       .catch((err) => {
         console.error("PDF Preview fetch error:", err);
         if (isMounted) {
-          setError("Failed to load PDF document.");
+          setError(
+            err instanceof DocumentTooLargeError
+              ? err.message
+              : "Failed to load PDF document."
+          );
           setLoading(false);
         }
       });
@@ -128,11 +165,7 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
     setLoading(true);
     setError(null);
 
-    fetch(proxiedUrl, { credentials: "same-origin" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load document (${res.status})`);
-        return res.arrayBuffer();
-      })
+    fetchBoundedDocument(proxiedUrl)
       .then(async (arrayBuffer) => {
         if (!isMounted || !docxContainerRef.current) return;
         docxContainerRef.current.innerHTML = "";
@@ -147,9 +180,13 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
             ignoreWidth: false,
             ignoreHeight: false,
             ignoreLastRenderedPageBreak: false,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
+            // PRIV-010: header/footer/footnote parts of an untrusted .docx are
+            // rendered into extra DOM sections (and the library injects style
+            // containers for them), so they stay off; only the body renders.
+            renderHeaders: false,
+            renderFooters: false,
+            renderFootnotes: false,
+            renderEndnotes: false,
             useBase64URL: true,
             experimental: false,
           }
@@ -159,7 +196,11 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
       .catch((err) => {
         console.error("DOCX Preview error:", err);
         if (isMounted) {
-          setError("Failed to render DOCX file. You can download the file to view it.");
+          setError(
+            err instanceof DocumentTooLargeError
+              ? err.message
+              : "Failed to render DOCX file. You can download the file to view it."
+          );
           setLoading(false);
         }
       });
@@ -363,11 +404,18 @@ export function DocumentViewer({ fileUrl, fileName, hideDownloadButton = false }
     return (
       <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden relative">
         {/* DOCX Zoom Controls Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2 bg-zinc-800 text-zinc-200 border-b border-zinc-700 text-xs shrink-0">
-          <div className="flex items-center gap-2 text-zinc-400">
-            <FileText className="h-4 w-4 text-emerald-400" />
-            <span className="font-semibold text-zinc-200 truncate max-w-xs">{fileName}</span>
-          </div>
+        <div
+          className={cn(
+            "flex items-center px-4 py-2 bg-zinc-800 text-zinc-200 border-b border-zinc-700 text-xs shrink-0",
+            hideFileName ? "justify-end" : "justify-between"
+          )}
+        >
+          {!hideFileName && (
+            <div className="flex items-center gap-2 text-zinc-400">
+              <FileText className="h-4 w-4 text-emerald-400" />
+              <span className="font-semibold text-zinc-200 truncate max-w-xs">{fileName}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"

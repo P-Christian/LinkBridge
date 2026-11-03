@@ -11,6 +11,7 @@ import ThemeSettingsProvider from "@/components/theme/ThemeSettingsProvider"
 import { RealtimeProvider } from "@/modules/shared/providers/RealtimeProvider"
 import { Toaster } from "@/components/ui/sonner"
 import TopProgressBar from "@/components/shared/TopProgressBar"
+import RouteFetchGuard from "@/components/shared/RouteFetchGuard"
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
@@ -37,6 +38,7 @@ export default function RootLayout({
             <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
                 <ThemeProvider>
                     <TopProgressBar />
+                    <RouteFetchGuard />
                     <ThemeSettingsProvider>
                         <RealtimeProvider>
                             {children}

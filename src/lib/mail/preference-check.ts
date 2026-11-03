@@ -1,45 +1,32 @@
 // src/lib/mail/preference-check.ts
-
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) {
-    headers.Authorization = `Bearer ${DIRECTUS_TOKEN}`;
-  }
-  return headers;
-}
+import { directusItems } from "@/lib/server/directus";
 
 /**
- * Checks whether email notification is enabled for a user in a specific category.
- * Defaults to true if no preference record is configured (unless it's marketing/promotional).
+ * Whether the user has email on for this category.
+ *
+ * `null` means the preference could not be read. Callers must not treat that as
+ * "enabled": a mail the user switched off cannot be unsent, while a confirmation
+ * they missed is recoverable, so an unknown preference skips the send and is
+ * reported instead.
  */
 export async function isEmailEnabledForUser(
   userId: number | null | undefined,
   category: string
-): Promise<boolean> {
-  if (!userId || !DIRECTUS_BASE) {
-    // Default to true if user ID or Directus base URL is not available
-    return true;
+): Promise<boolean | null> {
+  if (!userId) {
+    // No user to look a preference up for, so the default applies.
+    return category !== "MARKETING_UPDATES" && category !== "PRODUCT_UPDATES";
   }
 
   try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&filter[category][_eq]=${encodeURIComponent(category)}&fields=email_enabled&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
+    const records = await directusItems<{ email_enabled?: unknown }>(
+      "vs_notification_preference",
+      {
+        query: `filter[user_id][_eq]=${userId}&filter[category][_eq]=${encodeURIComponent(
+          category
+        )}&fields=email_enabled&limit=1`,
+      }
     );
-
-    if (!res.ok) {
-      console.warn(`[MAIL PREFERENCE WARNING] Failed to query preference for user ${userId}, category ${category}. Status: ${res.status}`);
-      return true; // Default fallback to true on error
-    }
-
-    const json = await res.json();
-    const records = json.data ?? [];
 
     if (records.length === 0) {
       // Default preferences for categories not yet saved in DB
@@ -52,7 +39,10 @@ export async function isEmailEnabledForUser(
     const rec = records[0];
     return rec.email_enabled === 1 || rec.email_enabled === true;
   } catch (err) {
-    console.error(`[MAIL PREFERENCE ERROR] Failed checking email preference for user ${userId}, category ${category}:`, err);
-    return true;
+    console.error(
+      `[MAIL PREFERENCE ERROR] Could not read email preference for user ${userId}, category ${category}:`,
+      err
+    );
+    return null;
   }
 }
