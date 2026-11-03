@@ -303,7 +303,9 @@ export default function NotificationsModule() {
               >
                 {FILTER_TABS.map((opt) => {
                   const Icon = opt.icon;
-                  const count = tabCounts[opt.value];
+                  // Before the first fetch the list is empty, so every pill would
+                  // claim 0; the badge stays hidden until there is something to count.
+                  const count = showSkeleton ? undefined : tabCounts[opt.value];
                   const isSelected = activeTab === opt.value;
 
                   return (
@@ -330,18 +332,20 @@ export default function NotificationsModule() {
                       <span className="relative z-10 flex items-center gap-1.5">
                         <Icon className={cn("h-3.5 w-3.5", opt.value === "STARRED" && isSelected && "fill-current")} />
                         {opt.label}
-                        <span
-                          className={cn(
-                            "min-w-4 text-center text-xs md:text-[10px] font-bold transition-colors",
-                            isSelected
-                              ? "text-primary-foreground/80"
-                              : count === 0
-                                ? "text-muted-foreground/40"
-                                : "text-muted-foreground/70"
-                          )}
-                        >
-                          {count > 99 ? "99+" : count}
-                        </span>
+                        {typeof count === "number" && (
+                          <span
+                            className={cn(
+                              "min-w-4 text-center text-xs md:text-[10px] font-bold transition-colors",
+                              isSelected
+                                ? "text-primary-foreground/80"
+                                : count === 0
+                                  ? "text-muted-foreground/40"
+                                  : "text-muted-foreground/70"
+                            )}
+                          >
+                            {count > 99 ? "99+" : count}
+                          </span>
+                        )}
                       </span>
                     </button>
                   );
