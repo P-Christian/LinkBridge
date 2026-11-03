@@ -255,7 +255,7 @@ export default function Contact() {
   const supportHoursValue = `${supportDays}, ${supportTime}`;
 
   const contactCards: ContactCard[] = [
-    { icon: MapPin, label: "Office", value: officeAddress, desc: officeRegion, href: mapUrl },
+    { icon: MapPin, label: "Office", value: officeAddress, desc: "Visit Us" , href: mapUrl },
     { icon: Mail, label: "Email us", value: email, desc: "We reply within 24 hours.", href: `mailto:${email}` },
     ...(mobile
       ? [{ icon: Smartphone, label: "Mobile", value: formatPhone(mobile), desc: "Mobile hotline", href: toTelHref(mobile) }]
