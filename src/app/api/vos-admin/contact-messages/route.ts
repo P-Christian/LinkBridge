@@ -1,6 +1,7 @@
 // src/app/api/vos-admin/contact-messages/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { clampInt } from "@/lib/server/paging";
 import {
   fetchContactMessagesRepo,
   type ContactMessageListParams,
@@ -24,8 +25,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const q = searchParams.get("q") ?? undefined;
     const from = searchParams.get("from") ?? undefined;
     const to = searchParams.get("to") ?? undefined;
-    const page = Math.max(1, Number(searchParams.get("page") ?? 1));
-    const pageSize = Math.min(100, Math.max(1, Number(searchParams.get("pageSize") ?? 20)));
+    // Math.max(1, NaN) is NaN, so a hand-typed ?page=abc used to reach Directus
+    // as limit=NaN&offset=NaN and the whole inbox came back as a 500.
+    const page = clampInt(searchParams.get("page"), 1, 1, Number.MAX_SAFE_INTEGER);
+    const pageSize = clampInt(searchParams.get("pageSize"), 20, 1, 100);
 
     const params: ContactMessageListParams = {
       status:

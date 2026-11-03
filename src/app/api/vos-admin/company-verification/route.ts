@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 
 export const runtime = "nodejs";
@@ -11,9 +11,11 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
   ""
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET 
-);
+
+function toPositiveId(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
 
 function getPHISOTimestamp(): string {
   const now = new Date();
@@ -28,6 +30,23 @@ function getPHISOTimestamp(): string {
     hour12: false,
   });
   return dtf.format(now).replace(" ", "T") + "+08:00";
+}
+
+/**
+ * Manila wall clock as `YYYY-MM-DD HH:mm:ss`, the form every other writer of
+ * these columns uses (`getPHTimeString()` in registration, messaging and the
+ * school queue) and the form their readers assume.
+ *
+ * `getPHISOTimestamp()` above sends the same instant with a `+08:00` suffix,
+ * which Directus converts to UTC before it reaches the MySQL `datetime` column,
+ * so the two spellings do not store the same digits. A `vs_company` row could
+ * therefore carry a `created_at` from registration and a `verified_at` from this
+ * route eight hours apart, and `formatDate()` renders the second one wrongly.
+ * Only `vs_audit_trail`, whose reader treats naive digits as UTC, wants the
+ * offset form.
+ */
+function getPHTimestampForDB(): string {
+  return getPHISOTimestamp().slice(0, 19).replace("T", " ");
 }
 
 function getDirectusHeaders(): Record<string, string> {
@@ -79,27 +98,10 @@ function resolveLookupName(
   return Number.isNaN(Number(key)) ? key : null;
 }
 
-async function getAdminUserFromToken(req: NextRequest): Promise<{ adminId: number } | null> {
-  if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-    return { adminId: 1 };
-  }
-  const cookieStore = await cookies();
-  const token = req.headers.get("authorization")?.replace("Bearer ", "") || cookieStore.get("vos_sync_access_token")?.value;
-  if (!token) return null;
-
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const adminId = Number(payload.sub || payload.user_id || payload.id || 1);
-    return { adminId };
-  } catch {
-    return { adminId: 1 };
-  }
-}
-
 export async function GET(req: NextRequest) {
   try {
-    const auth = await getAdminUserFromToken(req);
-    if (!auth && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json(
         { error: "Unauthorized: no token provided" },
         { status: 401 }
@@ -120,27 +122,27 @@ export async function GET(req: NextRequest) {
     /**
      * Build Directus filter query for vs_company
      */
-    const filterParams: string[] = [];
+    const filter: Record<string, unknown> = {};
 
     if (status && status.toUpperCase() !== "ALL") {
-      filterParams.push(`"verification_status":{"_eq":"${status}"}`);
+      filter.verification_status = { _eq: status };
     }
 
     if (search && search.trim()) {
       const q = search.trim();
-      filterParams.push(`"_or":[
-        {"company_name":{"_icontains":"${q}"}},
-        {"company_legal_name":{"_icontains":"${q}"}},
-        {"company_code":{"_icontains":"${q}"}},
-        {"company_tin":{"_icontains":"${q}"}},
-        {"registration_no":{"_icontains":"${q}"}},
-        {"company_email":{"_icontains":"${q}"}}
-      ]`);
+      filter._or = [
+        { company_name: { _icontains: q } },
+        { company_legal_name: { _icontains: q } },
+        { company_code: { _icontains: q } },
+        { company_tin: { _icontains: q } },
+        { registration_no: { _icontains: q } },
+        { company_email: { _icontains: q } },
+      ];
     }
 
     const queries: string[] = ["sort=-created_at", "limit=-1"];
-    if (filterParams.length > 0) {
-      queries.push(`filter={${filterParams.join(",")}}`);
+    if (Object.keys(filter).length > 0) {
+      queries.push(`filter=${encodeURIComponent(JSON.stringify(filter))}`);
     }
 
     const companyUrl = `${DIRECTUS_BASE}/items/vs_company?${queries.join("&")}`;
@@ -479,7 +481,7 @@ function resolveAssetUrl(idStr: unknown): string | null {
 
     return NextResponse.json(records);
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     console.error("API Route Error (company-verification):", error);
     return NextResponse.json({ error: msg }, { status: 500 });
   }
@@ -487,8 +489,11 @@ function resolveAssetUrl(idStr: unknown): string | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await getAdminUserFromToken(req);
-    const adminId = auth?.adminId || 1;
+    const auth = await requireAdministrator(req);
+    if (!auth) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    const adminId = auth.adminId;
 
     if (!DIRECTUS_BASE) {
       return NextResponse.json(
@@ -498,13 +503,18 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { companyId, action, rejectionReason, internalNotes } = body;
+    const { companyId: rawCompanyId, action, rejectionReason, internalNotes } = body;
 
-    if (!companyId || !action) {
+    if (!rawCompanyId || !action) {
       return NextResponse.json(
         { error: "companyId and action are required" },
         { status: 400 }
       );
+    }
+
+    const companyId = toPositiveId(rawCompanyId);
+    if (!companyId) {
+      return NextResponse.json({ error: "Invalid companyId" }, { status: 400 });
     }
 
     let verifStatus = "PENDING_VERIFICATION";
@@ -529,7 +539,7 @@ export async function POST(req: NextRequest) {
       verifStatus = "IN_REVIEW";
     }
 
-    const nowPH = getPHISOTimestamp();
+    const nowPH = getPHTimestampForDB();
 
     const patchPayload: Record<string, unknown> = {
       rejection_reason: rejectionReason || null,
@@ -563,6 +573,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // The company row is the commit point: everything after it (owner cascade,
+    // workflow log, audit trail) can still fail per row. Those are reported as
+    // warnings, because an admin told the whole action failed will re-approve
+    // and double-write the log.
+    const warnings: string[] = [];
+
     // 1b. Automatically approve associated users and identity verifications when company is approved
     if (action === "approve") {
       try {
@@ -579,12 +595,18 @@ export async function POST(req: NextRequest) {
             const uid = Number(typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>).user_id : raw);
             if (uid) uids.push(uid);
           });
+        } else {
+          // A failed lookup and an ownerless company both produce an empty uids
+          // array; only one of them is a fact.
+          warnings.push("The company's linked user accounts could not be read, so no owner was marked verified.");
         }
 
         if (compRes.ok) {
           const compJson = await compRes.json();
           const creatorId = Number(compJson.data?.created_by_user_id);
           if (creatorId) uids.push(creatorId);
+        } else {
+          warnings.push("The company creator could not be read, so that owner was not marked verified.");
         }
 
         const uniqueUids = Array.from(new Set(uids.filter((id) => id > 0)));
@@ -592,7 +614,7 @@ export async function POST(req: NextRequest) {
           await Promise.all(
             uniqueUids.map(async (uid) => {
               try {
-                await fetch(`${DIRECTUS_BASE}/items/vs_user/${uid}`, {
+                const userPatchRes = await fetch(`${DIRECTUS_BASE}/items/vs_user/${uid}`, {
                   method: "PATCH",
                   headers: getDirectusHeaders(),
                   body: JSON.stringify({
@@ -602,33 +624,45 @@ export async function POST(req: NextRequest) {
                     updated_at: nowPH,
                   }),
                 });
+                if (!userPatchRes.ok) {
+                  warnings.push(`Owner #${uid} was not marked verified.`);
+                }
 
-                const idVerFindUrl = `${DIRECTUS_BASE}/items/identity_verifications?filter[user_id][_eq]=${uid}&sort=-submitted_at&limit=1`;
+                const idVerFindUrl = `${DIRECTUS_BASE}/items/vs_identity_verifications?filter[user_id][_eq]=${uid}&sort=-submitted_at&limit=1`;
                 const idVerFindRes = await fetch(idVerFindUrl, { headers: getDirectusHeaders(), cache: "no-store" });
                 if (idVerFindRes.ok) {
                   const idVerFindJson = await idVerFindRes.json();
                   const latestIdVer = idVerFindJson.data?.[0];
                   if (latestIdVer && latestIdVer.id) {
-                    await fetch(`${DIRECTUS_BASE}/items/identity_verifications/${latestIdVer.id}`, {
-                      method: "PATCH",
-                      headers: getDirectusHeaders(),
-                      body: JSON.stringify({
-                        status: "approved",
-                        verified_at: nowPH,
-                        verified_by: adminId,
-                        updated_at: nowPH,
-                      }),
-                    });
+                    const idVerPatchRes = await fetch(
+                      `${DIRECTUS_BASE}/items/vs_identity_verifications/${latestIdVer.id}`,
+                      {
+                        method: "PATCH",
+                        headers: getDirectusHeaders(),
+                        body: JSON.stringify({
+                          status: "approved",
+                          reviewed_at: nowPH,
+                          reviewed_by: adminId,
+                        }),
+                      }
+                    );
+                    if (!idVerPatchRes.ok) {
+                      warnings.push(`Owner #${uid}'s ID document was not approved.`);
+                    }
                   }
+                } else {
+                  warnings.push(`Owner #${uid}'s ID document could not be found.`);
                 }
               } catch (uErr) {
                 console.warn(`Failed to auto-approve user #${uid}:`, uErr);
+                warnings.push(`Owner #${uid} could not be updated.`);
               }
             })
           );
         }
       } catch (autoApproveErr) {
         console.warn("Failed during auto-approval of associated company users:", autoApproveErr);
+        warnings.push("The owner-approval pass stopped early, so some company owners may not have been marked verified.");
       }
     }
 
@@ -648,12 +682,16 @@ export async function POST(req: NextRequest) {
             const uid = Number(typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>).user_id : raw);
             if (uid) uids.push(uid);
           });
+        } else {
+          warnings.push("The company's linked user accounts could not be read, so no owner was suspended.");
         }
 
         if (compRes.ok) {
           const compJson = await compRes.json();
           const creatorId = Number(compJson.data?.created_by_user_id);
           if (creatorId) uids.push(creatorId);
+        } else {
+          warnings.push("The company creator could not be read, so that owner was not suspended.");
         }
 
         const uniqueUids = Array.from(new Set(uids.filter((id) => id > 0)));
@@ -662,7 +700,7 @@ export async function POST(req: NextRequest) {
           await Promise.all(
             uniqueUids.map(async (uid) => {
               try {
-                await fetch(`${DIRECTUS_BASE}/items/vs_user/${uid}`, {
+                const userPatchRes = await fetch(`${DIRECTUS_BASE}/items/vs_user/${uid}`, {
                   method: "PATCH",
                   headers: getDirectusHeaders(),
                   body: JSON.stringify({
@@ -671,33 +709,46 @@ export async function POST(req: NextRequest) {
                     updated_at: nowPH,
                   }),
                 });
+                if (!userPatchRes.ok) {
+                  warnings.push(`Owner #${uid} was not suspended.`);
+                }
 
-                const idVerFindUrl = `${DIRECTUS_BASE}/items/identity_verifications?filter[user_id][_eq]=${uid}&sort=-submitted_at&limit=1`;
+                const idVerFindUrl = `${DIRECTUS_BASE}/items/vs_identity_verifications?filter[user_id][_eq]=${uid}&sort=-submitted_at&limit=1`;
                 const idVerFindRes = await fetch(idVerFindUrl, { headers: getDirectusHeaders(), cache: "no-store" });
                 if (idVerFindRes.ok) {
                   const idVerFindJson = await idVerFindRes.json();
                   const latestIdVer = idVerFindJson.data?.[0];
                   if (latestIdVer && latestIdVer.id) {
-                    await fetch(`${DIRECTUS_BASE}/items/identity_verifications/${latestIdVer.id}`, {
-                      method: "PATCH",
-                      headers: getDirectusHeaders(),
-                      body: JSON.stringify({
-                        status: "suspended",
-                        rejection_reason: rejectionReason || null,
-                        reviewed_by: adminId,
-                        updated_at: nowPH,
-                      }),
-                    });
+                    const idVerPatchRes = await fetch(
+                      `${DIRECTUS_BASE}/items/vs_identity_verifications/${latestIdVer.id}`,
+                      {
+                        method: "PATCH",
+                        headers: getDirectusHeaders(),
+                        body: JSON.stringify({
+                          status: "suspended",
+                          reviewed_at: nowPH,
+                          reviewed_by: adminId,
+                          ...(rejectionReason ? { rejection_note: rejectionReason } : {}),
+                        }),
+                      }
+                    );
+                    if (!idVerPatchRes.ok) {
+                      warnings.push(`Owner #${uid}'s ID document was not suspended.`);
+                    }
                   }
+                } else {
+                  warnings.push(`Owner #${uid}'s ID document could not be found.`);
                 }
               } catch (uErr) {
                 console.warn(`Failed to auto-suspend user #${uid}:`, uErr);
+                warnings.push(`Owner #${uid} could not be updated.`);
               }
             })
           );
         }
       } catch (autoErr) {
         console.warn("Failed during auto-update of associated company users:", autoErr);
+        warnings.push("The owner-suspension pass stopped early, so some company owners may still be active.");
       }
     }
 
@@ -719,7 +770,7 @@ export async function POST(req: NextRequest) {
       }
 
       const verifLogUrl = `${DIRECTUS_BASE}/items/vs_company_verifications`;
-      await fetch(verifLogUrl, {
+      const verifLogRes = await fetch(verifLogUrl, {
         method: "POST",
         headers: getDirectusHeaders(),
         body: JSON.stringify({
@@ -734,8 +785,12 @@ export async function POST(req: NextRequest) {
           internal_notes: internalNotes || null,
         }),
       });
+      if (!verifLogRes.ok) {
+        warnings.push("The review queue will not show this decision in its history.");
+      }
     } catch (verifErr) {
       console.warn("Could not write to vs_company_verifications table:", verifErr);
+      warnings.push("The review queue will not show this decision in its history.");
     }
 
     // 3. Log event into vs_audit_trail
@@ -748,7 +803,7 @@ export async function POST(req: NextRequest) {
       const correlationId = req.headers.get("x-correlation-id") || `verif-${companyId}-${Date.now()}`;
 
       const auditUrl = `${DIRECTUS_BASE}/items/vs_audit_trail`;
-      await fetch(auditUrl, {
+      const auditRes = await fetch(auditUrl, {
         method: "POST",
         headers: getDirectusHeaders(),
         body: JSON.stringify({
@@ -764,20 +819,27 @@ export async function POST(req: NextRequest) {
           user_agent: userAgent,
           correlation_id: correlationId,
           reason: rejectionReason || `Company verification state updated to ${companyStatus}`,
-          created_at: nowPH,
+          // The audit read appends `Z` to naive values, so this table alone is
+          // written with the explicit offset.
+          created_at: getPHISOTimestamp(),
         }),
       });
+      if (!auditRes.ok) {
+        warnings.push("This decision was not written to the audit trail.");
+      }
     } catch (auditErr) {
       console.warn("Could not write to vs_audit_trail:", auditErr);
+      warnings.push("This decision was not written to the audit trail.");
     }
 
     return NextResponse.json({
       success: true,
       message: `Company ID ${companyId} status updated to ${companyStatus}`,
       verification_status: companyStatus,
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     console.error("API Route Error (POST company-verification):", error);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

@@ -1,14 +1,14 @@
 // src/app/api/vos-admin/career-articles/assets/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { requireAdministrator } from "@/lib/authenticated-session";
 import { CareerArticleService } from "@/modules/vos-admin/career-advice-management/services/article.service";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!(await requireAdministrator(req))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -32,15 +32,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ success: true, data: updated });
   } catch (err: unknown) {
     console.error("[api/career-articles/assets/[id] PATCH] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to update asset";
+    const message = safeErrorMessage(err, "Failed to update asset");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!(await requireAdministrator(req))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -54,7 +53,7 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
     return NextResponse.json({ success: true, message: "Asset deleted" });
   } catch (err: unknown) {
     console.error("[api/career-articles/assets/[id] DELETE] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to delete asset";
+    const message = safeErrorMessage(err, "Failed to delete asset");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { Check, X } from "lucide-react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import type {
   CourseDecisionFeedback,
   CourseDecisionOutcome,
@@ -65,28 +66,49 @@ export function CourseRequestsTab({ requests, claims, feedback, busy, onDecide, 
   const [candidatesLoading, setCandidatesLoading] = useState(false);
   const [candidatesError, setCandidatesError] = useState<string | null>(null);
 
+  const abortCandidates = useRequestAbort();
+
   const loadCandidates = useCallback(async (id: number) => {
     setCandidatesLoading(true);
     setCandidatesError(null);
+    // The course list is what the approve button submits against, so only the
+    // read for the request currently open may write it. Otherwise request A's
+    // slow response lands under request B's modal and B gets approved with one
+    // of A's courses.
+    const signal = abortCandidates();
     try {
-      const res = await fetch(`/api/vos-admin/course-requests/${id}/candidates`);
+      const res = await fetch(`/api/vos-admin/course-requests/${id}/candidates`, { signal });
       const json: { candidates?: CourseDecisionCandidate[]; error?: string } = await res.json();
+      if (signal.aborted) return;
       if (!res.ok) throw new Error(json.error || "Failed to load candidates");
       setCandidates(json.candidates ?? []);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setCandidates([]);
       setCandidatesError((err as Error).message);
     } finally {
-      setCandidatesLoading(false);
+      if (!signal.aborted) setCandidatesLoading(false);
     }
-  }, []);
+  }, [abortCandidates]);
 
   const handleReview = useCallback((req: VsCourseRequest, tab: CourseDecisionTab) => {
     setSelectedRequest(req);
     setInitialTab(tab);
+    // Rows from the previous request must not sit behind this one while its own
+    // candidates are still loading.
+    setCandidates([]);
     setDecisionOpen(true);
     void loadCandidates(req.course_request_id);
   }, [loadCandidates]);
+
+  const closeDecision = useCallback((open: boolean) => {
+    if (!open) {
+      // Claim the token so a read still running cannot write into a closed modal.
+      abortCandidates();
+      setCandidates([]);
+    }
+    setDecisionOpen(open);
+  }, [abortCandidates]);
 
   const submitDecision = async (decision: CourseRequestDecision): Promise<boolean> => {
     if (!selectedRequest) return false;
@@ -261,7 +283,7 @@ export function CourseRequestsTab({ requests, claims, feedback, busy, onDecide, 
       </Card>
       <CourseRequestDecisionModal
         open={decisionOpen}
-        onOpenChange={setDecisionOpen}
+        onOpenChange={closeDecision}
         request={selectedRequest}
         initialTab={initialTab}
         candidates={candidates}

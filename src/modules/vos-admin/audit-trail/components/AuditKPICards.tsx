@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { AuditKPIData } from '../types/audit.types';
 import { Activity, AlertOctagon, ShieldAlert, UserCheck } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
+import { KpiValue } from '@/components/shared/KpiValue';
 
 interface AuditKPICardsProps {
   kpis: AuditKPIData;
@@ -86,11 +87,7 @@ export function AuditKPICards({ kpis, loading }: AuditKPICardsProps) {
                     {card.title}
                   </p>
                   <div className="text-2xl font-bold mt-1 tracking-tight text-foreground font-mono">
-                    {loading ? (
-                      <span className="animate-pulse text-muted-foreground">---</span>
-                    ) : (
-                      card.value.toLocaleString()
-                    )}
+                    <KpiValue value={card.value} loading={loading} />
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5">
                     {card.description}

@@ -108,10 +108,13 @@ export interface GeminiRateLimitStatus {
 
 /** Fetch raw request rows from Directus with fallback collection names */
 async function fetchDirectusRequests(queryParams: URLSearchParams): Promise<GeminiRequestRow[]> {
-  if (!DIRECTUS_BASE) return [];
+  if (!DIRECTUS_BASE) {
+    throw new Error("Gemini telemetry could not be read: the CMS base URL is not configured.");
+  }
 
+  let res: Response;
   try {
-    let res = await fetch(`${DIRECTUS_BASE}/items/vs_gemini_requests?${queryParams}`, {
+    res = await fetch(`${DIRECTUS_BASE}/items/vs_gemini_requests?${queryParams}`, {
       headers: getHeaders(),
       cache: "no-store",
     });
@@ -122,13 +125,25 @@ async function fetchDirectusRequests(queryParams: URLSearchParams): Promise<Gemi
         cache: "no-store",
       });
     }
-
-    if (!res.ok) return [];
-    const json = await res.json();
-    return Array.isArray(json?.data) ? (json.data as GeminiRequestRow[]) : [];
-  } catch {
-    return [];
+  } catch (err) {
+    throw new Error(`Gemini telemetry could not be read: ${(err as Error)?.message}`);
   }
+
+  // Neither collection existing is a genuine "no telemetry yet". Every other
+  // failure used to answer with an empty array, which the dashboard then
+  // reported as zero requests, a 100% success rate and NO_DATA health.
+  if (!res.ok) {
+    if (res.status === 404) return [];
+    throw new Error(`Gemini telemetry could not be read (${res.status}).`);
+  }
+
+  const json = await res.json().catch(() => null);
+  // A 200 whose body will not parse is not "no rows" — answering [] here rendered
+  // an empty dashboard with a 100% success rate.
+  if (!Array.isArray(json?.data)) {
+    throw new Error("Gemini telemetry could not be read: the CMS returned an unreadable response.");
+  }
+  return json.data as GeminiRequestRow[];
 }
 
 export interface HourlyBucket {
