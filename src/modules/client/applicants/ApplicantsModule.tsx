@@ -13,7 +13,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {AlertCircle, ArrowLeft, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import ListSkeleton from "../components/ListSkeleton";
-import { Applicant, ApplicationStatus, AssessmentMoveOutcome, STATUS_LABELS } from "./types";
+import { Applicant, ApplicationStatus, AssessmentMoveOutcome } from "./types";
 import { CANONICAL_STAGE_TYPES } from "@/modules/client/pipeline/types";
 import { matchesStageFilter, EMPTY_APPLICANT_FILTERS } from "./utils/applicantFilters";
 import {
@@ -156,6 +156,11 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
     return counts;
   }, [rawApplicants, jobPipeline]);
 
+  // A refetch keeps the previous rows in state, so only a first load that has
+  // nothing to derive from should hide the numbers — gating on `loading` alone
+  // would blank every badge each time a stage move refreshes the list.
+  const countsPending = loading && rawApplicants.length === 0;
+
   const needsReviewCount = React.useMemo(
     () => rawApplicants.filter((a) => a.assessment_needs_review).length,
     [rawApplicants]
@@ -266,43 +271,6 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
     if (result.gated || result.ok) setDrawerOpen(false);
   };
 
-  const handleQuickStatusUpdate = async (
-    applicant: Applicant,
-    newStatus: ApplicationStatus
-  ) => {
-    const candidateName =
-      applicant.applicant_name || `Applicant #${applicant.application_id}`;
-    const statusLabel = STATUS_LABELS[newStatus] || newStatus;
-
-    const result = await updateStatus(
-      applicant.application_id,
-      newStatus,
-      applicant.client_notes || ""
-    );
-
-    if (result.gated && result.toStageId !== undefined) {
-      await requestStageMove(
-        applicant,
-        result.toStageId,
-        result.stageName ?? statusLabel,
-        applicant.client_notes || ""
-      );
-      return;
-    }
-
-    if (result.ok) {
-      toast.success(`${candidateName} moved to ${statusLabel}`);
-      if (applicant.application_id === selectedApplicant?.application_id) {
-        setSelectedApplicant((prev) =>
-          prev ? { ...prev, application_status: newStatus } : null
-        );
-      }
-      fetchApplicants(undefined, jobId);
-    } else {
-      toast.error(`Failed to update ${candidateName}'s status.`);
-    }
-  };
-
   const handleQuickStageUpdate = async (
     applicant: Applicant,
     toStageId: number,
@@ -381,16 +349,21 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
       target?.stage_type === "REJECTED" || target?.stage_type === "WITHDRAWN";
 
     if (applicant.stage_type === "ASSESSMENT" && !isUniversalExit) {
-      let requiresOutcome = false;
+      // An unread requirement is not "no requirement". Defaulting to false here
+      // moved the candidate straight past the assessment stage; the PATCH then
+      // rejected it with 409 and the recruiter saw a bare error instead of the
+      // outcome modal. Asking for an outcome the move may not need is harmless:
+      // the service only records it on a qualifying move.
+      let requiresOutcome = true;
       try {
         const res = await fetch(
           `/api/client/applicants/${applicant.application_id}/stage?to_stage_id=${toStageId}`,
           { cache: "no-store" }
         );
         const json = await res.json().catch(() => null);
-        requiresOutcome = res.ok && json?.requires_outcome === true;
+        if (res.ok) requiresOutcome = json?.requires_outcome === true;
       } catch {
-        requiresOutcome = false;
+        requiresOutcome = true;
       }
       if (requiresOutcome) {
         clearError();
@@ -505,7 +478,9 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
               Applicant Management
             </h1>
             <p className="text-sm text-muted-foreground">
-              {applicants.length} candidate{applicants.length !== 1 ? "s" : ""} shown
+              {countsPending
+                ? "— candidates shown"
+                : `${applicants.length} candidate${applicants.length === 1 ? "" : "s"} shown`}
               {needsReviewCount > 0 && (
                 <span className="font-semibold text-amber-600 dark:text-amber-400">
                   {" "}· {needsReviewCount} {needsReviewCount === 1 ? "needs" : "need"} review
@@ -563,9 +538,13 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
 
         {/* Main Content Area */}
         {showBestMatches && selectedJob ? (
+          // Fed the whole job pool, not `applicants`: the search and stage filters
+          // that shape the table are not visible in this mode, so a leftover
+          // filter used to silently shrink the ranking — and re-run Gemini,
+          // because the cache key is the pool's length.
           <BestMatchesTab
             job={selectedJob}
-            applicants={applicants}
+            applicants={rawApplicants}
             loading={loading}
             onViewDetails={handleViewDetails}
             onScheduleInterview={handleOpenSchedule}
@@ -580,9 +559,9 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
                 onStatusChange={setFilterStatus}
                 filters={filters}
                 onFiltersChange={setFilters}
-                counts={statusCounts}
+                counts={countsPending ? undefined : statusCounts}
                 pipelineStages={jobPipeline?.stages}
-                resultCount={loading ? undefined : applicants.length}
+                resultCount={countsPending ? undefined : applicants.length}
               />
             </CardHeader>
             <CardContent className="p-4 sm:p-5">
@@ -601,7 +580,6 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
                     setFilters(EMPTY_APPLICANT_FILTERS);
                   }}
                   onUpdateStatus={handleUpdateStatus}
-                  onQuickStatusUpdate={handleQuickStatusUpdate}
                   onQuickStageUpdate={handleQuickStageUpdate}
                   onScheduleInterview={handleOpenSchedule}
                   onViewScheduledInterview={handleViewScheduledInterview}

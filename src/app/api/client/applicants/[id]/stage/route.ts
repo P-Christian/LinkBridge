@@ -47,12 +47,28 @@ async function resolveClientScope(
   if (!isClientSession(session)) {
     return { ok: false, error: "Client account required.", status: 403 };
   }
-  const companyId = await resolveReviewerCompany(session.userId);
-  if (!companyId) {
+  const reviewer = await resolveReviewerCompany(session.userId);
+  if (reviewer.unavailable) {
+    return {
+      ok: false,
+      error: "Your company association could not be read. Please try again.",
+      status: 502,
+    };
+  }
+  if (!reviewer.companyId) {
     return { ok: false, error: "Company association not found.", status: 403 };
   }
-  const application = await loadCompanyApplication(applicationId, companyId);
-  if (!application) {
+  const companyId = reviewer.companyId;
+
+  const owned = await loadCompanyApplication(applicationId, companyId);
+  if (owned.unavailable) {
+    return {
+      ok: false,
+      error: "The application could not be read. Please try again.",
+      status: 502,
+    };
+  }
+  if (!owned.application) {
     return { ok: false, error: "Application not found.", status: 404 };
   }
   return { ok: true, userId: Number(session.userId), companyId };
@@ -122,8 +138,17 @@ export async function PATCH(
       `${DIRECTUS_BASE}/items/vs_job_application/${applicationId}?fields=application_id,job_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
-    if (!appCheckRes.ok) {
+    // Only 404 means the application is gone. Other failures have to stay
+    // distinguishable or an outage reads to the recruiter as "this candidate's
+    // application does not exist".
+    if (appCheckRes.status === 404) {
       return NextResponse.json({ error: "Application not found." }, { status: 404 });
+    }
+    if (!appCheckRes.ok) {
+      return NextResponse.json(
+        { error: "The application could not be verified. Please try again." },
+        { status: 502 }
+      );
     }
     const appCheckJson = await appCheckRes.json();
     const targetJobId = Number(appCheckJson.data?.job_id);
@@ -135,8 +160,14 @@ export async function PATCH(
       `${DIRECTUS_BASE}/items/vs_job_posting/${targetJobId}?fields=job_id,company_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
-    if (!jobCheckRes.ok) {
+    if (jobCheckRes.status === 404) {
       return NextResponse.json({ error: "Associated job posting not found." }, { status: 404 });
+    }
+    if (!jobCheckRes.ok) {
+      return NextResponse.json(
+        { error: "The job posting could not be verified. Please try again." },
+        { status: 502 }
+      );
     }
     const jobCheckJson = await jobCheckRes.json();
     const jobCompanyId = Number(jobCheckJson.data?.company_id);

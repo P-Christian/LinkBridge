@@ -14,12 +14,121 @@ import {
 } from "@/modules/client/assessment-review/services/context";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { orderEducation } from "@/modules/client/education/order-education";
+import { safeErrorMessage } from "@/lib/api-error";
+import {
+  DirectusError,
+  directusItems,
+  directusItemsWhereIn,
+  directusSettled,
+} from "@/lib/server/directus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+interface ApplicationRow {
+  application_id: number;
+  job_id: number;
+  user_id: number;
+  application_status?: string;
+  current_stage_id?: number | null;
+  cover_letter?: string | null;
+  expected_salary?: string | number | null;
+  portfolio_url?: string | null;
+  client_notes?: string | null;
+  applied_at?: string | null;
+  status_updated_at?: string | null;
+}
+
+interface JobPostingRow {
+  job_id?: number;
+  job_title?: string | null;
+  company_id?: number | { company_id?: number } | null;
+}
+
+interface ApplicantUserRow {
+  user_id?: number;
+  user_fname?: string | null;
+  user_lname?: string | null;
+  user_email?: string | null;
+  user_contact?: string | null;
+  profile_image_url?: string | null;
+  user_city?: string | null;
+  user_province?: string | null;
+}
+
+interface SeekerProfileRow {
+  user_id?: number;
+  profile_headline?: string | null;
+  professional_summary?: string | null;
+  availability_status?: string | null;
+  profile_visibility?: string | null;
+  [key: string]: unknown;
+}
+
+interface CertificationRow {
+  id?: number;
+  certificate_name?: string | null;
+  issuing_organization?: string | null;
+  [key: string]: unknown;
+}
+
+interface CompanyRow {
+  company_id?: number;
+  company_name?: string | null;
+  company_logo?: string | null;
+  [key: string]: unknown;
+}
+
+interface ScreeningQuestionRow {
+  question_id: number;
+  question_text?: string | null;
+}
+
+interface ApplicationAnswerRow {
+  question_id: number;
+  answer_text?: string | null;
+}
+
+interface InterviewApplicationRow {
+  interview_id: number;
+}
+
+interface InterviewRow {
+  interview_id: number;
+  interview_status?: string | null;
+}
+
+interface ApplicationReferralRow {
+  application_id?: number;
+  referral_id?: { referral_letter?: string | null } | number | null;
+  referrer_user_id?:
+    | { user_id?: number; user_fname?: string | null; user_lname?: string | null }
+    | number
+    | null;
+}
+
+interface SchoolAdminRow {
+  school_id?: { school_name?: string | null } | number | null;
+}
+
+/**
+ * Only Directus' own 404 may tell the employer a row is gone. Every other
+ * failure status means the row could not be read, and answering "not found"
+ * makes an outage look like a deleted candidate.
+ */
+function missingOrOutage(status: number, entity: string): NextResponse {
+  if (status === 404) {
+    return NextResponse.json({ error: `${entity} not found.` }, { status: 404 });
+  }
+  return NextResponse.json(
+    { error: `${entity} could not be read. Please try again.` },
+    { status: 502 }
+  );
+}
+
 interface WorkExperience {
   id: number;
   company_name?: string | null;
@@ -148,16 +257,28 @@ export async function GET(
       );
     }
 
-    const reviewerCompanyId = await resolveReviewerCompany(session.userId);
-    if (!reviewerCompanyId) {
+    const reviewer = await resolveReviewerCompany(session.userId);
+    if (reviewer.unavailable) {
+      return NextResponse.json(
+        { error: "Your company association could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+    if (!reviewer.companyId) {
       return NextResponse.json(
         { error: "Company association not found." },
         { status: 403 }
       );
     }
 
-    const owned = await loadCompanyApplication(applicationId, reviewerCompanyId);
-    if (!owned) {
+    const ownedRead = await loadCompanyApplication(applicationId, reviewer.companyId);
+    if (ownedRead.unavailable) {
+      return NextResponse.json(
+        { error: "The application could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+    if (!ownedRead.application) {
       return NextResponse.json(
         { error: "Application not found." },
         { status: 404 }
@@ -189,24 +310,21 @@ export async function GET(
     // APPLICATION
     // ---------------------------------------------------
 
-    const applicationRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_application/${id}?fields=application_id,job_id,user_id,application_status,current_stage_id,cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at`,
+    const applicationRes = await directusSettled<{ data?: ApplicationRow | null }>(
+      `/items/vs_job_application/${applicationId}`,
       {
-        headers: getHeaders(),
-        cache: "no-store",
+        query:
+          "fields=application_id,job_id,user_id,application_status,current_stage_id," +
+          "cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at",
       }
     );
-
+    // An unreadable row used to answer "Application not found.", so a Directus
+    // outage deleted a real candidate from the employer's pipeline.
     if (!applicationRes.ok) {
-      return NextResponse.json(
-        { error: "Application not found." },
-        { status: 404 }
-      );
+      return missingOrOutage(applicationRes.status, "Application");
     }
 
-    const applicationJson = await applicationRes.json();
-
-    const application = applicationJson.data;
+    const application = applicationRes.data?.data ?? null;
 
     if (!application) {
       return NextResponse.json(
@@ -224,15 +342,14 @@ export async function GET(
       );
     }
 
-    const jobCheckRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_posting/${targetJobId}?fields=job_id,job_title,company_id`,
-      { headers: getHeaders(), cache: "no-store" }
+    const jobCheckRes = await directusSettled<{ data?: JobPostingRow | null }>(
+      `/items/vs_job_posting/${targetJobId}`,
+      { query: "fields=job_id,job_title,company_id" }
     );
     if (!jobCheckRes.ok) {
-      return NextResponse.json({ error: "Associated job posting not found." }, { status: 404 });
+      return missingOrOutage(jobCheckRes.status, "Associated job posting");
     }
-    const jobCheckJson = await jobCheckRes.json();
-    const verifiedJob = jobCheckJson.data;
+    const verifiedJob = jobCheckRes.data?.data ?? null;
     if (Number(verifiedJob?.company_id) !== companyId) {
       return NextResponse.json(
         { error: "Forbidden: Candidate application belongs to another organization." },
@@ -244,167 +361,95 @@ export async function GET(
 
     // ---------------------------------------------------
     // PARALLEL REQUESTS
+    //
+    // Every one of these used to answer `[]`/`null` when Directus was
+    // unreachable, so an outage rendered a real candidate with no work history,
+    // no education, no skills, no resume and no interview. Each read is fatal
+    // now; the outer catch turns it into a 502 the drawer can retry.
     // ---------------------------------------------------
 
-    const [
-      userRes,
-      profileRes,
-      jobRes,
-      workRes,
-      educationRes,
-      certificationRes,
-      resumeRes,
-      socialRes,
-      skillsMapRes,
-      interviewAppRes,
-    ] = await Promise.all([
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user/${applicantUserId}`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
+    const [userRes, profileRows, workRows, educationRows, certificationRows, resumeRows, socialRows, skillsMapRows] =
+      await Promise.all([
+        directusSettled<{ data?: ApplicantUserRow | null }>(
+          `/items/vs_user/${applicantUserId}`
+        ),
+        directusItems<SeekerProfileRow>("vs_job_seeker_profile", {
+          query: `filter[user_id][_eq]=${applicantUserId}&limit=1`,
+        }),
+        directusItems<WorkExperience>("vs_work_experience", {
+          query: `filter[user_id][_eq]=${applicantUserId}&sort[]=-start_date&limit=-1`,
+        }),
+        directusItems<EducationRow>("vs_employee_education", {
+          query:
+            `filter[user_id][_eq]=${applicantUserId}` +
+            `&fields=employee_education_id,school_id.school_name,school_name_raw,school_course_id.course_name,course_name_raw,education_status,start_date,end_date` +
+            `&limit=-1`,
+        }),
+        directusItems<CertificationRow>("vs_certifications", {
+          query: `filter[user_id][_eq]=${applicantUserId}&limit=-1`,
+        }),
+        directusItems<Resume>("vs_job_seeker_resumes", {
+          query: `filter[user_id][_eq]=${applicantUserId}&limit=-1`,
+        }),
+        directusItems<SocialLinkItem>("vs_user_social_links", {
+          query: `filter[user_id][_eq]=${applicantUserId}&limit=-1`,
+        }),
+        directusItems<SkillMap>("vs_user_skills_map", {
+          query: `filter[user_id][_eq]=${applicantUserId}&fields=id,skill_id&limit=-1`,
+        }),
+      ]);
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_seeker_profile?filter[user_id][_eq]=${applicantUserId}&limit=1`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_posting/${application.job_id}?fields=job_title,company_id`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_work_experience?filter[user_id][_eq]=${applicantUserId}&sort[]=-start_date`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_employee_education?filter[user_id][_eq]=${applicantUserId}&fields=employee_education_id,school_id.school_name,school_name_raw,school_course_id.course_name,course_name_raw,education_status,start_date,end_date&limit=-1`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_certifications?filter[user_id][_eq]=${applicantUserId}`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_seeker_resumes?filter[user_id][_eq]=${applicantUserId}`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user_social_links?filter[user_id][_eq]=${applicantUserId}`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user_skills_map?filter[user_id][_eq]=${applicantUserId}&fields=id,skill_id`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_eq]=${application.application_id}&fields=interview_id&limit=50`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      ),
-    ]);
     // ---------------------------------------------------
     // USER
     // ---------------------------------------------------
 
     if (!userRes.ok) {
+      return missingOrOutage(userRes.status, "Candidate profile");
+    }
+
+    const user = userRes.data?.data ?? null;
+    if (!user) {
       return NextResponse.json(
         { error: "Candidate profile not found." },
         { status: 404 }
       );
     }
 
-    const userJson = await userRes.json();
-
-    const user = userJson.data;
-
     // ---------------------------------------------------
     // PROFILE
     // ---------------------------------------------------
 
-    const profileJson = profileRes.ok
-      ? await profileRes.json()
-      : { data: [] };
-
-    const profile = profileJson.data?.[0] ?? null;
+    const profile = profileRows[0] ?? null;
 
     // ---------------------------------------------------
     // JOB + COMPANY
     // ---------------------------------------------------
 
-    const jobJson = jobRes.ok
-      ? await jobRes.json()
-      : { data: null };
+    // The ownership check above already read this posting's job_title and
+    // company_id, so re-reading the same row only added another way to fail.
+    const jobTitle = verifiedJob?.job_title ?? "Unknown Role";
 
-    const job = jobJson.data;
-
-    const jobTitle =
-      job?.job_title ?? "Unknown Role";
-
-
-    let company = null;
-
-
-    if (job?.company_id) {
-      const companyRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_company/${job.company_id}`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+    let company: CompanyRow | null = null;
+    const jobCompanyId =
+      typeof verifiedJob?.company_id === "object"
+        ? verifiedJob?.company_id?.company_id
+        : verifiedJob?.company_id;
+    if (jobCompanyId) {
+      const companyRes = await directusSettled<{ data?: CompanyRow | null }>(
+        `/items/vs_company/${jobCompanyId}`
       );
-
-
-      if (companyRes.ok) {
-        const companyJson = await companyRes.json();
-
-        company = companyJson.data ?? null;
+      // A dangling FK is data; anything else is an outage and must not render
+      // the employer's own company as "no company".
+      if (!companyRes.ok && companyRes.status !== 404) {
+        return missingOrOutage(companyRes.status, "Company");
       }
+      company = companyRes.data?.data ?? null;
     }
     // ---------------------------------------------------
     // WORK EXPERIENCE
     // ---------------------------------------------------
 
-    const workJson = workRes.ok
-      ? await workRes.json()
-      : { data: [] };
-
-    const workExperience = (workJson.data as WorkExperience[] ?? []).map((exp) => ({
+    const workExperience = workRows.map((exp) => ({
       id: exp.id,
       company_name: exp.company_name,
       job_title: exp.job_title,
@@ -421,11 +466,6 @@ export async function GET(
     // EDUCATION
     // ---------------------------------------------------
 
-    const educationJson = educationRes.ok
-      ? await educationRes.json()
-      : { data: [] };
-
-    const educationRows = (educationJson.data as EducationRow[] | null | undefined) ?? [];
     const education = orderEducation(educationRows, {
       status: (row) => row.education_status ?? null,
       endDate: (row) => row.end_date ?? null,
@@ -444,21 +484,13 @@ export async function GET(
     // CERTIFICATIONS
     // ---------------------------------------------------
 
-    const certificationJson = certificationRes.ok
-      ? await certificationRes.json()
-      : { data: [] };
-
-    const certifications = certificationJson.data ?? [];
+    const certifications = certificationRows;
 
     // ---------------------------------------------------
     // RESUME
     // ---------------------------------------------------
 
-    const resumeJson = resumeRes.ok
-      ? await resumeRes.json()
-      : { data: [] };
-
-    const resumes = (resumeJson.data as Resume[] ?? []).sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
+    const resumes = resumeRows.sort((a, b) => Number(b.id || 0) - Number(a.id || 0));
 
     // Show only is_primary resume (fallback to latest if none marked primary)
     const primaryResumes = resumes.filter((r) => r.is_primary === true || r.is_primary === 1 || r.is_primary === "1");
@@ -493,12 +525,7 @@ export async function GET(
     // SOCIAL LINKS
     // ---------------------------------------------------
 
-    const socialJson = socialRes.ok
-      ? await socialRes.json()
-      : { data: [] };
-
-    const rawSocials = (socialJson.data as SocialLinkItem[] ?? []);
-    const socialLinks = rawSocials.map((s) => {
+    const socialLinks = socialRows.map((s) => {
       const linkUrl = s.profile_url || s.url || s.link || "";
       const platformName = s.platform_name || s.platform || "Link";
       return {
@@ -514,123 +541,101 @@ export async function GET(
     // SKILLS
     // ---------------------------------------------------
 
-    const skillsMapJson = skillsMapRes.ok
-      ? await skillsMapRes.json()
-      : { data: [] };
+    const skillIds = skillsMapRows.map((s) => s.skill_id).filter(Boolean);
 
-    const skillsMap = skillsMapJson.data ?? [];
-
-    let skills: string[] = [];
-
-    if (skillsMap.length > 0) {
-const skillIds = (skillsMap as SkillMap[])
-  .map((s) => s.skill_id)
-  .filter(Boolean);
-
-      if (skillIds.length > 0) {
-        const skillsRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_master_skills?filter[id][_in]=${skillIds.join(",")}&fields=skill_name`,
-          {
-            headers: getHeaders(),
-            cache: "no-store",
-          }
-        );
-
-        if (skillsRes.ok) {
-          const skillsJson = await skillsRes.json();
-
-skills = (skillsJson.data as Skill[] ?? []).map(
-  (s) => s.skill_name
-);
-        }
-      }
-    }
+    // A failed name lookup used to leave `skills` empty, so the drawer reported
+    // a skilled candidate as having none. Skill ids are read in batches because
+    // a long `_in=` list fails at the transport layer.
+    const skillRows = await directusItemsWhereIn<Skill>(
+      "vs_master_skills",
+      "id",
+      skillIds,
+      "skill_name"
+    );
+    const skills = skillRows.map((s) => s.skill_name);
 
     // ---------------------------------------------------
     // SCREENING ANSWERS
     // ---------------------------------------------------
 
     let screeningAnswers: { question_id: number; question_text: string; answer_text: string }[] | null = null;
-    
-    // 1. Fetch all configured screening questions for this job
-    const jobQuestionsRes = application.job_id
-      ? await fetch(
-          `${DIRECTUS_BASE}/items/vs_job_screening_question?filter[job_id][_eq]=${application.job_id}&fields=question_id,question_text&limit=100`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-      : null;
 
-    const jobQuestions: { question_id: number; question_text: string }[] =
-      jobQuestionsRes && jobQuestionsRes.ok ? (await jobQuestionsRes.json()).data ?? [] : [];
+    // 1. Configured screening questions for the job, and 2. the answers this
+    // candidate submitted. Both used to degrade to `[]`, which is how an outage
+    // turned a screened candidate into one who never answered — a reason to
+    // reject them.
+    const [jobQuestions, ansList] = await Promise.all([
+      application.job_id
+        ? directusItems<ScreeningQuestionRow>("vs_job_screening_question", {
+            query: `filter[job_id][_eq]=${application.job_id}&fields=question_id,question_text&limit=-1`,
+          })
+        : Promise.resolve<ScreeningQuestionRow[]>([]),
+      directusItems<ApplicationAnswerRow>("vs_job_application_answer", {
+        query: `filter[application_id][_eq]=${application.application_id}&fields=question_id,answer_text&limit=-1`,
+      }),
+    ]);
 
-    // 2. Fetch candidate answers submitted for this application
-    const ansRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_application_answer?filter[application_id][_eq]=${application.application_id}&fields=question_id,answer_text&limit=100`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
+    const ansMap = new Map<number, string>();
+    ansList.forEach((a) => {
+      if (a.question_id) ansMap.set(a.question_id, a.answer_text ?? "");
+    });
 
-    if (ansRes.ok || jobQuestions.length > 0) {
-      const ansList: { question_id: number; answer_text: string }[] = ansRes.ok
-        ? (await ansRes.json()).data ?? []
-        : [];
-      const ansMap = new Map<number, string>();
-      ansList.forEach((a) => {
-        if (a.question_id) ansMap.set(a.question_id, a.answer_text);
+    if (jobQuestions.length > 0) {
+      // Map all job questions, including unanswered ones with empty string
+      screeningAnswers = jobQuestions.map((q) => ({
+        question_id: q.question_id,
+        question_text: q.question_text || `Question #${q.question_id}`,
+        answer_text: ansMap.get(q.question_id) ?? "",
+      }));
+    } else if (ansList.length > 0) {
+      // Fallback if questions are recorded with answers
+      const qIds = [...new Set(ansList.map((a) => a.question_id).filter(Boolean))];
+      const qTextMap = new Map<number, string>();
+      const qList = await directusItemsWhereIn<ScreeningQuestionRow>(
+        "vs_job_screening_question",
+        "question_id",
+        qIds,
+        "question_id,question_text"
+      );
+      qList.forEach((q) => {
+        qTextMap.set(q.question_id, q.question_text ?? "");
       });
 
-      if (jobQuestions.length > 0) {
-        // Map all job questions, including unanswered ones with empty string
-        screeningAnswers = jobQuestions.map((q) => ({
-          question_id: q.question_id,
-          question_text: q.question_text || `Question #${q.question_id}`,
-          answer_text: ansMap.get(q.question_id) ?? "",
-        }));
-      } else if (ansList.length > 0) {
-        // Fallback if questions are recorded with answers
-        const qIds = [...new Set(ansList.map((a) => a.question_id).filter(Boolean))];
-        const qTextMap: Record<number, string> = {};
-        if (qIds.length > 0) {
-          const qRes = await fetch(
-            `${DIRECTUS_BASE}/items/vs_job_screening_question?filter[question_id][_in]=${qIds.join(",")}&fields=question_id,question_text&limit=100`,
-            { headers: getHeaders(), cache: "no-store" }
-          );
-          if (qRes.ok) {
-            const qJson = await qRes.json();
-            const qList: { question_id: number; question_text: string }[] = qJson.data ?? [];
-            qList.forEach((q) => {
-              qTextMap[q.question_id] = q.question_text;
-            });
-          }
-        }
-
-        screeningAnswers = ansList.map((a) => ({
-          question_id: a.question_id,
-          question_text: qTextMap[a.question_id] || `Question #${a.question_id}`,
-          answer_text: a.answer_text ?? "",
-        }));
-      } else {
-        screeningAnswers = [];
-      }
+      screeningAnswers = ansList.map((a) => ({
+        question_id: a.question_id,
+        question_text: qTextMap.get(a.question_id) || `Question #${a.question_id}`,
+        answer_text: a.answer_text ?? "",
+      }));
+    } else {
+      screeningAnswers = [];
     }
 
     // ---------------------------------------------------
     // ACTIVE INTERVIEW
     // ---------------------------------------------------
+    // Answering "no interview" when the lookup failed told the employer a
+    // scheduled interview had been cancelled.
     let activeInterviewId: number | null = null;
-    const interviewAppRows: { interview_id: number }[] =
-      interviewAppRes.ok ? (await interviewAppRes.json()).data ?? [] : [];
+    const interviewAppRows = await directusItems<InterviewApplicationRow>(
+      "vs_interview_application",
+      {
+        query: `filter[application_id][_eq]=${application.application_id}&fields=interview_id&limit=-1`,
+      }
+    );
     const ivIds = interviewAppRows.map((r) => r.interview_id).filter(Boolean);
     if (ivIds.length > 0) {
-      const activeIvRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${ivIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id,interview_status&limit=1`,
-        { headers: getHeaders(), cache: "no-store" }
-      );
-      if (activeIvRes.ok) {
-        const activeIvRows: { interview_id: number }[] =
-          (await activeIvRes.json()).data ?? [];
-        if (activeIvRows.length > 0) {
-          activeInterviewId = activeIvRows[0].interview_id;
+      const activeIvRows = await directusItemsWhereIn<InterviewRow>(
+        "vs_interview",
+        "interview_id",
+        ivIds,
+        "interview_id,interview_status",
+        {
+          extra:
+            "filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&sort[]=-interview_id&limit=1",
         }
+      );
+      if (activeIvRows.length > 0) {
+        activeInterviewId = activeIvRows[0].interview_id;
       }
     }
 
@@ -643,48 +648,51 @@ skills = (skillsJson.data as Skill[] ?? []).map(
     let referralSchoolName: string | null = null;
     let referralLetter: string | null = null;
 
-    try {
-      const appRefRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_application_referral?filter[application_id][_eq]=${application.application_id}&fields=*,referral_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
-        { headers: getHeaders(), cache: "no-store" }
-      );
-      if (appRefRes.ok) {
-        const appRefJson = await appRefRes.json();
-        const refRow = appRefJson.data?.[0];
-        if (refRow) {
-          isReferred = true;
-          const rUser = refRow.referrer_user_id;
-          const refUserId = rUser?.user_id || Number(rUser) || 0;
-          referrerName = rUser && typeof rUser === "object"
-            ? `${rUser.user_fname || ""} ${rUser.user_lname || ""}`.trim()
-            : null;
+    // An endorsement that could not be read used to be swallowed by a
+    // console.warn, so an introduced candidate was presented as self-applied.
+    const refRows = await directusItems<ApplicationReferralRow>(
+      "vs_job_application_referral",
+      {
+        query:
+          `filter[application_id][_eq]=${application.application_id}` +
+          `&fields=*,referral_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
+      }
+    );
+    const refRow = refRows[0] ?? null;
+    if (refRow) {
+      isReferred = true;
+      const rUser = refRow.referrer_user_id;
+      const refUserId =
+        typeof rUser === "object" && rUser !== null
+          ? Number(rUser.user_id) || 0
+          : Number(rUser) || 0;
+      referrerName =
+        typeof rUser === "object" && rUser !== null
+          ? `${rUser.user_fname ?? ""} ${rUser.user_lname ?? ""}`.trim()
+          : null;
 
-          // Check if school admin
-          if (refUserId > 0) {
-            const sRes = await fetch(
-              `${DIRECTUS_BASE}/items/vs_school_admin?filter[user_id][_eq]=${refUserId}&fields=school_id.school_name&limit=1`,
-              { headers: getHeaders(), cache: "no-store" }
-            );
-            if (sRes.ok) {
-              const sJson = await sRes.json();
-              const sRec = sJson.data?.[0];
-              if (sRec?.school_id) {
-                referralSchoolName = typeof sRec.school_id === "object" ? sRec.school_id.school_name : null;
-                referralType = "SCHOOL_ADMIN";
-              }
-            }
-          }
-
-          if (!referralType) referralType = "FREELANCER";
-
-          // Check for referral note/letter in vs_job_referral
-          if (refRow.referral_id && typeof refRow.referral_id === "object") {
-            referralLetter = refRow.referral_id.referral_letter || null;
-          }
+      // Check if school admin
+      if (refUserId > 0) {
+        const sRec = (
+          await directusItems<SchoolAdminRow>("vs_school_admin", {
+            query: `filter[user_id][_eq]=${refUserId}&fields=school_id.school_name&limit=1`,
+          })
+        )[0];
+        const sSchool = sRec?.school_id;
+        if (sSchool) {
+          referralSchoolName =
+            typeof sSchool === "object" ? sSchool.school_name ?? null : null;
+          referralType = "SCHOOL_ADMIN";
         }
       }
-    } catch (err) {
-      console.warn("Failed to check referral status for applicant detail:", err);
+
+      if (!referralType) referralType = "FREELANCER";
+
+      // Check for referral note/letter in vs_job_referral
+      const linkedReferral = refRow.referral_id;
+      if (linkedReferral && typeof linkedReferral === "object") {
+        referralLetter = linkedReferral.referral_letter || null;
+      }
     }
 
     const portfolioFromSocials = socialLinks.find(
@@ -704,42 +712,41 @@ skills = (skillsJson.data as Skill[] ?? []).map(
     }> = [];
 
     if (application.job_id) {
-      try {
-        const pipeline = await getJobPipeline(Number(application.job_id));
-        if (pipeline?.stages) {
-          if (application.current_stage_id) {
-            currentStage = pipeline.stages.find((s) => s.id === Number(application.current_stage_id));
-          }
-          if (!currentStage) {
-            currentStage =
-              pipeline.stages.find((s) => s.stage_type === application.application_status) ||
-              pipeline.stages.find((s) => s.stage_type === "APPLIED") ||
-              pipeline.stages[0];
-          }
-
-          if (currentStage && !currentStage.is_terminal) {
-            const transitions = pipeline.transitions ?? [];
-            const forwardStageIds = new Set(
-              transitions.filter((t) => t.from_stage_id === currentStage!.id).map((t) => t.to_stage_id)
-            );
-
-            allowedNextStages = pipeline.stages
-              .filter(
-                (s) =>
-                  s.id !== currentStage!.id &&
-                  (forwardStageIds.has(s.id) || s.stage_type === "REJECTED" || s.stage_type === "WITHDRAWN")
-              )
-              .map((s) => ({
-                id: s.id,
-                stage_name: s.stage_name,
-                stage_type: s.stage_type,
-                color: s.color,
-                is_terminal: Boolean(s.is_terminal),
-              }));
-          }
+      // Not wrapped: a pipeline that could not be read has to fail the request.
+      // Swallowing it left `allowed_next_stages` empty, which rendered as a
+      // candidate who cannot be moved to any stage rather than as an outage.
+      const pipeline = await getJobPipeline(Number(application.job_id));
+      if (pipeline?.stages) {
+        if (application.current_stage_id) {
+          currentStage = pipeline.stages.find((s) => s.id === Number(application.current_stage_id));
         }
-      } catch (pipeErr) {
-        console.error("Error resolving applicant stage details:", pipeErr);
+        if (!currentStage) {
+          currentStage =
+            pipeline.stages.find((s) => s.stage_type === application.application_status) ||
+            pipeline.stages.find((s) => s.stage_type === "APPLIED") ||
+            pipeline.stages[0];
+        }
+
+        if (currentStage && !currentStage.is_terminal) {
+          const transitions = pipeline.transitions ?? [];
+          const forwardStageIds = new Set(
+            transitions.filter((t) => t.from_stage_id === currentStage!.id).map((t) => t.to_stage_id)
+          );
+
+          allowedNextStages = pipeline.stages
+            .filter(
+              (s) =>
+                s.id !== currentStage!.id &&
+                (forwardStageIds.has(s.id) || s.stage_type === "REJECTED" || s.stage_type === "WITHDRAWN")
+            )
+            .map((s) => ({
+              id: s.id,
+              stage_name: s.stage_name,
+              stage_type: s.stage_type,
+              color: s.color,
+              is_terminal: Boolean(s.is_terminal),
+            }));
+        }
       }
     }
 
@@ -829,12 +836,20 @@ skills = (skillsJson.data as Skill[] ?? []).map(
       err
     );
 
+    // Every read in this handler is fatal now, so an unreachable Directus lands
+    // here. The drawer must show something to retry, not a candidate whose
+    // history, skills and interview silently vanished.
+    if (err instanceof DirectusError) {
+      return NextResponse.json(
+        { error: "Candidate details could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+
     return NextResponse.json(
       {
         error:
-          err instanceof Error
-            ? err.message
-            : "Internal server error",
+          safeErrorMessage(err, "Internal server error"),
       },
       {
         status: 500,
@@ -870,10 +885,19 @@ export async function PATCH(
     if (!isVerified || !companyId) {
       return NextResponse.json({ error: "Company association not found." }, { status: 403 });
     }
-    const owned = await loadCompanyApplication(applicationId, Number(companyId));
-    if (!owned) {
+    const ownedRead = await loadCompanyApplication(applicationId, Number(companyId));
+    if (ownedRead.unavailable) {
+      // A refused stage move that reads as "Application not found" tells the
+      // recruiter the candidate was withdrawn when the row was never read.
+      return NextResponse.json(
+        { error: "The application could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+    if (!ownedRead.application) {
       return NextResponse.json({ error: "Application not found." }, { status: 404 });
     }
+    const owned = ownedRead.application;
     const targetJobId = Number(owned.job_id);
     const userId = requesterId;
     const body = await req.json().catch(() => null);
@@ -1102,6 +1126,7 @@ export async function PATCH(
     }
 
     // Fetch application details to resolve candidate & job for email notification
+    const mailWarnings: string[] = [];
     try {
       const appRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${id}?fields=application_id,user_id,job_id`, {
         headers: getHeaders(),
@@ -1143,8 +1168,13 @@ export async function PATCH(
               const candidateName = `${candidate.user_fname} ${candidate.user_lname}`.trim();
               const notes = typeof body.client_notes === "string" ? body.client_notes : null;
 
-              const statusEmailEnabled = await isEmailEnabledForUser(appData.user_id, "APPLICATION_STATUS_UPDATED");
-              if (statusEmailEnabled) {
+              const statusEmailPreference = await isEmailEnabledForUser(appData.user_id, "APPLICATION_STATUS_UPDATED");
+              if (statusEmailPreference === null) {
+                mailWarnings.push(
+                  "The candidate's email settings could not be read, so no status email was sent."
+                );
+              }
+              if (statusEmailPreference === true) {
                 if (body.application_status === "SHORTLISTED") {
                   await sendShortlistedEmail(candidate.user_email, {
                     candidateName,
@@ -1202,10 +1232,11 @@ export async function PATCH(
       success: true,
       message: `Application status updated to ${body.application_status}.`,
       application: json.data,
+      ...(mailWarnings.length > 0 ? { warnings: mailWarnings } : {}),
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
