@@ -68,7 +68,8 @@ export function RoleNavigationProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+      // PRIV-017: no client-side cookie expire - /api/auth/logout already
+      // cleared the HttpOnly auth cookie and JS cannot overwrite it.
     } catch {
       // Ignore logout errors; the redirect below still happens.
     } finally {

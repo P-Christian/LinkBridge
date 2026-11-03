@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { formatAssetUrl } from "@/lib/utils";
 import { CareerArticle } from "@/modules/vos-admin/career-advice-management/types/article.types";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -19,12 +20,12 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const category = searchParams.get("category");
     const search = searchParams.get("search");
-    const limit = searchParams.get("limit") || "12";
-    const page = searchParams.get("page") || "1";
-    const offset = (Number(page) - 1) * Number(limit);
+    const limit = Math.min(Math.max(Math.floor(Number(searchParams.get("limit"))) || 12, 1), 50);
+    const page = Math.max(Math.floor(Number(searchParams.get("page"))) || 1, 1);
+    const offset = (page - 1) * limit;
 
     const queryParams = new URLSearchParams();
-    queryParams.append("limit", limit);
+    queryParams.append("limit", String(limit));
     queryParams.append("offset", String(offset));
     queryParams.append("meta", "filter_count");
     queryParams.append("sort", "-published_at,-created_at");
@@ -55,8 +56,7 @@ export async function GET(req: NextRequest) {
     });
 
     if (!res.ok) {
-      const errText = await res.text();
-      return NextResponse.json({ error: "Failed to fetch articles", details: errText }, { status: 500 });
+      return NextResponse.json({ error: "Failed to fetch articles" }, { status: 500 });
     }
 
     const json = await res.json();
@@ -77,13 +77,13 @@ export async function GET(req: NextRequest) {
       articles,
       featuredArticle,
       total,
-      page: Number(page),
-      limit: Number(limit),
-      totalPages: Math.ceil(total / Number(limit)) || 1,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit) || 1,
     });
   } catch (err: unknown) {
     console.error("[api/public/career-articles GET] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to load career articles";
+    const message = safeErrorMessage(err, "Failed to load career articles");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

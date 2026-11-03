@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { PublicJobPosting, PopularPreset } from "@/modules/public/find-jobs/types";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -220,6 +221,34 @@ export interface GetPublicJobsOptions {
   page?: number;
 }
 
+const JOB_SCAN_LIMIT = 200;
+const SALARY_VISIBILITY_FIELD = "show_salary_range";
+// Public projection: never select "*", so internal columns (draft status, creator id,
+// moderation fields) stay inside Directus.
+const PUBLIC_JOB_FIELDS = [
+  "job_id",
+  "company_id",
+  "job_title",
+  "job_category",
+  "job_description",
+  "job_type",
+  "work_arrangement",
+  "job_location",
+  "salary_min",
+  "salary_max",
+  "currency",
+  "experience_level",
+  "created_at",
+];
+
+async function fetchActivePostings(fields: string): Promise<Record<string, unknown>[] | null> {
+  const url = `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&sort[]=-created_at&limit=${JOB_SCAN_LIMIT}&fields=${fields}`;
+  const res = await fetch(url, { headers: getDirectusHeaders(), cache: "no-store" });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return (json.data || []) as Record<string, unknown>[];
+}
+
 export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
   if (!DIRECTUS_BASE) {
     throw new Error("Directus API base URL not configured.");
@@ -234,22 +263,11 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
   const page = Math.max(Number(options.page || 1), 1);
   const offset = (page - 1) * limit;
 
-  // Fetch active job postings from Directus
-  const jobsUrl = `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&sort[]=-created_at&limit=200&fields=*`;
-  const jobsRes = await fetch(jobsUrl, { headers: getDirectusHeaders(), cache: "no-store" });
-
-  let rawJobs: Record<string, unknown>[] = [];
-  if (jobsRes.ok) {
-    const jobsJson = await jobsRes.json();
-    rawJobs = jobsJson.data || [];
-  } else {
-    const fallbackUrl = `${DIRECTUS_BASE}/items/vs_job_posting?sort[]=-created_at&limit=200&fields=*`;
-    const fallbackRes = await fetch(fallbackUrl, { headers: getDirectusHeaders(), cache: "no-store" });
-    if (fallbackRes.ok) {
-      const fallbackJson = await fallbackRes.json();
-      rawJobs = fallbackJson.data || [];
-    }
-  }
+  // ACTIVE postings only, including the retry path when the salary-visibility column is unavailable.
+  let rawJobs: Record<string, unknown>[] =
+    (await fetchActivePostings([...PUBLIC_JOB_FIELDS, SALARY_VISIBILITY_FIELD].join(","))) ??
+    (await fetchActivePostings(PUBLIC_JOB_FIELDS.join(","))) ??
+    [];
 
   if (jobId) {
     rawJobs = rawJobs.filter((j) => String(j.job_id || j.id) === jobId);
@@ -262,7 +280,7 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
   const companyMap: Record<number, Record<string, unknown>> = {};
 
   if (companyIds.length > 0) {
-    const compUrl = `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${companyIds.join(",")}&fields=company_id,company_code,company_name,company_logo,company_city,company_province,company_address,company_website,verification_status&limit=-1`;
+    const compUrl = `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${companyIds.join(",")}&fields=company_id,company_code,company_name,company_logo,company_city,company_province,company_address,verification_status&limit=${companyIds.length}`;
     const compRes = await fetch(compUrl, { headers: getDirectusHeaders(), cache: "no-store" });
     if (compRes.ok) {
       const compJson = await compRes.json();
@@ -329,6 +347,10 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
     const cid = Number(j.company_id);
     const comp = companyMap[cid] || {};
     const logoRaw = (comp.company_logo || j.company_logo) as string | null;
+    // Falsy show_salary_range means the employer did not disclose the range.
+    const salaryVisible = !(
+      j.show_salary_range === false || j.show_salary_range === 0 || j.show_salary_range === "0"
+    );
 
     const logoUrl = logoRaw
       ? logoRaw.startsWith("http") || logoRaw.startsWith("/")
@@ -354,13 +376,12 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
       work_setup: formatWorkSetup(String(j.work_arrangement || j.work_setup || "On-site")),
       location: jobLoc,
 
-      salary_min: j.salary_min != null ? Number(j.salary_min) : null,
-      salary_max: j.salary_max != null ? Number(j.salary_max) : null,
+      salary_min: salaryVisible && j.salary_min != null ? Number(j.salary_min) : null,
+      salary_max: salaryVisible && j.salary_max != null ? Number(j.salary_max) : null,
       salary_currency: String(j.currency || j.salary_currency || "PHP"),
-      show_salary_range: typeof j.show_salary_range === "boolean" ? j.show_salary_range : true,
+      show_salary_range: salaryVisible,
 
       experience_level: String(j.experience_level || "Not Specified"),
-      status: String(j.status || "ACTIVE"),
       created_at: String(j.created_at || j.date_created || new Date().toISOString()),
     };
   });
@@ -393,7 +414,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/public/find-jobs error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
