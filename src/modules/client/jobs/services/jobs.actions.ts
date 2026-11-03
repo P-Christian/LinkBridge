@@ -1,6 +1,6 @@
 "use server";
 
-
+import { authenticateCookieSession, isClientSession } from "@/lib/authenticated-session";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -45,6 +45,11 @@ export async function searchMasterSkillsAction(query: string) {
  * If a skill with the same name already exists (case-insensitive), returns the existing one.
  */
 export async function addMasterSkillAction(skillName: string) {
+  const session = await authenticateCookieSession();
+  if (!session || !isClientSession(session)) {
+    throw new Error("Client account required.");
+  }
+
   if (!skillName || !skillName.trim()) {
     throw new Error("Skill name cannot be empty");
   }

@@ -1,8 +1,16 @@
 // src/app/api/client/jobs/service.directus.ts
 import { JobPosting, JobType, ExperienceLevel, JobStatus } from "@/modules/client/jobs/types";
+import { directusItemsWhereIn } from "@/lib/server/directus";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/**
+ * `status` is interpolated into a Directus filter query string, so only these
+ * enums reach the API; an unknown value returns no rows instead of widening the
+ * query.
+ */
+const ALLOWED_JOB_STATUSES: readonly string[] = ["ACTIVE", "DRAFT", "CLOSED"];
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
@@ -71,13 +79,12 @@ async function getJobSkills(jobIds: number[]): Promise<Record<number, { id: numb
   if (jobIds.length === 0) return result;
 
   try {
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_skills_map?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,skill_id,skill_id.*,source,confidence_score`, {
-      headers: getHeaders(),
-      cache: "no-store"
-    });
-    if (!res.ok) return result;
-    const json = await res.json();
-    const maps: DirectusJobSkillMap[] = json.data || [];
+    const maps = await directusItemsWhereIn<DirectusJobSkillMap>(
+      "vs_job_skills_map",
+      "job_id",
+      jobIds,
+      "job_id,skill_id,skill_id.*,source,confidence_score"
+    );
 
     const unresolvedMaps: { job_id: number; skill_id: number; source: string; confidence_score: number | null }[] = [];
     const unresolvedIds: number[] = [];
@@ -105,13 +112,16 @@ async function getJobSkills(jobIds: number[]): Promise<Record<number, { id: numb
     });
 
     if (unresolvedIds.length > 0) {
-      const skillsRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills?filter[id][_in]=${unresolvedIds.join(",")}&fields=id,skill_name`, {
-        headers: getHeaders(),
-        cache: "no-store"
-      });
-      if (skillsRes.ok) {
-        const skillsJson = await skillsRes.json();
-        const skills: { id: number; skill_name?: string }[] = skillsJson.data || [];
+      // Kept in its own guard so a failed master-table read only costs the names
+      // of skills whose relation was never populated; the ones resolved from the
+      // map rows above still render.
+      try {
+        const skills = await directusItemsWhereIn<{ id: number; skill_name?: string }>(
+          "vs_master_skills",
+          "id",
+          unresolvedIds,
+          "id,skill_name"
+        );
         const skillsMap: Record<number, string> = {};
         skills.forEach((s) => {
           skillsMap[s.id] = s.skill_name || "";
@@ -124,6 +134,8 @@ async function getJobSkills(jobIds: number[]): Promise<Record<number, { id: numb
             confidence_score: um.confidence_score
           });
         });
+      } catch (err) {
+        console.error("Error resolving skill names:", err);
       }
     }
   } catch (err) {
@@ -138,13 +150,12 @@ async function getJobBenefits(jobIds: number[]): Promise<Record<number, string[]
   if (jobIds.length === 0) return result;
 
   try {
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_benefits_map?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,benefit_id,benefit_id.*`, {
-      headers: getHeaders(),
-      cache: "no-store"
-    });
-    if (!res.ok) return result;
-    const json = await res.json();
-    const maps: DirectusJobBenefitMap[] = json.data || [];
+    const maps = await directusItemsWhereIn<DirectusJobBenefitMap>(
+      "vs_job_benefits_map",
+      "job_id",
+      jobIds,
+      "job_id,benefit_id,benefit_id.*"
+    );
 
     const unresolvedMaps: { job_id: number; benefit_id: number }[] = [];
     const unresolvedIds: number[] = [];
@@ -159,13 +170,13 @@ async function getJobBenefits(jobIds: number[]): Promise<Record<number, string[]
     });
 
     if (unresolvedIds.length > 0) {
-      const benefitsRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_benefits?filter[id][_in]=${unresolvedIds.join(",")}&fields=id,benefit_name`, {
-        headers: getHeaders(),
-        cache: "no-store"
-      });
-      if (benefitsRes.ok) {
-        const benefitsJson = await benefitsRes.json();
-        const benefits: { id: number; benefit_name?: string }[] = benefitsJson.data || [];
+      try {
+        const benefits = await directusItemsWhereIn<{ id: number; benefit_name?: string }>(
+          "vs_master_benefits",
+          "id",
+          unresolvedIds,
+          "id,benefit_name"
+        );
         const benefitsMap: Record<number, string> = {};
         benefits.forEach((b) => {
           benefitsMap[b.id] = b.benefit_name || "";
@@ -174,6 +185,8 @@ async function getJobBenefits(jobIds: number[]): Promise<Record<number, string[]
           const name = benefitsMap[um.benefit_id];
           if (name) result[um.job_id].push(name);
         });
+      } catch (err) {
+        console.error("Error resolving benefit names:", err);
       }
     }
   } catch (err) {
@@ -188,13 +201,12 @@ async function getJobScreeningQuestions(jobIds: number[]): Promise<Record<number
   if (jobIds.length === 0) return result;
 
   try {
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_screening_question?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,question_text`, {
-      headers: getHeaders(),
-      cache: "no-store"
-    });
-    if (!res.ok) return result;
-    const json = await res.json();
-    const questions: DirectusScreeningQuestion[] = json.data || [];
+    const questions = await directusItemsWhereIn<DirectusScreeningQuestion>(
+      "vs_job_screening_question",
+      "job_id",
+      jobIds,
+      "job_id,question_text"
+    );
     questions.forEach((q) => {
       result[q.job_id].push(q.question_text || "");
     });
@@ -219,13 +231,12 @@ async function getApplicantsCounts(jobIds: number[]): Promise<Record<number, App
   if (jobIds.length === 0) return result;
 
   try {
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,application_status&limit=5000`, {
-      headers: getHeaders(),
-      cache: "no-store"
-    });
-    if (!res.ok) return result;
-    const json = await res.json();
-    const apps: { job_id: number; application_status?: string | null }[] = json.data || [];
+    const apps = await directusItemsWhereIn<{ job_id: number; application_status?: string | null }>(
+      "vs_job_application",
+      "job_id",
+      jobIds,
+      "job_id,application_status"
+    );
     apps.forEach((app) => {
       const counts = result[app.job_id];
       if (!counts) return;
@@ -401,146 +412,226 @@ function parsePayload(payload: Record<string, unknown>) {
   return { jobPayload, skills, benefits, screeningQuestions };
 }
 
+/**
+ * Replaces one section of a job's child rows (skills, benefits or screening
+ * questions) and returns a warning per leg that failed.
+ *
+ * Every response used to be discarded, so a partial run still answered "Job
+ * saved" with rows missing — and when the existing-rows read failed, the old
+ * rows stayed and the new ones were appended on top, duplicating the set.
+ */
+async function replaceJobChildren(
+  collection: string,
+  idField: string,
+  label: string,
+  jobId: number,
+  rows: Record<string, unknown>[]
+): Promise<string[]> {
+  // The job row is already committed by the time this runs, so a transport
+  // error has to come back as a warning — throwing here would tell the
+  // employer the save failed and invite them to create a second job.
+  try {
+    const listRes = await fetch(
+      `${DIRECTUS_BASE}/items/${collection}?filter[job_id][_eq]=${jobId}&fields=${idField}&limit=-1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!listRes.ok) {
+      return [`The job's saved ${label}s could not be read, so they were left unchanged.`];
+    }
+
+    const existing = ((await listRes.json()) as { data?: Record<string, number>[] }).data ?? [];
+    for (const item of existing) {
+      const del = await fetch(`${DIRECTUS_BASE}/items/${collection}/${item[idField]}`, {
+        method: "DELETE",
+        headers: getHeaders(),
+      });
+      if (!del.ok) {
+        // Writing now would leave the old rows and the new ones coexisting.
+        return [`An existing ${label} could not be removed, so the new ${label}s were not saved.`];
+      }
+    }
+
+    const warnings: string[] = [];
+    for (const row of rows) {
+      const post = await fetch(`${DIRECTUS_BASE}/items/${collection}`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ ...row, job_id: jobId }),
+      });
+      if (!post.ok) {
+        const errText = await post.text().catch(() => "");
+        console.error(`[jobs] Failed to save ${label} row for job #${jobId}:`, post.status, errText);
+        warnings.push(`A ${label} could not be saved.`);
+      }
+    }
+
+    return warnings;
+  } catch (err) {
+    console.error(`[jobs] ${label} sync failed:`, err);
+    return [`The job's ${label}s could not be updated.`];
+  }
+}
+
+/** Resolve a benefit name to its master row, creating it when it is absent. */
+async function resolveBenefitId(name: string): Promise<number | null> {
+  try {
+    const findRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_master_benefits?filter[benefit_name][_eq]=${encodeURIComponent(name)}&fields=id&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!findRes.ok) return null;
+    const found = ((await findRes.json()) as { data?: { id: number }[] }).data ?? [];
+    if (found.length > 0) return found[0].id;
+
+    const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_benefits`, {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ benefit_name: name }),
+    });
+    if (!createRes.ok) return null;
+    const created = (await createRes.json()) as { data?: { id?: number } };
+    return created.data?.id ?? null;
+  } catch (err) {
+    console.error("[jobs] benefit lookup failed:", name, err);
+    return null;
+  }
+}
+
+/** Resolve a skill (by id and/or name) to its master row, creating it when absent. */
+async function resolveSkillId(skill: {
+  id?: number | null;
+  skill_name?: string | null;
+}): Promise<number | null> {
+  const name = skill.skill_name?.trim();
+  const rawId = skill.id != null ? Number(skill.id) : null;
+
+  // 1. If an integer ID is provided, verify it exists in vs_master_skills (and isn't a mock timestamp)
+  if (rawId && Number.isSafeInteger(rawId) && rawId < 1_000_000_000) {
+    try {
+      const checkRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_master_skills/${rawId}?fields=id`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (checkRes.ok) {
+        const checkJson = (await checkRes.json()) as { data?: { id?: number } };
+        if (checkJson.data?.id) return checkJson.data.id;
+      }
+    } catch {
+      // Fall through to name lookup
+    }
+  }
+
+  // 2. If name is available, look up by skill_name
+  if (name) {
+    try {
+      const findRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_master_skills?filter[skill_name][_eq]=${encodeURIComponent(name)}&fields=id&limit=1`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (findRes.ok) {
+        const found = ((await findRes.json()) as { data?: { id: number }[] }).data ?? [];
+        if (found.length > 0 && found[0].id) return found[0].id;
+      }
+
+      // Fallback case-insensitive check
+      const findIRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_master_skills?filter[skill_name][_icontains]=${encodeURIComponent(name)}&fields=id,skill_name&limit=5`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (findIRes.ok) {
+        const foundList = ((await findIRes.json()) as { data?: { id: number; skill_name?: string }[] }).data ?? [];
+        const exactCi = foundList.find(
+          (s) => s.skill_name?.toLowerCase() === name.toLowerCase()
+        );
+        if (exactCi?.id) return exactCi.id;
+      }
+
+      // 3. If absent, create master skill row
+      const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ skill_name: name, skill_category: "General" }),
+      });
+      if (createRes.ok) {
+        const created = (await createRes.json()) as { data?: { id?: number } };
+        if (created.data?.id) return created.data.id;
+      }
+    } catch (err) {
+      console.error("[jobs] skill lookup/creation failed:", name, err);
+      return null;
+    }
+  }
+
+  return null;
+}
+
 async function syncJobRelations(
   jobId: number,
-  skills: { id: number; source?: string; confidence_score?: number | null }[],
+  skills: { id?: number; skill_name?: string; source?: string; confidence_score?: number | null }[],
   benefitNames: string[],
   questions: string[],
   syncSkills = true,
   syncBenefits = true,
   syncQuestions = true
-) {
-  // 1. Sync skills map
+): Promise<string[]> {
+  const warnings: string[] = [];
+
   if (syncSkills) {
-    try {
-      const delRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_skills_map?filter[job_id][_eq]=${jobId}&fields=id`, {
-        headers: getHeaders(),
-        cache: "no-store"
-      });
-      if (delRes.ok) {
-        const delJson = await delRes.json();
-        const existingItems: { id: number }[] = delJson.data || [];
-        for (const item of existingItems) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_skills_map/${item.id}`, {
-            method: "DELETE",
-            headers: getHeaders()
-          });
-        }
+    const skillRows: Record<string, unknown>[] = [];
+    for (const skill of skills) {
+      if (!skill) continue;
+      const resolvedId = await resolveSkillId(skill);
+      if (resolvedId) {
+        skillRows.push({
+          skill_id: resolvedId,
+          source: skill.source || "MANUAL",
+          confidence_score:
+            skill.confidence_score != null ? Number(skill.confidence_score) : null,
+        });
+      } else {
+        warnings.push(`The skill "${skill.skill_name || skill.id}" could not be saved.`);
       }
-      for (const skill of skills) {
-        if (skill && skill.id) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_skills_map`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify({
-              job_id: jobId,
-              skill_id: skill.id,
-              source: skill.source || "MANUAL",
-              confidence_score: skill.confidence_score != null ? Number(skill.confidence_score) : null
-            })
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Error syncing job skills:", err);
     }
+    warnings.push(
+      ...(await replaceJobChildren(
+        "vs_job_skills_map",
+        "id",
+        "skill",
+        jobId,
+        skillRows
+      ))
+    );
   }
 
-  // 2. Sync benefits map
   if (syncBenefits) {
-    try {
-      const delRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_benefits_map?filter[job_id][_eq]=${jobId}&fields=id`, {
-        headers: getHeaders(),
-        cache: "no-store"
-      });
-      if (delRes.ok) {
-        const delJson = await delRes.json();
-        const existingItems: { id: number }[] = delJson.data || [];
-        for (const item of existingItems) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_benefits_map/${item.id}`, {
-            method: "DELETE",
-            headers: getHeaders()
-          });
-        }
+    const benefitRows: Record<string, unknown>[] = [];
+    for (const name of benefitNames) {
+      if (!name) continue;
+      const benefitId = await resolveBenefitId(name);
+      if (benefitId) {
+        benefitRows.push({ benefit_id: benefitId });
+      } else {
+        warnings.push(`The benefit "${name}" could not be saved.`);
       }
-      for (const name of benefitNames) {
-        if (!name) continue;
-        let benefitId: number | null = null;
-        try {
-          const findRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_benefits?filter[benefit_name][_eq]=${encodeURIComponent(name)}&fields=id`, {
-            headers: getHeaders(),
-            cache: "no-store"
-          });
-          if (findRes.ok) {
-            const findJson = await findRes.json();
-            const foundData: { id: number }[] = findJson.data || [];
-            if (foundData.length > 0) {
-              benefitId = foundData[0].id;
-            } else {
-              const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_benefits`, {
-                method: "POST",
-                headers: getHeaders(),
-                body: JSON.stringify({ benefit_name: name })
-              });
-              if (createRes.ok) {
-                const createJson = await createRes.json();
-                benefitId = createJson.data?.id;
-              }
-            }
-          }
-        } catch (err) {
-          console.error("Error resolving benefit:", name, err);
-        }
-
-        if (benefitId) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_benefits_map`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify({
-              job_id: jobId,
-              benefit_id: benefitId
-            })
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Error syncing job benefits:", err);
     }
+    warnings.push(
+      ...(await replaceJobChildren("vs_job_benefits_map", "id", "benefit", jobId, benefitRows))
+    );
   }
 
-  // 3. Sync screening questions
   if (syncQuestions) {
-    try {
-      const delRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_screening_question?filter[job_id][_eq]=${jobId}&fields=question_id`, {
-        headers: getHeaders(),
-        cache: "no-store"
-      });
-      if (delRes.ok) {
-        const delJson = await delRes.json();
-        const existingItems: { question_id: number }[] = delJson.data || [];
-        for (const item of existingItems) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_screening_question/${item.question_id}`, {
-            method: "DELETE",
-            headers: getHeaders()
-          });
-        }
-      }
-      for (const question of questions) {
-        if (question) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_screening_question`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify({
-              job_id: jobId,
-              question_text: question
-            })
-          });
-        }
-      }
-    } catch (err) {
-      console.error("Error syncing screening questions:", err);
-    }
+    warnings.push(
+      ...(await replaceJobChildren(
+        "vs_job_screening_question",
+        "question_id",
+        "screening question",
+        jobId,
+        questions.filter(Boolean).map((question) => ({ question_text: question }))
+      ))
+    );
   }
+
+  return warnings;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -548,10 +639,14 @@ async function syncJobRelations(
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function getJobs(companyId: number, status: string | null): Promise<JobPosting[]> {
-  let filterQuery = `filter[company_id][_eq]=${companyId}`;
-  if (status && status !== "ALL") filterQuery += `&filter[status][_eq]=${status}`;
+  if (status && status !== "ALL" && !ALLOWED_JOB_STATUSES.includes(status)) return [];
 
-  const jobsUrl = `${DIRECTUS_BASE}/items/vs_job_posting?${filterQuery}&sort[]=-created_at&fields=*`;
+  let filterQuery = `filter[company_id][_eq]=${companyId}`;
+  if (status && status !== "ALL") filterQuery += `&filter[status][_eq]=${encodeURIComponent(status)}`;
+
+  // limit=-1 because the route renders this list as "every job you have posted";
+  // Directus' implicit 100 would silently drop the oldest postings.
+  const jobsUrl = `${DIRECTUS_BASE}/items/vs_job_posting?${filterQuery}&sort[]=-created_at&fields=*&limit=-1`;
   const res = await fetch(jobsUrl, { headers: getHeaders(), cache: "no-store" });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -610,7 +705,9 @@ export async function getJob(id: string): Promise<JobPosting> {
   );
 }
 
-export async function createJob(payload: Record<string, unknown>): Promise<JobPosting> {
+export async function createJob(
+  payload: Record<string, unknown>
+): Promise<{ job: JobPosting; warnings: string[] }> {
   const { jobPayload, skills, benefits, screeningQuestions } = parsePayload(payload);
 
   const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting`, {
@@ -626,15 +723,23 @@ export async function createJob(payload: Record<string, unknown>): Promise<JobPo
   const createdRawJob: DirectusJobPosting = json.data;
   const newJobId = createdRawJob.job_id;
 
-  await syncJobRelations(newJobId, skills || [], benefits || [], screeningQuestions || []);
+  const warnings = await syncJobRelations(
+    newJobId,
+    skills || [],
+    benefits || [],
+    screeningQuestions || []
+  );
 
   // Fire-and-forget: learn skill → job title association for future recommendations
   learnSkillTemplates(jobPayload.job_title || "", skills || []).catch(() => null);
 
-  return getJob(String(newJobId));
+  return { job: await getJob(String(newJobId)), warnings };
 }
 
-export async function updateJob(id: string, payload: Record<string, unknown>): Promise<JobPosting> {
+export async function updateJob(
+  id: string,
+  payload: Record<string, unknown>
+): Promise<{ job: JobPosting; warnings: string[] }> {
   const { jobPayload, skills, benefits, screeningQuestions } = parsePayload(payload);
 
   const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${id}`, {
@@ -653,15 +758,18 @@ export async function updateJob(id: string, payload: Record<string, unknown>): P
   const hasBenefits = benefits !== undefined;
   const hasQuestions = screeningQuestions !== undefined;
 
+  const warnings: string[] = [];
   if (hasSkills || hasBenefits || hasQuestions) {
-    await syncJobRelations(
-      numericId,
-      skills || [],
-      benefits || [],
-      screeningQuestions || [],
-      hasSkills,
-      hasBenefits,
-      hasQuestions
+    warnings.push(
+      ...(await syncJobRelations(
+        numericId,
+        skills || [],
+        benefits || [],
+        screeningQuestions || [],
+        hasSkills,
+        hasBenefits,
+        hasQuestions
+      ))
     );
   }
 
@@ -670,7 +778,7 @@ export async function updateJob(id: string, payload: Record<string, unknown>): P
     learnSkillTemplates(jobPayload.job_title, skills || []).catch(() => null);
   }
 
-  return getJob(id);
+  return { job: await getJob(id), warnings };
 }
 
 export async function deleteJob(id: string): Promise<void> {

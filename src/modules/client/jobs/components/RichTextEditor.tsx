@@ -6,6 +6,7 @@ import { Bold, List, ListOrdered, Sparkles, Loader2, Wand2, Send, Check } from "
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 interface RichTextEditorProps {
   id: string;
@@ -33,7 +34,9 @@ export function RichTextEditor({
   const [customPopoverOpen, setCustomPopoverOpen] = useState(false);
   const [successAction, setSuccessAction] = useState<string | null>(null);
 
-  // Convert legacy markdown **bold** or newlines to HTML for visual editor display
+  // Stored content is HTML that the editor parses, so it is sanitized before it
+  // is assigned to innerHTML. Markdown conversion above stays plain-text in,
+  // markup out, and its output goes through the same sanitizer.
   const formatToHtml = (val: string | null | undefined): string => {
     if (!val) return "";
     let html = val;
@@ -47,7 +50,7 @@ export function RichTextEditor({
         html = lines.join("<br>");
       }
     }
-    return html;
+    return sanitizeHtml(html);
   };
 
   useEffect(() => {
@@ -96,11 +99,12 @@ export function RichTextEditor({
       });
 
       const data = await res.json();
-      if (res.ok && data.refined_html) {
+      const refinedHtml = res.ok ? sanitizeHtml(data.refined_html) : "";
+      if (refinedHtml) {
         if (editorRef.current) {
-          editorRef.current.innerHTML = data.refined_html;
+          editorRef.current.innerHTML = refinedHtml;
         }
-        onChange(data.refined_html);
+        onChange(refinedHtml);
         setSuccessAction(action);
         setTimeout(() => setSuccessAction(null), 2500);
       }

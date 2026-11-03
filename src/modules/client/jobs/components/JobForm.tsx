@@ -171,6 +171,11 @@ export default function JobForm({
   const [isFetchingRecommendations, setIsFetchingRecommendations] = useState(false);
   const recommendationsDebounce = useRef<NodeJS.Timeout | null>(null);
 
+  // The debounce only delays a request; once it has fired, a slower earlier
+  // response can still land after a newer one and replace its suggestions.
+  const recommendationsSeqRef = useRef(0);
+  const skillsSeqRef = useRef(0);
+
   // Fetch dynamic skill recommendations when job title or job description changes
   useEffect(() => {
     if (recommendationsDebounce.current) clearTimeout(recommendationsDebounce.current);
@@ -187,22 +192,28 @@ export default function JobForm({
     }
 
     if (!title.trim() && !rawDescription.trim()) {
+      recommendationsSeqRef.current++;
       setRecommendedSkills([]);
+      // The cleanup below cancels the pending timer, so that timer's `finally`
+      // never runs — clear the flag here or the spinner sticks forever.
+      setIsFetchingRecommendations(false);
       return;
     }
 
+    const seq = ++recommendationsSeqRef.current;
     setIsFetchingRecommendations(true);
     recommendationsDebounce.current = setTimeout(async () => {
       try {
         const res = await fetch(`/api/client/jobs/recommend-skills?title=${encodeURIComponent(title)}&description=${encodeURIComponent(rawDescription)}`);
         if (res.ok) {
           const json = await res.json();
+          if (seq !== recommendationsSeqRef.current) return;
           setRecommendedSkills(json.skills || []);
         }
       } catch (err) {
         console.error("Failed to fetch recommendations:", err);
       } finally {
-        setIsFetchingRecommendations(false);
+        if (seq === recommendationsSeqRef.current) setIsFetchingRecommendations(false);
       }
     }, 500);
 
@@ -230,10 +241,12 @@ export default function JobForm({
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
 
     if (skillQuery.trim().length >= 2) {
+      const seq = ++skillsSeqRef.current;
       setIsSearchingSkills(true);
       debounceTimer.current = setTimeout(async () => {
         try {
           const res = await searchMasterSkillsAction(skillQuery.trim());
+          if (seq !== skillsSeqRef.current) return;
           if (res) {
             const q = skillQuery.toLowerCase().trim();
             const sorted = [...res].sort((a, b) => {
@@ -273,10 +286,11 @@ export default function JobForm({
         } catch (e) {
           console.error("Failed to query skills:", e);
         } finally {
-          setIsSearchingSkills(false);
+          if (seq === skillsSeqRef.current) setIsSearchingSkills(false);
         }
       }, 300);
     } else {
+      skillsSeqRef.current++;
       setSkillResults([]);
       setIsSearchingSkills(false);
     }
@@ -957,13 +971,13 @@ export default function JobForm({
                   <Badge
                     key={`${skill.id}-${skill.skill_name}`}
                     variant="secondary"
-                    className="px-2.5 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-md border-0 flex items-center gap-1"
+                    className="px-2.5 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-md border-0 inline-flex items-center gap-1.5 whitespace-normal break-words max-w-full text-left leading-normal h-auto"
                   >
-                    {skill.skill_name}
+                    <span className="break-words">{skill.skill_name}</span>
                     <button
                       type="button"
                       onClick={() => handleRemoveSkill(skill.id)}
-                      className="text-zinc-400 hover:text-rose-500 transition-colors"
+                      className="text-zinc-400 hover:text-rose-500 transition-colors shrink-0"
                     >
                       <X className="h-3 w-3 max-md:relative max-md:after:absolute max-md:after:-inset-3 max-md:after:content-['']" />
                     </button>
@@ -1380,7 +1394,7 @@ export default function JobForm({
             {/* Grid details */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
               {/* Left/Middle Column Details */}
-              <div className="md:col-span-2 space-y-4">
+              <div className="md:col-span-2 min-w-0 space-y-4">
                 {/* Description */}
                 <div className="space-y-1">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-400">Job Description</h4>
@@ -1403,7 +1417,7 @@ export default function JobForm({
               </div>
 
               {/* Right Column Highlights */}
-              <div className="md:col-span-1 space-y-4 p-4 bg-zinc-50/50 dark:bg-zinc-900/35 border border-zinc-150 dark:border-zinc-800/80 rounded-xl h-fit">
+              <div className="md:col-span-1 min-w-0 space-y-4 p-4 bg-zinc-50/50 dark:bg-zinc-900/35 border border-zinc-150 dark:border-zinc-800/80 rounded-xl h-fit">
                 {/* Salary */}
                 <div className="space-y-1">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Compensation</span>
@@ -1445,7 +1459,11 @@ export default function JobForm({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 block">Skills Required</span>
                     <div className="flex flex-wrap gap-1">
                       {(data.skills || []).map((s) => (
-                        <Badge key={s.id} variant="secondary" className="px-2 py-0.5 text-[10px] font-medium rounded">
+                        <Badge
+                          key={s.id}
+                          variant="secondary"
+                          className="px-2 py-1 text-[10px] font-medium rounded whitespace-normal break-words max-w-full text-left leading-snug h-auto"
+                        >
                           {s.skill_name}
                         </Badge>
                       ))}

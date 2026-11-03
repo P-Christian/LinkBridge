@@ -23,6 +23,7 @@ import {
 import { Plus, Search, X, RotateCcw, Sparkles } from "lucide-react";
 import CompanyVerificationGuard from "../components/CompanyVerificationGuard";
 import ListSkeleton from "../components/ListSkeleton";
+import { KpiPending } from "@/components/shared/KpiValue";
 
 import { JobPosting, JobFormData, JobStatus, JobType, WorkArrangement, JOB_TYPE_LABELS, JOB_STATUS_LABELS } from "./types";
 import { countByStatus } from "./components/JobListControls";
@@ -408,6 +409,9 @@ export default function JobsModule() {
   };
 
   const statusCounts = countByStatus(jobs);
+  // A refetch keeps the previous postings, so only a first load with nothing to
+  // count may replace these numbers with a placeholder.
+  const countsPending = loading && jobs.length === 0;
   const breakdown = (["ACTIVE", "DRAFT", "CLOSED"] as JobStatus[])
     .map((s) => `${statusCounts[s]} ${JOB_STATUS_LABELS[s].toLowerCase()}`)
     .join(" • ");
@@ -431,7 +435,13 @@ export default function JobsModule() {
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-foreground">Job Postings</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {filterStatus === "ALL" ? breakdown : `${shownCount} ${JOB_STATUS_LABELS[filterStatus].toLowerCase()} shown`}
+              {countsPending ? (
+                <KpiPending />
+              ) : filterStatus === "ALL" ? (
+                breakdown
+              ) : (
+                `${shownCount} ${JOB_STATUS_LABELS[filterStatus].toLowerCase()} shown`
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -534,9 +544,19 @@ export default function JobsModule() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-sm md:text-xs text-muted-foreground">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium text-foreground">
-                  Found {filteredJobs.length} {filteredJobs.length === 1 ? "posting" : "postings"}
-                  {jobs.length !== filteredJobs.length && (
-                    <span className="text-muted-foreground font-normal"> (filtered from {jobs.length})</span>
+                  {countsPending ? (
+                    <KpiPending />
+                  ) : (
+                    <>
+                      Found {filteredJobs.length}{" "}
+                      {filteredJobs.length === 1 ? "posting" : "postings"}
+                      {jobs.length !== filteredJobs.length && (
+                        <span className="text-muted-foreground font-normal">
+                          {" "}
+                          (filtered from {jobs.length})
+                        </span>
+                      )}
+                    </>
                   )}
                 </span>
 

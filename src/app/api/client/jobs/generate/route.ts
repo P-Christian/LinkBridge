@@ -2,10 +2,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { CANONICAL_ROLE_CATEGORIES } from "@/modules/client/jobs/hooks/useRoleCategories";
-import { checkRestriction } from "@/lib/status-validator";
+import { checkRestrictionState } from "@/lib/status-validator";
 import { ExperienceLevel } from "@/modules/client/jobs/types";
 import { getPHTimeString } from "@/lib/utils";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -74,19 +75,25 @@ function normalizeEducation(edu: string | null | undefined): string {
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // Validate PUBLISH_JOBS Restriction
-    const isRestricted = await checkRestriction(userId, "PUBLISH_JOBS");
-    if (isRestricted) {
+    const restriction = await checkRestrictionState(userId, "PUBLISH_JOBS");
+    if (restriction.restricted) {
+      if (restriction.reason === "unavailable") {
+        return NextResponse.json(
+          { error: "Your account status could not be verified, so the draft was not generated. Please try again." },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         { error: "Your job posting privileges are temporarily suspended." },
         { status: 403 }
@@ -266,10 +273,22 @@ You MUST return ONLY valid JSON matching this exact structure without markdown b
             }
           }
 
-          // Fallback: create mock ID or register skill
-          resolvedSkills.push({ id: Date.now() + Math.floor(Math.random() * 1000), skill_name: skillName });
+          // Fallback: register new skill in vs_master_skills if absent
+          const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills`, {
+            method: "POST",
+            headers: getHeaders(),
+            body: JSON.stringify({ skill_name: skillName, skill_category: "General" }),
+          });
+          if (createRes.ok) {
+            const createJson = await createRes.json();
+            if (createJson.data?.id) {
+              resolvedSkills.push({ id: createJson.data.id, skill_name: skillName });
+              continue;
+            }
+          }
+          resolvedSkills.push({ id: 0, skill_name: skillName });
         } catch {
-          resolvedSkills.push({ id: Date.now() + Math.floor(Math.random() * 1000), skill_name: skillName });
+          resolvedSkills.push({ id: 0, skill_name: skillName });
         }
       }
     } else {
@@ -392,7 +411,7 @@ You MUST return ONLY valid JSON matching this exact structure without markdown b
   } catch (err: unknown) {
     console.error("Error generating job draft:", err);
     return NextResponse.json(
-      { error: (err as Error).message || "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

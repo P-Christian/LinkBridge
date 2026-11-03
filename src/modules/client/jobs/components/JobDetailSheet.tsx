@@ -572,7 +572,11 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                     <Section title="Required skills">
                       <div className="flex flex-wrap gap-1.5">
                         {skills.map((s) => (
-                          <Badge key={s.id} variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal">
+                          <Badge
+                            key={s.id}
+                            variant="secondary"
+                            className="rounded-full px-2.5 py-1 text-xs font-normal whitespace-normal break-words max-w-full text-left leading-snug h-auto"
+                          >
                             {s.skill_name}
                           </Badge>
                         ))}

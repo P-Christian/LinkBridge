@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import * as jobService from "./service.directus";
-import { checkRestriction } from "@/lib/status-validator";
+import { checkRestrictionState } from "@/lib/status-validator";
 import { getPHTimeString } from "@/lib/utils";
 import { snapshotCompanyPipeline } from "@/modules/client/pipeline/services/job-pipeline.service";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -102,15 +103,15 @@ async function attachCompanyToJob<T extends { company_id?: string | number | nul
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const { companyId, error } = await resolveCompany(userId);
     if (error || !companyId)
@@ -125,7 +126,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ jobs: jobsWithCompany });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -137,19 +138,25 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // Validate PUBLISH_JOBS Restriction
-    const isRestricted = await checkRestriction(userId, "PUBLISH_JOBS");
-    if (isRestricted) {
+    const restriction = await checkRestrictionState(userId, "PUBLISH_JOBS");
+    if (restriction.restricted) {
+      if (restriction.reason === "unavailable") {
+        return NextResponse.json(
+          { error: "Your account status could not be verified, so the job was not posted. Please try again." },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         { error: "Your job posting privileges are temporarily suspended." },
         { status: 403 }
@@ -208,9 +215,12 @@ export async function POST(req: NextRequest) {
       is_deleted: 0,
       created_at: nowPH,
       updated_at: nowPH,
+      skills: body.skills,
+      benefits: body.benefits,
+      screening_questions: body.screening_questions,
     };
 
-    const createdJob = await jobService.createJob(jobPayload);
+    const { job: createdJob, warnings } = await jobService.createJob(jobPayload);
 
     // Initial Job Pipeline Snapshot
     if (createdJob?.job_id) {
@@ -222,6 +232,7 @@ export async function POST(req: NextRequest) {
         );
       } catch (pipeErr) {
         console.error("[POST /api/client/jobs] Failed to snapshot pipeline for job:", pipeErr);
+        warnings.push("The job was created but its review pipeline was not set up, so applicants cannot be advanced until you configure one.");
       }
     }
 
@@ -231,10 +242,11 @@ export async function POST(req: NextRequest) {
       success: true,
       message: "Job posting created successfully.",
       job: jobWithCompany,
+      warnings,
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
