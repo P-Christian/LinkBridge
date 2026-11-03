@@ -54,7 +54,7 @@ export default function MobileVerificationModal({ isOpen, onClose, onSuccess }: 
             const res = await sendMobileOtpAction(fullMobileNumber);
             if (!res.success) throw new Error(res.error);
             setStep(2);
-            toast.success("OTP sent! (Use 123456 for testing)");
+            toast.success("OTP sent.");
         } catch (error) {
             const message = error instanceof Error ? error.message : "Failed to send OTP.";
             toast.error(message);
@@ -130,7 +130,7 @@ export default function MobileVerificationModal({ isOpen, onClose, onSuccess }: 
                             <label className="text-sm font-medium">One-Time Password (OTP)</label>
                             <Input 
                                 type="text" 
-                                placeholder="123456"
+                                placeholder="000000"
                                 maxLength={6}
                                 value={otp}
                                 onChange={(e) => setOtp(e.target.value)}

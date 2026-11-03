@@ -12,6 +12,7 @@ import type { JobPipelineVersion, JobPipelineStage } from "@/modules/client/pipe
 import type { ApplicationItem } from "@/modules/freelancer/freelancer-applications/types";
 import { getPHTimeString } from "@/lib/utils";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -357,7 +358,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -818,7 +819,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -1018,7 +1019,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

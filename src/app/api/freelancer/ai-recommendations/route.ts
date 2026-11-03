@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateJobRecommendations } from "@/lib/gemini/jobRecommender";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -138,6 +139,6 @@ export async function GET(req: NextRequest) {
 
     } catch (err: unknown) {
         console.error("GET /api/freelancer/ai-recommendations error:", err);
-        return NextResponse.json({ error: err instanceof Error ? err.message : "Internal server error" }, { status: 500 });
+        return NextResponse.json({ error: safeErrorMessage(err, "Internal server error") }, { status: 500 });
     }
 }

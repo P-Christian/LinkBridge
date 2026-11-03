@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { logReferralHistory } from "@/modules/freelancer/freelancer-referrals/services/referral.service";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -22,15 +23,15 @@ export async function POST(
   try {
     const { id } = await props.params;
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // Validate ownership
     const refRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${id}?fields=referrer_user_id,status`, {
@@ -64,7 +65,7 @@ export async function POST(
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "An error occurred";
+    const errorMsg = safeErrorMessage(err, "An error occurred");
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

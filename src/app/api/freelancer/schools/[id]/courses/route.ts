@@ -1,8 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchCoursesBySchoolRepo } from "@/modules/vos-admin/school-verification/services/schoolVerification.repo";
+import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
     try {
+        const session = await authenticateRequest(req);
+        if (!session || !isFreelancerSession(session)) {
+            return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+        }
+
         const { id: paramId } = await params;
         const schoolId = parseInt(paramId, 10);
         
@@ -18,6 +25,6 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         
         return NextResponse.json({ courses: activeCourses });
     } catch (err: unknown) {
-        return NextResponse.json({ error: (err as Error).message || "Internal Server Error" }, { status: 500 });
+        return NextResponse.json({ error: safeErrorMessage(err, "Internal Server Error") }, { status: 500 });
     }
 }

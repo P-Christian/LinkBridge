@@ -21,6 +21,15 @@ const IDENTITY_FOLDER_ID =
     process.env.DIRECTUS_FREELANCER_IDENTITY_FOLDER_ID?.trim() ||
     "e81cc874-8036-4655-8bbb-1524a194866b";
 
+const MOBILE_OTP_SIMULATION_ENABLED = process.env.NODE_ENV !== "production";
+
+/** Philippine mobile numbers only; returns the normalized digits or null. */
+function normalizeMobileNumber(value: unknown): string | null {
+    const digits = String(value ?? "").replace(/\D/g, "");
+    const local = digits.startsWith("63") ? digits.slice(2) : digits.replace(/^0/, "");
+    return /^9\d{9}$/.test(local) ? `63${local}` : null;
+}
+
 async function requireFreelancerProfile() {
     const session = await authenticateCookieSession();
     if (!session || !isFreelancerSession(session)) throw new Error("Unauthorized");
@@ -163,11 +172,14 @@ export async function submitIdentityVerificationAction(payload: Partial<Identity
 
 export async function sendMobileOtpAction(mobileNumber: string) {
     try {
-        const { profile } = await requireFreelancerProfile();
+        await requireFreelancerProfile();
+        if (!normalizeMobileNumber(mobileNumber)) throw new Error("Enter a valid mobile number.");
 
-        // In a real application, you would integrate with SMS provider (e.g. Twilio)
-        // Here we simulate OTP sending.
-        console.log(`Simulated sending OTP to ${mobileNumber} for user ${profile.user_id}`);
+        // No SMS provider is wired up, so nothing is actually delivered. Refuse
+        // the flow outside development instead of minting an unverified badge.
+        if (!MOBILE_OTP_SIMULATION_ENABLED) {
+            throw new Error("Mobile verification is temporarily unavailable.");
+        }
 
         return { success: true, message: "OTP sent successfully" };
     } catch (error) {
@@ -180,12 +192,20 @@ export async function verifyMobileOtpAction(mobileNumber: string, otp: string) {
     try {
         const { profile } = await requireFreelancerProfile();
 
-        // Hardcode "123456" as the mock correct OTP for demonstration purposes
+        const normalized = normalizeMobileNumber(mobileNumber);
+        if (!normalized) throw new Error("Enter a valid mobile number.");
+
+        if (!MOBILE_OTP_SIMULATION_ENABLED) {
+            throw new Error("Mobile verification is temporarily unavailable.");
+        }
+
+        // Development-only simulated code. Never approve a mobile verification
+        // here without a provider that proves the number is reachable.
         if (otp !== "123456") {
             throw new Error("Invalid OTP");
         }
 
-        await approveMobileVerification(profile.user_id, mobileNumber);
+        await approveMobileVerification(profile.user_id, normalized);
 
         const { recalculateAndPersistScoreForUser } = await import("./identity-verification.service");
         await recalculateAndPersistScoreForUser(profile.user_id, profile.user_email);
