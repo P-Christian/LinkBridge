@@ -123,7 +123,7 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 
 export default function Contact() {
   const session = useAuthSession();
-  const { company } = usePrimaryPlatformCompany();
+  const { company, loading } = usePrimaryPlatformCompany();
 
   const email = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
   // No fake fallback: if the platform company has no contact number, the Mobile card is hidden.
@@ -289,6 +289,10 @@ export default function Contact() {
       </div>
     </>
   );
+
+  if (loading) {
+    return <div className="min-h-screen" aria-busy="true" />;
+  }
 
   return (
     <div className="text-foreground font-sans md:pt-16">

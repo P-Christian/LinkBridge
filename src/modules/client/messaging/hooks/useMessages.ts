@@ -153,7 +153,7 @@ export function useMessages(currentUserId: number = 0) {
     });
 
     return () => unsubscribe();
-  }, [subscribe]);
+  }, [subscribe, resolveReactions]);
 
   // ─── Load initial messages ───────────────────────────────────────────────
 
@@ -281,7 +281,7 @@ export function useMessages(currentUserId: number = 0) {
         toast.error(msg);
       }
     },
-    []
+    [resolveReactions]
   );
 
   // ─── Send message with up to 5 retries ────────────────────────────────

@@ -153,7 +153,7 @@ export function useMessages(currentUserId: number = 0) {
     });
 
     return () => unsubscribe();
-  }, [subscribe]);
+  }, [subscribe, resolveReactions]);
 
   const loadMessages = useCallback(async (conversationId: number) => {
     activeConversationIdRef.current = conversationId;
@@ -259,7 +259,7 @@ export function useMessages(currentUserId: number = 0) {
         toast.error(msg);
       }
     },
-    []
+    [resolveReactions]
   );
 
   // ─── Send message with up to 5 retries ────────────────────────────────

@@ -2,7 +2,7 @@
 
 // src/modules/shared/messaging/components/DeleteMessageModal.tsx
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { Trash2, Loader2, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,11 +20,7 @@ export default function DeleteMessageModal({
   onConfirm,
   loading = false,
 }: DeleteMessageModalProps) {
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
 
   useEffect(() => {
     if (!isOpen) return;
