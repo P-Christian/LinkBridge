@@ -1,28 +1,18 @@
 // src/app/api/client/talent-invitation/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { getPHTimeString } from "@/lib/utils";
 import { createSystemMessage } from "@/lib/messaging/system-message";
 import { sendInvitationEmail } from "@/lib/mail/services/job-mail";
 import { isEmailEnabledForUser } from "@/lib/mail/preference-check";
 import { isInAppEnabledForUser } from "@/lib/notifications/preference-check";
+import { directusItems, directusSettled } from "@/lib/server/directus";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
-}
 
 // POST — send a talent invitation
 export async function POST(req: NextRequest) {
@@ -30,6 +20,9 @@ export async function POST(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
@@ -45,8 +38,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { talent_user_id, job_id, message, subject } = body;
 
-    const candidateUserId = Number(talent_user_id);
-    if (!candidateUserId || isNaN(candidateUserId) || candidateUserId <= 0) {
+    const candidateUserId = toId(talent_user_id);
+    if (candidateUserId === null) {
       return NextResponse.json({ error: "A valid talent_user_id is required." }, { status: 400 });
     }
 
@@ -61,18 +54,21 @@ export async function POST(req: NextRequest) {
     // Strict Multi-Tenant IDOR Ownership Gate on Job Posting
     let verifiedJob: Record<string, unknown> | null = null;
     if (job_id) {
-      const jobIdNum = Number(job_id);
-      if (isNaN(jobIdNum) || jobIdNum <= 0) {
+      const jobIdNum = toId(job_id);
+      if (jobIdNum === null) {
         return NextResponse.json({ error: "Invalid job_id provided." }, { status: 400 });
       }
 
-      const jobVerifyUrl = `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_eq]=${jobIdNum}&filter[company_id][_eq]=${companyId}&fields=job_id,job_title,job_description,job_location,work_arrangement,job_type,salary_min,salary_max,currency&limit=1`;
-      const jobVerifyRes = await fetch(jobVerifyUrl, { headers: getHeaders(), cache: "no-store" });
+      const jobVerifyRes = await directusSettled<{ data?: Record<string, unknown>[] }>(
+        "/items/vs_job_posting",
+        {
+          query: `filter[job_id][_eq]=${jobIdNum}&filter[company_id][_eq]=${companyId}&fields=job_id,job_title,job_description,job_location,work_arrangement,job_type,salary_min,salary_max,currency&limit=1`,
+        }
+      );
       if (!jobVerifyRes.ok) {
         return NextResponse.json({ error: "Failed to verify job ownership." }, { status: 502 });
       }
-      const jobVerifyJson = await jobVerifyRes.json();
-      verifiedJob = jobVerifyJson.data?.[0] ?? null;
+      verifiedJob = jobVerifyRes.data?.data?.[0] ?? null;
 
       if (!verifiedJob) {
         return NextResponse.json(
@@ -85,43 +81,70 @@ export async function POST(req: NextRequest) {
     const nowPH = getPHTimeString();
 
     // 1. Create invitation record
-    const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_applicant_invitation`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({
-        company_id: companyId,
-        applicant_user_id: candidateUserId,
-        job_id: verifiedJob ? Number(verifiedJob.job_id) : null,
-        subject: trimmedSubject,
-        message: trimmedMessage,
-        status: "PENDING",
-        created_by: userId,
-        created_at: nowPH,
-        updated_at: nowPH,
-      }),
-    });
+    const createRes = await directusSettled<{ data?: Record<string, unknown> }>(
+      "/items/vs_applicant_invitation",
+      {
+        method: "POST",
+        body: {
+          company_id: companyId,
+          applicant_user_id: candidateUserId,
+          job_id: verifiedJob ? Number(verifiedJob.job_id) : null,
+          subject: trimmedSubject,
+          message: trimmedMessage,
+          status: "PENDING",
+          created_by: userId,
+          created_at: nowPH,
+          updated_at: nowPH,
+        },
+      }
+    );
 
     if (!createRes.ok) {
-      console.error("[talent-invitation POST] Failed to insert invitation:", await createRes.text());
+      console.error("[talent-invitation POST] Failed to insert invitation:", createRes.error);
       return NextResponse.json({ error: "Failed to send invitation." }, { status: 502 });
     }
 
-    const created = (await createRes.json()).data;
+    const created = createRes.data?.data;
+
+    // Anything that could not be delivered after the row exists is reported to
+    // the caller instead of being logged and dropped.
+    const warnings: string[] = [];
 
     // 2. Fetch candidate & company details to dispatch notifications
     const [candRes, compRes] = await Promise.all([
-      fetch(`${DIRECTUS_BASE}/items/vs_user/${candidateUserId}?fields=user_email,user_fname,user_lname`, {
-        headers: getHeaders(),
-        cache: "no-store",
-      }),
-      fetch(`${DIRECTUS_BASE}/items/vs_company/${companyId}?fields=company_name`, {
-        headers: getHeaders(),
-        cache: "no-store",
-      }),
+      directusSettled<{
+        data?: { user_email?: string | null; user_fname?: string | null; user_lname?: string | null };
+      }>(`/items/vs_user/${candidateUserId}`, { query: "fields=user_email,user_fname,user_lname" }),
+      directusSettled<{ data?: { company_name?: string | null } }>(
+        `/items/vs_company/${companyId}`,
+        { query: "fields=company_name" }
+      ),
     ]);
 
-    const candidate = candRes.ok ? (await candRes.json()).data : null;
-    const company = compRes.ok ? (await compRes.json()).data : null;
+    const candidate = candRes.ok ? candRes.data?.data ?? null : null;
+    const company = compRes.ok ? compRes.data?.data ?? null : null;
+
+    // Both reads used to collapse to null on any failure, and the response still
+    // said `success`. The recruiter saw the invitation as sent when nothing ever
+    // reached the candidate, so an outage silently cost them the candidate's
+    // attention. Nothing here is recoverable by retrying the request — the row
+    // already exists — so the outcome is reported instead.
+    if (!candRes.ok && candRes.status !== 404) {
+      console.error("[talent-invitation POST] Candidate read failed:", candRes.error);
+      warnings.push(
+        "The invitation was recorded, but the candidate's profile could not be read so no notification was sent."
+      );
+    } else if (!candRes.ok) {
+      warnings.push(
+        "The invitation was recorded, but no candidate account was found to notify."
+      );
+    }
+    if (!compRes.ok && compRes.status !== 404) {
+      console.error("[talent-invitation POST] Company read failed:", compRes.error);
+      warnings.push(
+        "The invitation was recorded, but your company name could not be read, so the notice may be addressed incorrectly."
+      );
+    }
 
     const companyName = (company?.company_name as string) || "a company on VOS-Sync";
     const jobTitle = (verifiedJob?.job_title as string) || null;
@@ -144,38 +167,56 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Dispatch In-App Message (if user preference allows)
+    // 3. Read both preferences before dispatching anything. An unread preference
+    // is not "enabled": an in-app message or a mail the candidate switched off
+    // cannot be taken back, while a missed invitation is still visible in their
+    // list, so the send is skipped and reported.
     const canSendInApp = await isInAppEnabledForUser(candidateUserId, "INVITATION_RECEIVED");
-    if (canSendInApp) {
-      await createSystemMessage({
-        clientId: companyId,
-        freelancerId: candidateUserId,
-        jobId: verifiedJob ? Number(verifiedJob.job_id) : null,
-        text: trimmedMessage,
-        senderId: userId,
-      }).catch((e) => console.error("Failed to create in-app message:", e));
-    }
-
-    // 4. Dispatch Email Notification (if user preference allows)
     const canSendEmail = await isEmailEnabledForUser(candidateUserId, "INVITATION_RECEIVED");
-    if (candidate?.user_email && canSendEmail) {
-      const candidateName = [candidate.user_fname, candidate.user_lname].filter(Boolean).join(" ");
-      await sendInvitationEmail(candidate.user_email, {
-        candidateName,
-        companyName,
-        jobTitle,
-        jobDescription,
-        jobLocation,
-        workArrangement,
-        jobType,
-        salaryRange,
-        message: trimmedMessage,
-      }).catch((e) =>
-        console.error("Failed to send notification email:", e)
+    if (canSendInApp === null || canSendEmail === null) {
+      warnings.push(
+        "The candidate's notification settings could not be read, so this invitation was not sent in-app or by email."
       );
     }
 
-    return NextResponse.json({ success: true, invitation: created }, { status: 201 });
+    // 4. Dispatch In-App Message (if user preference allows)
+    if (canSendInApp) {
+      try {
+        await createSystemMessage({
+          clientId: companyId,
+          freelancerId: candidateUserId,
+          jobId: verifiedJob ? Number(verifiedJob.job_id) : null,
+          text: trimmedMessage,
+          senderId: userId,
+        });
+      } catch (e) {
+        console.error("Failed to create in-app message:", e);
+        warnings.push("The invitation was recorded, but its in-app message was not delivered.");
+      }
+    }
+
+    // 5. Dispatch Email Notification (if user preference allows)
+    if (candidate?.user_email && canSendEmail) {
+      const candidateName = [candidate.user_fname, candidate.user_lname].filter(Boolean).join(" ");
+      try {
+        await sendInvitationEmail(candidate.user_email, {
+          candidateName,
+          companyName,
+          jobTitle,
+          jobDescription,
+          jobLocation,
+          workArrangement,
+          jobType,
+          salaryRange,
+          message: trimmedMessage,
+        });
+      } catch (e) {
+        console.error("Failed to send notification email:", e);
+        warnings.push("The invitation was recorded, but its email could not be sent.");
+      }
+    }
+
+    return NextResponse.json({ success: true, invitation: created, warnings }, { status: 201 });
   } catch (err: unknown) {
     console.error("[talent-invitation POST] Error:", err);
     return NextResponse.json({ error: "Internal server error." }, { status: 500 });
@@ -189,6 +230,9 @@ export async function GET(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     const userId = Number(session.userId);
     const { isVerified, companyId } = await checkCompanyVerificationStatus(userId);
@@ -196,17 +240,11 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ invitations: [] }, { status: 200 });
     }
 
-    const invRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_applicant_invitation?filter[company_id][_eq]=${companyId}&fields=invitation_id,applicant_user_id,job_id,subject,message,status,created_at&sort[]=-created_at&limit=200`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
+    const invitations = await directusItems<Record<string, unknown>>("vs_applicant_invitation", {
+      query: `filter[company_id][_eq]=${companyId}&fields=invitation_id,applicant_user_id,job_id,subject,message,status,created_at&sort[]=-created_at&limit=-1`,
+    });
 
-    if (!invRes.ok) {
-      return NextResponse.json({ error: "Failed to fetch invitations." }, { status: 502 });
-    }
-
-    const invJson = await invRes.json();
-    return NextResponse.json({ invitations: invJson.data ?? [] });
+    return NextResponse.json({ invitations });
   } catch (err: unknown) {
     console.error("[talent-invitation GET] Error:", err);
     return NextResponse.json({ error: "Internal server error." }, { status: 500 });
