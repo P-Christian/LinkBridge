@@ -23,6 +23,19 @@ export function getPHTimeString(): string {
   return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
 }
 
+/**
+ * An absolute instant (ISO string, epoch ms, or Date) expressed as the Manila
+ * wall clock that vs_* datetime columns store. Slicing an ISO string instead
+ * keeps UTC digits in a +08:00 column, eight hours early for every reader that
+ * assumes the column is Manila time. Returns null when the input is not a date.
+ */
+export function toPHWallClock(value: string | number | Date): string | null {
+  const ms =
+    value instanceof Date ? value.getTime() : typeof value === "number" ? value : Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms + 8 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
+}
+
 export function formatDateLong(d: Date, locale: string = "en-PH"): string {
   return new Intl.DateTimeFormat(locale, {
     year: "numeric",

@@ -1,5 +1,6 @@
 // src/lib/mail/templates/employer.ts
 import { getBaseUrl } from "./base-url";
+import { escapeHtml, safeHttpUrl } from "./escape-html";
 
 export interface EmployerMailParams {
   companyName: string;
@@ -17,7 +18,8 @@ const PLATFORM_NAME = process.env.NEXT_PUBLIC_APP_NAME || "VOS-Sync";
 
 export function employerAccountCreationTemplate({ companyName, recipientName }: EmployerMailParams) {
   const subject = `Welcome to ${PLATFORM_NAME} — Account Created`;
-  const greeting = recipientName ? `Hello ${recipientName},` : "Hello,";
+  const greeting = recipientName ? escapeHtml(`Hello ${recipientName},`) : "Hello,";
+  const safeCompanyName = escapeHtml(companyName);
 
   const html = `
     <!DOCTYPE html>
@@ -45,7 +47,7 @@ export function employerAccountCreationTemplate({ companyName, recipientName }: 
           </div>
           <div class="content">
             <p>${greeting}</p>
-            <p>Welcome to <strong>${PLATFORM_NAME}</strong>! Your employer account for <strong>${companyName}</strong> has been successfully created and your email address is verified.</p>
+            <p>Welcome to <strong>${PLATFORM_NAME}</strong>! Your employer account for <strong>${safeCompanyName}</strong> has been successfully created and your email address is verified.</p>
             
             <div class="badge-box">
               <div class="badge-title">📋 Next Steps: Verification Required</div>
@@ -74,7 +76,8 @@ export function employerAccountCreationTemplate({ companyName, recipientName }: 
  */
 export function employerVerificationTemplate({ companyName, recipientName }: EmployerMailParams) {
   const subject = `We received your Employer Registration — ${companyName}`;
-  const greeting = recipientName ? `Hello ${recipientName},` : "Hello,";
+  const greeting = recipientName ? escapeHtml(`Hello ${recipientName},`) : "Hello,";
+  const safeCompanyName = escapeHtml(companyName);
 
   const html = `
     <!DOCTYPE html>
@@ -102,7 +105,7 @@ export function employerVerificationTemplate({ companyName, recipientName }: Emp
           </div>
           <div class="content">
             <p>${greeting}</p>
-            <p>Thank you for registering <strong>${companyName}</strong> on ${PLATFORM_NAME}. We have successfully received your employer application details and documentation.</p>
+            <p>Thank you for registering <strong>${safeCompanyName}</strong> on ${PLATFORM_NAME}. We have successfully received your employer application details and documentation.</p>
             
             <div class="badge-box">
               <div class="badge-title">⏳ Application Under Verification</div>
@@ -131,8 +134,12 @@ export function employerVerificationTemplate({ companyName, recipientName }: Emp
  */
 export function employerApprovalTemplate({ companyName, recipientName, loginUrl, baseUrl }: EmployerMailParams) {
   const subject = `Account Approved: Welcome to ${PLATFORM_NAME}!`;
-  const greeting = recipientName ? `Hello ${recipientName},` : "Hello,";
-  const targetLogin = loginUrl || `${getBaseUrl(baseUrl)}/login`;
+  const greeting = recipientName ? escapeHtml(`Hello ${recipientName},`) : "Hello,";
+  const safeCompanyName = escapeHtml(companyName);
+  // loginUrl is supplied by whoever triggers the approval; only an absolute
+  // http(s) URL may become an anchor, otherwise fall back to the portal login.
+  const targetLogin =
+    safeHttpUrl(loginUrl) || escapeHtml(`${getBaseUrl(baseUrl)}/login`);
 
   const html = `
     <!DOCTYPE html>
@@ -160,7 +167,7 @@ export function employerApprovalTemplate({ companyName, recipientName, loginUrl,
           </div>
           <div class="content">
             <p>${greeting}</p>
-            <p>Great news! Your employer profile for <strong>${companyName}</strong> has been officially verified and approved by our governance team.</p>
+            <p>Great news! Your employer profile for <strong>${safeCompanyName}</strong> has been officially verified and approved by our governance team.</p>
 
             <div class="success-box">
               <strong>What's unlocked for your account:</strong>
@@ -196,9 +203,14 @@ export function employerApprovalTemplate({ companyName, recipientName, loginUrl,
  */
 export function employerRejectionTemplate({ companyName, recipientName, rejectionReason, supportEmail }: EmployerMailParams) {
   const subject = `Update regarding your Employer Account Application — ${companyName}`;
-  const greeting = recipientName ? `Hello ${recipientName},` : "Hello,";
-  const reasonText = rejectionReason || "The submitted business documents or information did not meet our verification criteria.";
-  const contactSupport = supportEmail || process.env.SUPPORT_EMAIL || "support@vos-sync.com";
+  const greeting = recipientName ? escapeHtml(`Hello ${recipientName},`) : "Hello,";
+  const safeCompanyName = escapeHtml(companyName);
+  const reasonText = escapeHtml(
+    rejectionReason || "The submitted business documents or information did not meet our verification criteria."
+  );
+  const contactSupport = escapeHtml(
+    supportEmail || process.env.SUPPORT_EMAIL || "support@vos-sync.com"
+  );
 
   const html = `
     <!DOCTYPE html>
@@ -226,7 +238,7 @@ export function employerRejectionTemplate({ companyName, recipientName, rejectio
           </div>
           <div class="content">
             <p>${greeting}</p>
-            <p>Thank you for your interest in joining ${PLATFORM_NAME}. We are writing to update you regarding your employer application for <strong>${companyName}</strong>.</p>
+            <p>Thank you for your interest in joining ${PLATFORM_NAME}. We are writing to update you regarding your employer application for <strong>${safeCompanyName}</strong>.</p>
             <p>After reviewing your application details and submitted documents, we regret to inform you that your registration could not be approved at this time.</p>
 
             <div class="reason-box">

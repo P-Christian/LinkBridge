@@ -3,6 +3,7 @@ import {
   isAdministratorSession,
   isClientSession,
   isFreelancerSession,
+  isSchoolAdminSession,
 } from "@/lib/authenticated-session";
 
 export type ProtectedAssetKind =
@@ -10,6 +11,8 @@ export type ProtectedAssetKind =
   | "FREELANCER_RESUME"
   | "FREELANCER_IDENTITY"
   | "ASSESSMENT_PROOF"
+  | "SCHOOL_DOCUMENT"
+  | "MESSAGE_ATTACHMENT"
   | "UNKNOWN";
 
 export interface AssetAuthorization {
@@ -40,6 +43,23 @@ interface IdentityRecord {
 
 interface AssessmentProofRecord {
   attempt_id?: string | number | null;
+}
+
+interface SchoolDocumentRecord {
+  school_id?: string | number | null;
+  directus_file_id?: string | null;
+}
+
+interface MessageAttachmentRecord {
+  attachment_id?: string | number | null;
+  message_id?: string | number | null;
+  file_path?: string | null;
+}
+
+interface ConversationRecord {
+  conversation_id?: string | number | null;
+  client_id?: string | number | null;
+  freelancer_id?: string | number | null;
 }
 
 interface DirectusCollectionResponse<T> {
@@ -277,6 +297,104 @@ async function findAssessmentProofs(
   return { records: result.data?.data ?? [], lookupFailed: !result.ok };
 }
 
+async function findSchoolDocuments(
+  baseUrl: string,
+  token: string,
+  fileId: string,
+): Promise<{ records: SchoolDocumentRecord[]; lookupFailed: boolean }> {
+  const params = new URLSearchParams({
+    "filter[directus_file_id][_eq]": fileId,
+    fields: "school_id,directus_file_id",
+    limit: "20",
+  });
+  const result = await getJson<DirectusCollectionResponse<SchoolDocumentRecord>>(
+    baseUrl,
+    token,
+    `/items/vs_school_document?${params.toString()}`,
+  );
+  return { records: result.data?.data ?? [], lookupFailed: !result.ok };
+}
+
+/**
+ * Chat attachments carry no owner column, so the owning conversation is
+ * reached through vs_message. The upload route writes `/api/assets/<id>`;
+ * older rows hold the absolute Directus URL.
+ */
+async function findMessageAttachments(
+  baseUrl: string,
+  token: string,
+  fileId: string,
+): Promise<{ records: MessageAttachmentRecord[]; lookupFailed: boolean }> {
+  const references = [`/api/assets/${fileId}`, `${baseUrl}/assets/${fileId}`];
+  const records: MessageAttachmentRecord[] = [];
+  let lookupFailed = false;
+  for (const reference of references) {
+    const params = new URLSearchParams({
+      "filter[file_path][_eq]": reference,
+      fields: "attachment_id,message_id,file_path",
+      limit: "20",
+    });
+    const result = await getJson<DirectusCollectionResponse<MessageAttachmentRecord>>(
+      baseUrl,
+      token,
+      `/items/vs_message_attachment?${params.toString()}`,
+    );
+    if (!result.ok) lookupFailed = true;
+    for (const record of result.data?.data ?? []) {
+      if (!records.some((existing) => sameId(existing.attachment_id, record.attachment_id))) {
+        records.push(record);
+      }
+    }
+  }
+  return { records, lookupFailed };
+}
+
+async function resolveSchoolIdForUser(
+  baseUrl: string,
+  token: string,
+  userId: string | number,
+): Promise<string | number | null> {
+  const params = new URLSearchParams({
+    "filter[user_id][_eq]": String(userId),
+    "filter[is_active][_eq]": "true",
+    fields: "school_id",
+    limit: "10",
+  });
+  const result = await getJson<DirectusCollectionResponse<{ school_id?: string | number }>>(
+    baseUrl,
+    token,
+    `/items/vs_school_admin?${params.toString()}`,
+  );
+  for (const row of result.data?.data ?? []) {
+    if (row.school_id !== null && row.school_id !== undefined) return row.school_id;
+  }
+  return null;
+}
+
+async function conversationOfMessage(
+  baseUrl: string,
+  token: string,
+  messageId: string | number,
+): Promise<ConversationRecord | null> {
+  const messageParams = new URLSearchParams({
+    "filter[message_id][_eq]": String(messageId),
+    fields: "message_id,conversation_id",
+    limit: "1",
+  });
+  const messages = await getJson<
+    DirectusCollectionResponse<{ conversation_id?: string | number }>
+  >(baseUrl, token, `/items/vs_message?${messageParams.toString()}`);
+  const conversationId = messages.data?.data?.[0]?.conversation_id;
+  if (conversationId === null || conversationId === undefined) return null;
+
+  const conversation = await getJson<{ data?: ConversationRecord }>(
+    baseUrl,
+    token,
+    `/items/vs_conversation/${encodeURIComponent(String(conversationId))}?fields=conversation_id,client_id,freelancer_id`,
+  );
+  return conversation.data?.data ?? null;
+}
+
 async function resolveClientCompany(
   baseUrl: string,
   token: string,
@@ -420,10 +538,14 @@ export async function authorizeAssetAccess(
   if (metadata.notFound) return { allowed: false, protected: false, notFound: true, kind: "UNKNOWN" };
 
   const folder = await resolveFolderName(config.baseUrl, config.token, metadata.file?.folder);
-  const companyDocs = await findCompanyDocument(config.baseUrl, config.token, fileId);
-  const resumes = await findResumes(config.baseUrl, config.token, fileId);
-  const identities = await findIdentityRecords(config.baseUrl, config.token, fileId);
-  const proofs = await findAssessmentProofs(config.baseUrl, config.token, fileId);
+  const [companyDocs, resumes, identities, proofs, schoolDocs, attachments] = await Promise.all([
+    findCompanyDocument(config.baseUrl, config.token, fileId),
+    findResumes(config.baseUrl, config.token, fileId),
+    findIdentityRecords(config.baseUrl, config.token, fileId),
+    findAssessmentProofs(config.baseUrl, config.token, fileId),
+    findSchoolDocuments(config.baseUrl, config.token, fileId),
+    findMessageAttachments(config.baseUrl, config.token, fileId),
+  ]);
 
   const kind: ProtectedAssetKind = companyDocs.records.length
     ? "CLIENT_DOCUMENT"
@@ -433,7 +555,11 @@ export async function authorizeAssetAccess(
         ? "FREELANCER_RESUME"
         : proofs.records.length
           ? "ASSESSMENT_PROOF"
-          : "UNKNOWN";
+          : schoolDocs.records.length
+            ? "SCHOOL_DOCUMENT"
+            : attachments.records.length
+              ? "MESSAGE_ATTACHMENT"
+              : "UNKNOWN";
   const protectedByFolder = Boolean(
     folder.id && protectedFolderIds().has(folder.id),
   ) || Boolean(folder.name && PROTECTED_FOLDER_NAMES.has(folder.name));
@@ -441,7 +567,12 @@ export async function authorizeAssetAccess(
   // lookup fails, fail closed: availability loss is safer than exposing a
   // protected document through a service-token proxy.
   const associationLookupFailed =
-    companyDocs.lookupFailed || resumes.lookupFailed || identities.lookupFailed || proofs.lookupFailed;
+    companyDocs.lookupFailed ||
+    resumes.lookupFailed ||
+    identities.lookupFailed ||
+    proofs.lookupFailed ||
+    schoolDocs.lookupFailed ||
+    attachments.lookupFailed;
   const isProtected =
     metadata.lookupFailed ||
     folder.lookupFailed ||
@@ -528,6 +659,30 @@ export async function authorizeAssetAccess(
       return { allowed, protected: true, notFound: false, kind };
     }
     return { allowed: false, protected: true, notFound: false, kind };
+  }
+
+  if (kind === "SCHOOL_DOCUMENT") {
+    if (!isSchoolAdminSession(session)) {
+      return { allowed: false, protected: true, notFound: false, kind };
+    }
+    const schoolId = await resolveSchoolIdForUser(config.baseUrl, config.token, session.userId);
+    const owned =
+      schoolId !== null &&
+      schoolDocs.records.some((record) => sameId(record.school_id, schoolId));
+    return { allowed: owned, protected: true, notFound: false, kind };
+  }
+
+  if (kind === "MESSAGE_ATTACHMENT") {
+    const messageId = attachments.records[0]?.message_id ?? null;
+    if (messageId === null || messageId === undefined) {
+      return { allowed: false, protected: true, notFound: false, kind };
+    }
+    const conversation = await conversationOfMessage(config.baseUrl, config.token, messageId);
+    if (!conversation) return { allowed: false, protected: true, notFound: false, kind };
+    const participant =
+      sameId(conversation.client_id, session.userId) ||
+      sameId(conversation.freelancer_id, session.userId);
+    return { allowed: participant, protected: true, notFound: false, kind };
   }
 
   // A protected file without a matching owner/authorized reviewer is denied.
