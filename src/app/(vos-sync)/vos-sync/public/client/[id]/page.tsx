@@ -39,7 +39,10 @@ export default async function PublicClientProfilePage({
     }
   }
 
-  const profile = await getPublicClientProfile(userId);
+  const profile = await getPublicClientProfile(
+    userId,
+    session ? Number(session.userId) : undefined
+  );
 
   if (!profile) {
     notFound();

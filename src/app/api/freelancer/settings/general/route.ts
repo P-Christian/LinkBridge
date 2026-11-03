@@ -1,7 +1,8 @@
 // src/app/api/freelancer/settings/general/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { decodeJwtPayload } from "@/lib/auth-utils";
+import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,14 +21,11 @@ function getHeaders(): Record<string, string> {
   return headers;
 }
 
-function getUserIdFromReq(req: NextRequest): number | null {
-  const token =
-    req.headers.get("authorization")?.replace("Bearer ", "") ||
-    req.cookies.get("vos_sync_access_token")?.value;
-  if (!token) return null;
-  const decoded = decodeJwtPayload(token);
-  const id = decoded?.user_id ?? decoded?.sub ?? decoded?.id ?? null;
-  return id !== null ? Number(id) : null;
+async function getUserIdFromReq(req: NextRequest): Promise<number | null> {
+  const session = await authenticateRequest(req);
+  if (!session) return null;
+  const userId = Number(session.userId);
+  return Number.isSafeInteger(userId) && userId > 0 ? userId : null;
 }
 
 // Default values
@@ -43,7 +41,7 @@ const DEFAULT_SETTINGS = {
 // GET: Fetch user setting
 export async function GET(req: NextRequest) {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = await getUserIdFromReq(req);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
@@ -81,7 +79,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/settings/general error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -90,7 +88,7 @@ export async function GET(req: NextRequest) {
 // PATCH: Update settings (with concurrency settings_version checks & history audit trail)
 export async function PATCH(req: NextRequest) {
   try {
-    const userId = getUserIdFromReq(req);
+    const userId = await getUserIdFromReq(req);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
@@ -214,7 +212,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/freelancer/settings/general error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

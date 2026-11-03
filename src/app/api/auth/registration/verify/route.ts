@@ -15,9 +15,9 @@ import {
 } from "@/modules/auth/registration";
 import {
   getJwtVerificationSecret,
-  issueRegistrationAttachmentToken,
   issueRegistrationSession,
 } from "@/modules/auth/registration/registration.session";
+import { issueRegistrationAttachmentToken } from "@/modules/auth/registration/registration.attachment.token";
 import {
   findInvitationByToken,
   findStudentById,
@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
             provider: "google",
             providerSubject: googlePayload.sub,
             providerEmail: googlePayload.email,
+            providerName: googlePayload.name ?? null,
           });
 
           createAuditRecordRepo({
@@ -134,6 +135,7 @@ export async function POST(request: NextRequest) {
             provider: "linkedin",
             providerSubject: linkedInPayload.sub,
             providerEmail: linkedInPayload.email,
+            providerName: linkedInPayload.name ?? null,
           });
 
           createAuditRecordRepo({
@@ -161,6 +163,7 @@ export async function POST(request: NextRequest) {
             provider: "facebook",
             providerSubject: facebookPayload.id,
             providerEmail: facebookPayload.email,
+            providerName: facebookPayload.name ?? null,
           });
 
           createAuditRecordRepo({

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { User, Code2, CheckCircle2, Briefcase, Eye, EyeOff, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 
@@ -82,7 +82,6 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-    const router = useRouter()
     const searchParams = useSearchParams()
 
     const [showPw, setShowPw] = React.useState(false)
@@ -95,12 +94,9 @@ function LoginForm() {
 
     const [errors, setErrors] = React.useState<FieldErrors>({})
 
-    React.useEffect(() => {
-        if (typeof document !== "undefined" && document.cookie.match(/(^|;)\s*vos_sync_access_token\s*=\s*([^;]+)/)) {
-            const nextParam = sanitizeNextPath(searchParams.get("next")) || "/vos-sync/freelancer/dashboard"
-            router.replace(nextParam)
-        }
-    }, [router, searchParams])
+    // PRIV-017: no client-side "already signed in" probe here - the auth cookie
+    // is HttpOnly so document.cookie cannot see it; middleware.ts performs that
+    // redirect server-side for /login.
 
     React.useEffect(() => {
         const error = searchParams.get("error")
@@ -173,15 +169,6 @@ function LoginForm() {
         if (!validate()) return
 
         setLoading(true)
-
-        if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-            toast.success("Signed in", { description: "Auth disabled mode." })
-            const next = sanitizeNextPath(searchParams.get("next")) || "/vos-sync/freelancer/dashboard"
-            router.replace(next)
-            router.refresh()
-            setLoading(false)
-            return
-        }
 
         try {
             const res = await fetch("/api/auth/login", {
@@ -342,7 +329,7 @@ function LoginForm() {
                                     <span>Account Not Found</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    No VoSync account was found with that email. If you are new to VoSync, please create an account.
+                                    No VOS Sync account was found with that email. If you are new to VOS Sync, please create an account.
                                 </p>
                                 <div className="pt-1">
                                     <Link

@@ -207,63 +207,29 @@ export function DashboardSidebar({
         const hasContactMessagesItem = config.navItems.some((item) => item.label === "Contact Messages");
 
         let isCircuitBroken = false;
+        let controller: AbortController | null = null;
+        let inFlight = false;
 
         const fetchCounts = async () => {
-            if (hasMessagesItem) {
-                try {
-                    const res = await fetch("/api/shared/messaging/unread-count");
-                    if (res.ok) {
-                        const data = await res.json();
-                        setUnreadMessages(data.unreadCount || 0);
-                    }
-                } catch {
-                    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-                    toast.error("Something went wrong", {
-                        id: "sidebar-fetch-error",
-                        duration: 3000,
-                    });
-                }
-            }
+            // Upstream reads can take many seconds; without this a slow tick
+            // would stack a second full poll on top of it every 30s.
+            if (inFlight) return;
+            inFlight = true;
 
-            if (hasContactMessagesItem) {
-                try {
-                    const res = await fetch("/api/vos-admin/contact-messages/unread-count");
-                    if (res.ok) {
-                        const data = await res.json();
-                        setUnreadContactMessages(data.unreadCount || 0);
-                    }
-                } catch {
-                    if (typeof navigator !== "undefined" && !navigator.onLine) return;
-                    toast.error("Something went wrong", {
-                        id: "sidebar-fetch-error",
-                        duration: 3000,
-                    });
-                }
-            }
+            controller?.abort();
+            controller = new AbortController();
+            const signal = controller.signal;
 
-            if (hasNotificationsItem && !isCircuitBroken) {
-                const isFreelancer = pathname?.startsWith("/vos-sync/freelancer") || pathname?.startsWith("/freelancer");
-                const isClient = pathname?.startsWith("/vos-sync/client") || pathname?.startsWith("/client");
-
-                const endpoint = isFreelancer
-                    ? "/api/freelancer/notifications?unread_only=true"
-                    : isClient
-                    ? "/api/client/notifications?unread_only=true&limit=100"
-                    : null;
-
-                if (endpoint) {
+            try {
+                if (hasMessagesItem) {
                     try {
-                        const res = await fetch(endpoint);
-                        if (res.status === 401 || res.status === 403) {
-                            // Trip circuit breaker to avoid infinite 403 / 401 polling flood
-                            isCircuitBroken = true;
-                            return;
-                        }
+                        const res = await fetch("/api/shared/messaging/unread-count", { signal });
                         if (res.ok) {
                             const data = await res.json();
-                            setUnreadNotifications(data.unreadCount ?? data.notifications?.length ?? 0);
+                            setUnreadMessages(data.unreadCount || 0);
                         }
                     } catch {
+                        if (signal.aborted) return;
                         if (typeof navigator !== "undefined" && !navigator.onLine) return;
                         toast.error("Something went wrong", {
                             id: "sidebar-fetch-error",
@@ -271,13 +237,68 @@ export function DashboardSidebar({
                         });
                     }
                 }
+
+                if (hasContactMessagesItem) {
+                    try {
+                        const res = await fetch("/api/vos-admin/contact-messages/unread-count", { signal });
+                        if (res.ok) {
+                            const data = await res.json();
+                            setUnreadContactMessages(data.unreadCount || 0);
+                        }
+                    } catch {
+                        if (signal.aborted) return;
+                        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+                        toast.error("Something went wrong", {
+                            id: "sidebar-fetch-error",
+                            duration: 3000,
+                        });
+                    }
+                }
+
+                if (hasNotificationsItem && !isCircuitBroken) {
+                    const isFreelancer = pathname?.startsWith("/vos-sync/freelancer") || pathname?.startsWith("/freelancer");
+                    const isClient = pathname?.startsWith("/vos-sync/client") || pathname?.startsWith("/client");
+
+                    const endpoint = isFreelancer
+                        ? "/api/freelancer/notifications?unread_only=true"
+                        : isClient
+                        ? "/api/client/notifications?unread_only=true&limit=100"
+                        : null;
+
+                    if (endpoint) {
+                        try {
+                            const res = await fetch(endpoint, { signal });
+                            if (res.status === 401 || res.status === 403) {
+                                // Trip circuit breaker to avoid infinite 403 / 401 polling flood
+                                isCircuitBroken = true;
+                                return;
+                            }
+                            if (res.ok) {
+                                const data = await res.json();
+                                setUnreadNotifications(data.unreadCount ?? data.notifications?.length ?? 0);
+                            }
+                        } catch {
+                            if (signal.aborted) return;
+                            if (typeof navigator !== "undefined" && !navigator.onLine) return;
+                            toast.error("Something went wrong", {
+                                id: "sidebar-fetch-error",
+                                duration: 3000,
+                            });
+                        }
+                    }
+                }
+            } finally {
+                inFlight = false;
             }
         };
 
         fetchCounts();
 
         const interval = setInterval(fetchCounts, 30000);
-        return () => clearInterval(interval);
+        return () => {
+            clearInterval(interval);
+            controller?.abort();
+        };
     }, [config.navItems, pathname]);
 
     const handleFooterClick = async (e: React.MouseEvent<HTMLAnchorElement | HTMLDivElement>, href: string) => {
@@ -290,7 +311,8 @@ export function DashboardSidebar({
         } catch (err) {
             console.error("Logout error:", err);
         } finally {
-            document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+            // PRIV-017: the logout route already cleared the HttpOnly auth
+            // cookie; a client-side expire write cannot touch it.
             document.body.style.display = "none";
             window.location.href = "/login";
         }

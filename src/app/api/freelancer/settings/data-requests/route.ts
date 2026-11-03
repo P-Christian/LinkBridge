@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createHash } from "crypto";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { deleteApplicationAiAnalysis } from "@/lib/gemini/applicationAiStorage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/settings/data-requests error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -129,6 +131,19 @@ export async function POST(req: NextRequest) {
 
     const requestData = (await insertRes.json()).data;
 
+    // PRIV-009: a deletion request from the data subject must actually remove
+    // the AI evaluations retained about them (current rows and the superseded
+    // history). Rows are filtered on the authenticated requester's own user id.
+    if (request_type === "deletion") {
+      let aiAnalysesDeleted = 0;
+      try {
+        aiAnalysesDeleted = await deleteApplicationAiAnalysis({ userId });
+      } catch (purgeErr) {
+        console.error("POST /api/freelancer/settings/data-requests AI purge error:", purgeErr);
+      }
+      return NextResponse.json({ request: requestData, aiAnalysesDeleted });
+    }
+
     // Optional: Auto-confirm/simulate worker completion for mock purposes, 
     // especially for Export which is completed instantly in this implementation.
     if (request_type === "export") {
@@ -175,7 +190,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/freelancer/settings/data-requests error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -240,7 +255,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/freelancer/settings/data-requests error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

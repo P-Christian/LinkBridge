@@ -22,9 +22,19 @@ export async function GET(req: NextRequest) {
     const storedHash = user?.hash_password || user?.user_password;
     const hasPassword = Boolean(storedHash && String(storedHash).trim() !== "");
 
+    const resolvedName =
+      ((identity as Record<string, unknown> | null)?.provider_name as string | undefined) ||
+      ((identity as Record<string, unknown> | null)?.name as string | undefined) ||
+      [user?.user_fname || user?.first_name, user?.user_lname || user?.last_name]
+        .filter(Boolean)
+        .join(" ")
+        .trim() ||
+      null;
+
     return NextResponse.json({
       ok: true,
       connected: Boolean(identity),
+      name: resolvedName,
       email: identity?.provider_email ?? null,
       linked_at: identity?.linked_at ?? null,
       has_password: hasPassword,

@@ -2,7 +2,7 @@
 
 // src/modules/client/talent-search/hooks/useTalentSearch.ts
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { TalentCard, TalentFilters, EMPTY_FILTERS } from "../types";
 import { buildTalentSearchParams } from "../utils/talentUtils";
@@ -20,12 +20,22 @@ export function useTalentSearch() {
   const [filters, setFilters] = useState<TalentFilters>(EMPTY_FILTERS);
   const [jobIdForMatch, setJobIdForMatch] = useState("");
 
+  // Pager clicks and filter edits each start a request, and any of them can
+  // answer last. Only the most recent one may write, otherwise the grid ends up
+  // showing a page the user already left.
+  const searchSeqRef = useRef(0);
+
+  // Paging runs a search per page turn, so a scan-truncation warning from the
+  // server is shown once per distinct message rather than stacked per page.
+  const warnedRef = useRef("");
+
   const search = useCallback(
     async (overrideFilters?: TalentFilters, overridePage?: number, overrideJobId?: string) => {
       const activeFilters = overrideFilters ?? filters;
       const activePage = overridePage ?? page;
       const activeJobId = overrideJobId ?? jobIdForMatch;
 
+      const seq = ++searchSeqRef.current;
       setLoading(true);
       setError("");
 
@@ -40,19 +50,31 @@ export function useTalentSearch() {
         const res = await fetch(`/api/client/talent-search?${params.toString()}`);
         const json = await res.json();
 
+        if (seq !== searchSeqRef.current) return;
         if (!res.ok) {
           throw new Error(json.error || "Failed to load talent.");
         }
 
         setTalents(json.talents ?? []);
         setTotal(json.total ?? 0);
+        setPage(activePage);
         setHasSearched(true);
+
+        const warnings: string[] = Array.isArray(json.warnings)
+          ? (json.warnings as string[])
+          : [];
+        const joined = warnings.join(" ");
+        if (joined && joined !== warnedRef.current) {
+          warnedRef.current = joined;
+          warnings.forEach((w) => toast.warning(w));
+        }
       } catch (err: unknown) {
+        if (seq !== searchSeqRef.current) return;
         const msg = err instanceof Error ? err.message : "Failed to load talent.";
         setError(msg);
         toast.error(msg);
       } finally {
-        setLoading(false);
+        if (seq === searchSeqRef.current) setLoading(false);
       }
     },
     [filters, page, jobIdForMatch]
@@ -73,6 +95,7 @@ export function useTalentSearch() {
     setTotal(0);
     setHasSearched(false);
     setError("");
+    warnedRef.current = "";
   }, []);
 
   const handlePageChange = useCallback(

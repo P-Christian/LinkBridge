@@ -187,6 +187,7 @@ export async function GET(req: NextRequest) {
           userId: activeSession.userId,
           sub: googleProfile.sub,
           email: normalizedEmail,
+          name: googleProfile.name,
         });
 
         settingsUrl.searchParams.set("pending_link", "google");
@@ -221,6 +222,7 @@ export async function GET(req: NextRequest) {
         provider: "google",
         providerSubject: googleProfile.sub,
         providerEmail: normalizedEmail,
+        providerName: googleProfile.name ?? null,
       });
 
       createAuditRecordRepo({
@@ -398,29 +400,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Auto-Link: If identity not linked by sub, check if user exists by verified email
+    // 2. A provider email is not proof that the caller owns the VOS Sync
+    // account, so sign-up never links on it (SEC-009). The login flow already
+    // refuses the same thing; linking is done from an authenticated session.
     if (!user) {
       const existingUser = await getUserByEmail(normalizedEmail);
       if (existingUser) {
-        // Auto-link Google identity to this existing account
-        await linkUserIdentity({
-          userId: existingUser.user_id,
-          provider: "google",
-          providerSubject: googleProfile.sub,
-          providerEmail: normalizedEmail,
-        });
-
         createAuditRecordRepo({
-          event_type: "USER_IDENTITY_AUTO_LINKED",
+          event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
-          action: "AUTO_LINK_IDENTITY",
-          status: "SUCCESS",
+          action: "LOGIN_REJECTED",
+          status: "DENIED",
           actor_type: existingUser.role_id === 3 ? "ADMIN" : "USER",
           actor_user_id: existingUser.user_id,
-          reason: `Automatically linked Google identity for existing user ${normalizedEmail}`,
+          reason: `Google sign-up refused: email ${normalizedEmail} belongs to an account that is not connected to Google`,
         });
 
-        user = existingUser;
+        const errorUrl = new URL(`/login?error=google_not_connected&email=${encodeURIComponent(normalizedEmail)}`, requestOrigin);
+        const redirectTarget = transaction.popup
+          ? new URL(`/auth/popup-callback?status=error&error=google_not_connected&provider=google&flow=signup`, requestOrigin)
+          : errorUrl;
+        const res = NextResponse.redirect(redirectTarget);
+        clearTxCookie(res);
+        return res;
       }
     }
 

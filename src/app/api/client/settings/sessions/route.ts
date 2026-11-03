@@ -1,32 +1,39 @@
 // src/app/api/client/settings/sessions/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { decodeJwtPayload, extractClientIp, resolveIpGeo } from "@/lib/auth-utils";
+import { authenticateRequest } from "@/lib/authenticated-session";
+import { extractClientIp, resolveIpGeo } from "@/lib/auth-utils";
 import {
   getActiveSessionsForUser,
   revokeUserSession,
   revokeOtherUserSessions,
+  validateUserSession,
   parseUserAgent,
 } from "@/modules/auth/sessions/session.repo";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-function getAuthInfoFromReq(req: NextRequest): { userId: number | null; sid: string | null } {
-  const token =
-    req.headers.get("authorization")?.replace("Bearer ", "") ||
-    req.cookies.get("vos_sync_access_token")?.value;
-  if (!token) return { userId: null, sid: null };
-  const decoded = decodeJwtPayload(token);
-  const id = decoded?.user_id ?? decoded?.sub ?? decoded?.id ?? null;
-  const sid = typeof decoded?.sid === "string" ? decoded.sid : null;
-  return { userId: id !== null ? Number(id) : null, sid };
+const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+async function getAuthInfoFromReq(
+  req: NextRequest
+): Promise<{ userId: number | null; sid: string | null }> {
+  const session = await authenticateRequest(req);
+  if (!session) return { userId: null, sid: null };
+
+  const userId = Number(session.userId);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return { userId: null, sid: null };
+
+  const sid = typeof session.payload.sid === "string" ? session.payload.sid : null;
+  return { userId, sid };
 }
 
 // GET: Fetch active sessions for the client user
 export async function GET(req: NextRequest) {
   try {
-    const { userId, sid: currentSid } = getAuthInfoFromReq(req);
+    const { userId, sid: currentSid } = await getAuthInfoFromReq(req);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
@@ -77,7 +84,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/settings/sessions error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -86,7 +93,7 @@ export async function GET(req: NextRequest) {
 // DELETE: Terminate a session or all other sessions
 export async function DELETE(req: NextRequest) {
   try {
-    const { userId, sid: currentSid } = getAuthInfoFromReq(req);
+    const { userId, sid: currentSid } = await getAuthInfoFromReq(req);
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
@@ -103,12 +110,21 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ success: true, terminated: "all-other", count });
     }
 
+    if (!SESSION_ID_PATTERN.test(sessionId)) {
+      return NextResponse.json({ error: "Invalid session ID." }, { status: 400 });
+    }
+
+    const owned = await validateUserSession(sessionId);
+    if (!owned.session || Number(owned.session.user_id) !== userId) {
+      return NextResponse.json({ error: "Session not found." }, { status: 404 });
+    }
+
     await revokeUserSession(sessionId, "USER_REVOKED");
     return NextResponse.json({ success: true, terminated: sessionId });
   } catch (err: unknown) {
     console.error("DELETE /api/client/settings/sessions error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

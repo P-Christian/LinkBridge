@@ -2,20 +2,63 @@
 // GET: Fetch school profile details for Campus Talent client view.
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
+import {
+  DirectusError,
+  directusItems,
+  directusSettled,
+} from "@/lib/server/directus";
+import { toId } from "@/lib/server/route";
 import { PublicSchoolAdminProfile } from "@/modules/public/public-profile/services/public-profile.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+interface SchoolRow {
+  school_id: number;
+  school_name?: string | null;
+  school_type?: string | null;
+  school_logo_url?: string | null;
+  school_cover?: string | null;
+  school_description?: string | null;
+  school_mission?: string | null;
+  school_values?: string | null;
+  school_email?: string | null;
+  school_contact_no?: string | null;
+  school_website?: string | null;
+  school_facebook?: string | null;
+  school_linkedin?: string | null;
+  address_line?: string | null;
+  barangay?: string | null;
+  city_municipality?: string | null;
+  province?: string | null;
+  postal_code?: string | null;
+  country?: string | null;
+  verification_status?: string | null;
+  is_active?: boolean | number | null;
+}
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = { "Content-Type": "application/json", Accept: "application/json" };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
+interface CourseRow {
+  school_course_id: number;
+  course_name: string;
+  course_code?: string | null;
+  degree?: string | null;
+  course_status?: string;
+}
+
+interface CountRow {
+  count?: { student_id?: number | string } | null;
+}
+
+interface SchoolAdminRow {
+  user_id?: {
+    user_id?: number;
+    user_fname?: string;
+    user_lname?: string;
+    user_email?: string;
+    profile_image_url?: string | null;
+  } | null;
 }
 
 function resolveAssetUrl(fileId?: string | null): string | null {
@@ -38,6 +81,9 @@ export async function GET(
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     const userId = Number(session.userId);
     const { isVerified, verification_status } = await checkCompanyVerificationStatus(userId);
@@ -49,68 +95,57 @@ export async function GET(
     }
 
     const { id } = await params;
-    const schoolId = Number(id);
-    if (!schoolId || isNaN(schoolId)) {
+    const schoolId = toId(id);
+    if (!schoolId) {
       return NextResponse.json({ error: "Invalid school ID." }, { status: 400 });
     }
 
-    // 1. Fetch school details
-    const schoolRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_school/${schoolId}?fields=*`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
+    // 1. Fetch school details. Only Directus' own 404 may tell the employer the
+    // school is gone; answering 404 to an outage deletes a partner school.
+    const schoolRes = await directusSettled<SchoolRow>(`/items/vs_school/${schoolId}`, {
+      query: "fields=*",
+    });
     if (!schoolRes.ok) {
-      return NextResponse.json({ error: "School not found." }, { status: 404 });
+      if (schoolRes.status === 404) {
+        return NextResponse.json({ error: "School not found." }, { status: 404 });
+      }
+      return NextResponse.json(
+        { error: "School details could not be read. Please try again." },
+        { status: 502 }
+      );
     }
-    const school = (await schoolRes.json()).data;
+    const school = schoolRes.data;
     if (!school?.is_active || school?.verification_status !== "VERIFIED") {
       return NextResponse.json({ error: "School is not accessible." }, { status: 403 });
     }
 
-    // 2. Fetch courses, student count, and admin in parallel
-    const [coursesRes, studentCountRes, adminRes] = await Promise.all([
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_school_course?filter[school_id][_eq]=${schoolId}&filter[course_status][_eq]=Active&fields=school_course_id,course_name,course_code,degree,course_status&sort[]=course_name`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_school_student?filter[school_id][_eq]=${schoolId}&aggregate[count]=student_id`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_school_admin?filter[school_id][_eq]=${schoolId}&filter[is_active][_eq]=1&fields=user_id.user_id,user_id.user_fname,user_id.user_lname,user_id.user_email,user_id.profile_image_url&limit=1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
+    // 2. Fetch courses, student count, and admin in parallel.
+    // These three used to fall back to "no rows": the school page then showed
+    // 0 students and 0 courses, and `course_count` came from a list the Directus
+    // default cap had already cut to 100. A count that could not be read is not
+    // a count of zero, so the reads fail the request instead.
+    const [courses, countRows, adminRows] = await Promise.all([
+      directusItems<CourseRow>("vs_school_course", {
+        query:
+          `filter[school_id][_eq]=${schoolId}&filter[course_status][_eq]=Active` +
+          "&fields=school_course_id,course_name,course_code,degree,course_status" +
+          "&sort[]=course_name&limit=-1",
+      }),
+      directusItems<CountRow>("vs_school_student", {
+        query: `filter[school_id][_eq]=${schoolId}&aggregate[count]=student_id`,
+      }),
+      directusItems<SchoolAdminRow>("vs_school_admin", {
+        query:
+          `filter[school_id][_eq]=${schoolId}&filter[is_active][_eq]=1` +
+          "&fields=user_id.user_id,user_id.user_fname,user_id.user_lname,user_id.user_email,user_id.profile_image_url" +
+          "&limit=1",
+      }),
     ]);
 
-    const coursesJson = coursesRes.ok ? await coursesRes.json() : { data: [] };
-    const courses = (coursesJson.data ?? []) as Array<{
-      school_course_id: number;
-      course_name: string;
-      course_code?: string | null;
-      degree?: string | null;
-      course_status?: string;
-    }>;
+    const rawCount = countRows[0]?.count?.student_id;
+    const studentCount = Number(rawCount ?? 0);
 
-    const studentCount = studentCountRes.ok
-      ? ((await studentCountRes.json()).data?.[0]?.count?.student_id ?? 0)
-      : 0;
-
-    let adminUser: {
-      user_id?: number;
-      user_fname?: string;
-      user_lname?: string;
-      user_email?: string;
-      profile_image_url?: string | null;
-    } | null = null;
-
-    if (adminRes.ok) {
-      const adminJson = await adminRes.json();
-      const rawUser = adminJson.data?.[0]?.user_id;
-      if (rawUser && typeof rawUser === "object") {
-        adminUser = rawUser;
-      }
-    }
+    const adminUser = adminRows[0]?.user_id ?? null;
 
     const addressParts = [
       school.address_line,
@@ -127,9 +162,9 @@ export async function GET(
       user_lname: adminUser?.user_lname ?? "",
       user_email: adminUser?.user_email ?? (school.school_email || ""),
       avatar_url: resolveAssetUrl(adminUser?.profile_image_url) ?? undefined,
-      headline: school.school_name,
+      headline: school.school_name ?? "",
       school_id: school.school_id,
-      school_name: school.school_name,
+      school_name: school.school_name ?? "",
       school_type: school.school_type || "University",
       school_logo_url: resolveAssetUrl(school.school_logo_url),
       school_cover: resolveAssetUrl(school.school_cover),
@@ -141,7 +176,7 @@ export async function GET(
       school_website: school.school_website || null,
       school_address: addressParts.join(", "),
       course_count: courses.length,
-      student_count: Number(studentCount),
+      student_count: Number.isFinite(studentCount) ? studentCount : 0,
       courses: courses.map((c) => ({
         school_course_id: c.school_course_id,
         course_name: c.course_name,
@@ -157,6 +192,12 @@ export async function GET(
     return NextResponse.json({ data: profile });
   } catch (err: unknown) {
     console.error("[campus-talent/schools/[id] GET]", err);
+    if (err instanceof DirectusError) {
+      return NextResponse.json(
+        { error: "School details could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
     return NextResponse.json({ error: "Internal server error." }, { status: 500 });
   }
 }

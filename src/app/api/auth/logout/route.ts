@@ -4,14 +4,12 @@ import { jwtVerify } from "jose";
 import { createAuditRecordRepo } from "@/modules/vos-admin/audit-trail";
 
 import { revokeUserSession } from "@/modules/auth/sessions/session.repo";
+import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const COOKIE_NAME = "vos_sync_access_token";
-const JWT_SECRET = new TextEncoder().encode(
-    process.env.JWT_SECRET
-);
 
 export async function POST(req: NextRequest) {
     const token = req.cookies.get(COOKIE_NAME)?.value || req.headers.get("authorization")?.replace("Bearer ", "");
@@ -20,7 +18,7 @@ export async function POST(req: NextRequest) {
 
     if (token) {
         try {
-            const { payload } = await jwtVerify(token, JWT_SECRET);
+            const { payload } = await jwtVerify(token, getJwtVerificationSecret());
             userId = Number(payload.sub || payload.user_id || payload.id);
             sessionId = typeof payload.sid === "string" ? payload.sid : null;
         } catch {

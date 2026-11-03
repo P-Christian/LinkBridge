@@ -32,6 +32,7 @@ import {
     SidebarMenuButton,
     SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { purgeApplicantAiCache } from "@/modules/client/applicants/utils/applicantAiCache"
 
 type NavUserProps = {
     user: {
@@ -85,8 +86,6 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
         if (loggingOut) return
         setLoggingOut(true)
 
-        console.log("[NavUser] Client logout initiated. Document cookie before logout:", document.cookie)
-
         try {
             // If a parent provided a handler, use it.
             if (onLogout) {
@@ -95,12 +94,12 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
             }
 
             // Default wiring: clear HttpOnly cookie via Next route
-            const res = await fetch("/api/auth/logout", { method: "POST" })
-            console.log("[NavUser] /api/auth/logout HTTP status:", res.status)
+            await fetch("/api/auth/logout", { method: "POST" })
         } finally {
-            // Expire client-side cookie if present
-            document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
-            console.log("[NavUser] Client logout finished. Document cookie after logout:", document.cookie)
+            // PRIV-016: candidate AI assessments cached in this browser must not
+            // outlive the session. The HttpOnly auth cookie is cleared by the
+            // logout route above - a client-side cookie write cannot touch it.
+            purgeApplicantAiCache()
 
             // Hide the body to prevent bfcache flash on back navigation
             document.body.style.display = 'none';
