@@ -57,7 +57,7 @@ function generateRequestId(): string {
   return `req_${ts}_${rand}`;
 }
 
-/** Fire-and-forget: write a telemetry record to Directus gemini_requests or vs_gemini_requests.
+/** Fire-and-forget: write a telemetry record to Directus vs_gemini_requests.
  *  Never throws — monitoring failures must never affect the user request. */
 async function saveMonitoringRecord(record: Record<string, unknown>): Promise<void> {
   if (!DIRECTUS_BASE) {
@@ -65,23 +65,12 @@ async function saveMonitoringRecord(record: Record<string, unknown>): Promise<vo
     return;
   }
 
-  // Primary: vs_gemini_requests (VOS Sync Directus naming convention)
-  let url = `${DIRECTUS_BASE}/items/vs_gemini_requests`;
-  let res = await fetch(url, {
+  const url = `${DIRECTUS_BASE}/items/vs_gemini_requests`;
+  const res = await fetch(url, {
     method: "POST",
     headers: getDirectusHeaders(),
     body: JSON.stringify(record),
   });
-
-  if (res.status === 404) {
-    // Secondary fallback to gemini_requests if vs_ prefix table does not exist
-    url = `${DIRECTUS_BASE}/items/gemini_requests`;
-    res = await fetch(url, {
-      method: "POST",
-      headers: getDirectusHeaders(),
-      body: JSON.stringify(record),
-    });
-  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");

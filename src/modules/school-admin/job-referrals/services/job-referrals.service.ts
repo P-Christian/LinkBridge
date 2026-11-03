@@ -174,7 +174,7 @@ export async function createBatchReferralsService(
   // Fetch school details if available
   let schoolName = 'Your Academic Institution';
   try {
-    const schoolRes = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '')}/items/vs_schools/${schoolId}?fields=school_name`, {
+    const schoolRes = await fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '')}/items/vs_school/${schoolId}?fields=school_name`, {
       headers: {
         'Content-Type': 'application/json',
         ...(process.env.DIRECTUS_STATIC_TOKEN ? { Authorization: `Bearer ${process.env.DIRECTUS_STATIC_TOKEN}` } : {}),
