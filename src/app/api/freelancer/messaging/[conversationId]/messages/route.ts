@@ -4,6 +4,9 @@ import { getPHTimeString } from "@/lib/utils";
 import { encryptMessage, safeDecryptMessage } from "@/lib/message-encryption";
 
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { pageParams } from "@/lib/server/paging";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +16,9 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
   ""
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/** Attachment rows accepted for one outgoing message. */
+const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
@@ -31,6 +37,12 @@ export async function GET(
 ) {
   try {
     const { conversationId } = await params;
+    // The raw segment is interpolated into Directus filter URLs below, so only a
+    // positive integer may reach them.
+    const convId = toId(conversationId);
+    if (convId === null) {
+      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+    }
 
     const session = await authenticateRequest(req);
     if (!session || !isFreelancerSession(session)) {
@@ -43,7 +55,7 @@ export async function GET(
     const userId = Number(session.userId);
 
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${conversationId}&fields=conversation_id,client_id,freelancer_id`,
+      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${convId}&fields=conversation_id,client_id,freelancer_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -61,7 +73,7 @@ export async function GET(
 
     if (!conv) {
       return NextResponse.json(
-        { error: `Conversation #${conversationId} not found.` },
+        { error: `Conversation #${convId} not found.` },
         { status: 404 }
       );
     }
@@ -70,12 +82,13 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") ?? "50", 10);
-    const offset = parseInt(searchParams.get("offset") ?? "0", 10);
+    const { limit, offset } = pageParams(new URL(req.url).searchParams);
 
+    // `created_at` is a MySQL TIMESTAMP with one-second resolution, so a burst
+    // of messages shares a sort key; without the message_id tiebreaker an
+    // offset page can repeat or skip a row.
     const msgsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${conversationId}&sort[]=-created_at&limit=${limit}&offset=${offset}&fields=message_id,conversation_id,sender_id,message_type,message_content,is_edited,edited_at,created_at,is_deleted,reply_to_message_id,is_pinned,pinned_at,pinned_by`,
+      `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${convId}&sort[]=-created_at&sort[]=-message_id&limit=${limit}&offset=${offset}&fields=message_id,conversation_id,sender_id,message_type,message_content,is_edited,edited_at,created_at,is_deleted,reply_to_message_id,is_pinned,pinned_at,pinned_by`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -90,12 +103,20 @@ export async function GET(
     const messages: Record<string, unknown>[] = msgsJson.data ?? [];
 
     const messageIds = messages.map((m) => m.message_id as number);
+    const replyIds = Array.from(
+      new Set(
+        messages
+          .map((m) => m.reply_to_message_id as number | undefined)
+          .filter((id): id is number => typeof id === "number" && id > 0)
+      )
+    );
+    const allAttachmentMessageIds = Array.from(new Set([...messageIds, ...replyIds]));
     const attachmentsMap = new Map<number, Record<string, unknown>[]>();
     let toMarkIds: number[] = [];
 
-    if (messageIds.length > 0) {
+    if (allAttachmentMessageIds.length > 0) {
       const attachRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_in]=${messageIds.join(",")}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=500`,
+        `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_in]=${allAttachmentMessageIds.join(",")}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
 
@@ -117,32 +138,50 @@ export async function GET(
         .map((m) => m.message_id as number);
 
       if (unreadIds.length > 0) {
+        // A failed lookup means "write nothing": answering from an empty set
+        // would re-insert receipts that already exist (no unique key on
+        // vs_message_read), and parsing a non-JSON error body used to throw and
+        // fail the whole thread read.
         const readRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${unreadIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id`,
+          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${unreadIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id&limit=-1`,
           { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []);
-
-        const alreadyReadIds = new Set(
-          (readRes as Record<string, unknown>[]).map((r) => r.message_id as number)
         );
 
-        toMarkIds = unreadIds.filter((id) => !alreadyReadIds.has(id));
+        if (readRes.ok) {
+          const readJson = (await readRes.json().catch(() => null)) as {
+            data?: Record<string, unknown>[];
+          } | null;
 
-        if (toMarkIds.length > 0) {
-          const nowISO = new Date().toISOString().slice(0, 19).replace("T", " ");
-          const readPayloads = toMarkIds.map((mid) => ({
-            message_id: mid,
-            user_id: userId,
-            read_at: nowISO,
-          }));
+          const alreadyReadIds = new Set(
+            (readJson?.data ?? []).map((r) => r.message_id as number)
+          );
 
-          await fetch(`${DIRECTUS_BASE}/items/vs_message_read`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify(readPayloads),
-          }).catch((e) => console.error("Mark read error:", e));
+          toMarkIds = unreadIds.filter((id) => !alreadyReadIds.has(id));
+
+          if (toMarkIds.length > 0) {
+            const nowPH = getPHTimeString();
+            const readPayloads = toMarkIds.map((mid) => ({
+              message_id: mid,
+              user_id: userId,
+              read_at: nowPH,
+            }));
+
+            const markRes = await fetch(`${DIRECTUS_BASE}/items/vs_message_read`, {
+              method: "POST",
+              headers: getHeaders(),
+              body: JSON.stringify(readPayloads),
+            }).catch((e) => {
+              console.error("Mark read error:", e);
+              return null;
+            });
+            if (markRes && !markRes.ok) {
+              console.error(`Mark read failed: ${markRes.status}`);
+            }
+          }
+        } else {
+          console.error(
+            `Mark-read lookup failed for conversation #${convId}: ${readRes.status}`
+          );
         }
       }
     }
@@ -157,7 +196,7 @@ export async function GET(
 
     if (systemMsgIds.length > 0) {
       const smRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_in]=${systemMsgIds.join(",")}&fields=system_message_id,message_id,event_type,application_id,interview_id,stage_history_id&limit=200`,
+        `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_in]=${systemMsgIds.join(",")}&fields=system_message_id,message_id,event_type,application_id,interview_id,stage_history_id&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
       if (smRes.ok) {
@@ -189,7 +228,7 @@ export async function GET(
                 .then((j) => j.data ?? [])
             : Promise.resolve([]),
           appIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,interview_id`, { headers: getHeaders(), cache: "no-store" })
+            ? fetch(`${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,interview_id&limit=-1`, { headers: getHeaders(), cache: "no-store" })
                 .then((r) => r.json())
                 .then((j) => j.data ?? [])
             : Promise.resolve([]),
@@ -435,7 +474,7 @@ export async function GET(
         const reactionsRes = await fetch(
           `${DIRECTUS_BASE}/items/vs_message_reaction?filter[message_id][_in]=${messageIds.join(
             ","
-          )}&fields=reaction_id,message_id,user_id,reaction,created_at&sort[]=created_at&limit=500`,
+          )}&fields=reaction_id,message_id,user_id,reaction,created_at&sort[]=created_at&limit=-1`,
           { headers: getHeaders(), cache: "no-store" }
         );
 
@@ -448,13 +487,27 @@ export async function GET(
             reaction: string;
           }[];
 
-          const rUserIds = Array.from(new Set(rawReactions.map((r) => r.user_id)));
+          const parseUid = (val: unknown): number => {
+            if (val && typeof val === "object") {
+              const obj = val as Record<string, unknown>;
+              return Number(obj.user_id ?? obj.id ?? 0);
+            }
+            return Number(val ?? 0);
+          };
+
+          const rUserIds = Array.from(
+            new Set(
+              rawReactions
+                .map((r) => parseUid(r.user_id))
+                .filter((id) => !isNaN(id) && id > 0)
+            )
+          );
           const rUsersMap = new Map<number, string>();
           if (rUserIds.length > 0) {
             const ruRes = await fetch(
               `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${rUserIds.join(
                 ","
-              )}&fields=user_id,user_fname,user_lname&limit=100`,
+              )}&fields=user_id,user_fname,user_lname&limit=-1`,
               { headers: getHeaders(), cache: "no-store" }
             );
             if (ruRes.ok) {
@@ -466,7 +519,7 @@ export async function GET(
               }[]) {
                 const name =
                   `${u.user_fname ?? ""} ${u.user_lname ?? ""}`.trim() || "User";
-                rUsersMap.set(u.user_id, name);
+                rUsersMap.set(Number(u.user_id), name);
               }
             }
           }
@@ -498,12 +551,13 @@ export async function GET(
               });
             }
             const g = emojiMap.get(r.reaction)!;
+            const rUid = parseUid(r.user_id);
             g.count += 1;
             g.users.push({
-              user_id: r.user_id,
-              user_name: rUsersMap.get(r.user_id) || "User",
+              user_id: rUid,
+              user_name: rUsersMap.get(rUid) || "User",
             });
-            if (r.user_id === userId) {
+            if (rUid === userId) {
               g.reacted_by_me = true;
             }
           }
@@ -544,16 +598,16 @@ export async function GET(
     }
 
     // Batch-fetch reply-to quoted messages
-    const replyIds = Array.from(
-      new Set(
-        messages
-          .map((m) => m.reply_to_message_id as number | undefined)
-          .filter((id): id is number => typeof id === "number" && id > 0)
-      )
-    );
     const replyMap = new Map<
       number,
-      { message_id: number; sender_id: number; sender_name: string; message_content: string; message_type: string }
+      {
+        message_id: number;
+        sender_id: number;
+        sender_name: string;
+        message_content: string;
+        message_type: string;
+        attachments?: Record<string, unknown>[];
+      }
     >();
 
     if (replyIds.length > 0) {
@@ -593,12 +647,20 @@ export async function GET(
               sId === userId
                 ? "You"
                 : (resolvedName || conv.company_name || conv.client_name || "Client");
+            const replyAtts = attachmentsMap.get(rm.message_id as number) ?? [];
+            const firstAtt = replyAtts[0] as { file_name?: string } | undefined;
+            const fallbackFileName = firstAtt?.file_name ?? "";
+            const displayContent = dec
+              ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec)
+              : fallbackFileName;
+
             replyMap.set(rm.message_id as number, {
               message_id: rm.message_id as number,
               sender_id: sId,
               sender_name: sName,
-              message_content: dec ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec) : "",
+              message_content: displayContent,
               message_type: (rm.message_type as string) || "TEXT",
+              attachments: replyAtts,
             });
           }
         }
@@ -611,7 +673,7 @@ export async function GET(
     const userPinnedSet = new Set<number>();
     try {
       const pinRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_message_pin?filter[user_id][_eq]=${userId}&filter[conversation_id][_eq]=${conversationId}&fields=message_id&limit=100`,
+        `${DIRECTUS_BASE}/items/vs_message_pin?filter[user_id][_eq]=${userId}&filter[conversation_id][_eq]=${convId}&fields=message_id&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
       if (pinRes.ok) {
@@ -674,7 +736,7 @@ export async function GET(
   } catch (err: unknown) {
     console.error("GET /api/freelancer/messaging/[id]/messages error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -688,6 +750,10 @@ export async function POST(
 ) {
   try {
     const { conversationId } = await params;
+    const convId = toId(conversationId);
+    if (convId === null) {
+      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+    }
 
     const session = await authenticateRequest(req);
     if (!session || !isFreelancerSession(session)) {
@@ -710,7 +776,11 @@ export async function POST(
 
     const body = await req.json().catch(() => null);
 
-    if (!body?.message_content && !body?.attachments?.length) {
+    const incomingAttachments = Array.isArray(body?.attachments)
+      ? body.attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
+      : [];
+
+    if (!body?.message_content && incomingAttachments.length === 0) {
       return NextResponse.json(
         { error: "message_content or attachments required." },
         { status: 400 }
@@ -718,7 +788,7 @@ export async function POST(
     }
 
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${conversationId}&fields=conversation_id,client_id,freelancer_id,status`,
+      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${convId}&fields=conversation_id,client_id,freelancer_id,status`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -736,7 +806,7 @@ export async function POST(
 
     if (!conv) {
       return NextResponse.json(
-        { error: `Conversation #${conversationId} not found.` },
+        { error: `Conversation #${convId} not found.` },
         { status: 404 }
       );
     }
@@ -764,7 +834,7 @@ export async function POST(
       : body.message_content ?? null;
 
     const messageInsertBody: Record<string, unknown> = {
-      conversation_id: Number(conversationId),
+      conversation_id: convId,
       sender_id: userId,
       message_type: body.message_type ?? "TEXT",
       message_content: contentToStore,
@@ -797,8 +867,8 @@ export async function POST(
     }
 
     let attachments: unknown[] = [];
-    if (body.attachments?.length && newMessage?.message_id) {
-      const attPayloads = body.attachments.map(
+    if (incomingAttachments.length && newMessage?.message_id) {
+      const attPayloads = incomingAttachments.map(
         (a: Record<string, unknown>) => ({
           message_id: newMessage.message_id,
           file_name: a.file_name,
@@ -823,11 +893,60 @@ export async function POST(
       }
     }
 
-    fetch(`${DIRECTUS_BASE}/items/vs_conversation/${conversationId}`, {
+    fetch(`${DIRECTUS_BASE}/items/vs_conversation/${convId}`, {
       method: "PATCH",
       headers: getHeaders(),
       body: JSON.stringify({ last_message_at: nowPH }),
     }).catch((e) => console.error("Update last_message_at error:", e));
+
+    // Resolve reply_to quoted message if replying
+    let replyToObj: {
+      message_id: number;
+      sender_id: number;
+      sender_name: string;
+      message_content: string;
+      message_type: string;
+      attachments?: Record<string, unknown>[];
+    } | null = null;
+
+    if (body.reply_to_message_id) {
+      const parentMid = Number(body.reply_to_message_id);
+      try {
+        const [pMsgRes, pAttRes] = await Promise.all([
+          fetch(
+            `${DIRECTUS_BASE}/items/vs_message?filter[message_id][_eq]=${parentMid}&fields=message_id,sender_id,message_type,message_content`,
+            { headers: getHeaders(), cache: "no-store" }
+          ),
+          fetch(
+            `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_eq]=${parentMid}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=5`,
+            { headers: getHeaders(), cache: "no-store" }
+          ),
+        ]);
+        if (pMsgRes.ok) {
+          const pMsgJson = await pMsgRes.json();
+          const pMsg = Array.isArray(pMsgJson.data) ? pMsgJson.data[0] : pMsgJson.data;
+          if (pMsg) {
+            const dec = safeDecryptMessage(pMsg.message_content as string | null);
+            const pAttJson = pAttRes.ok ? await pAttRes.json().catch(() => null) : null;
+            const pAtts = Array.isArray(pAttJson?.data) ? pAttJson.data : [];
+            const firstAtt = pAtts[0] as { file_name?: string } | undefined;
+            const content = dec
+              ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec)
+              : (firstAtt?.file_name ?? "");
+            replyToObj = {
+              message_id: parentMid,
+              sender_id: Number(pMsg.sender_id),
+              sender_name: Number(pMsg.sender_id) === userId ? "You" : (conv.company_name || conv.client_name || "Client"),
+              message_content: content,
+              message_type: (pMsg.message_type as string) || "TEXT",
+              attachments: pAtts,
+            };
+          }
+        }
+      } catch (e) {
+        console.error("Failed to resolve reply_to in freelancer POST:", e);
+      }
+    }
 
     return NextResponse.json(
       {
@@ -836,6 +955,7 @@ export async function POST(
           message_content: safeDecryptMessage(newMessage?.message_content),
           attachments,
           reply_to_message_id: body.reply_to_message_id ? Number(body.reply_to_message_id) : null,
+          reply_to: replyToObj,
           is_pinned: false,
           pinned_at: null,
           pinned_by: null,
@@ -846,7 +966,7 @@ export async function POST(
   } catch (err: unknown) {
     console.error("POST /api/freelancer/messaging/[id]/messages error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

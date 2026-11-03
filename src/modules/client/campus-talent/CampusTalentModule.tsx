@@ -25,6 +25,9 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { KpiValue } from "@/components/shared/KpiValue";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import Image from "next/image";
 import CompanyVerificationGuard from "@/modules/client/components/CompanyVerificationGuard";
 import { CampusMatchResult } from "@/modules/matching-engine/campus/types";
@@ -307,25 +310,35 @@ export default function CampusTalentModule() {
   // ── School Search & Category Filters ─────────────────────────────────────
   const [selectedSchoolType, setSelectedSchoolType] = useState<string>("ALL");
 
+  const abortRead = useRequestAbort();
+
   const handleSchoolSearch = useCallback(async () => {
     setSchoolsLoading(true);
     setSchoolsError(null);
+    const signal = abortRead();
     try {
       const data = await fetchJson<{ data: School[] }>(
-        `/api/client/campus-talent/schools?q=${encodeURIComponent(schoolQuery)}`
+        `/api/client/campus-talent/schools?q=${encodeURIComponent(schoolQuery)}`,
+        { signal }
       );
       setSchools(data.data ?? []);
     } catch (e: unknown) {
+      if (signal.aborted) return;
       setSchoolsError(e instanceof Error ? e.message : "Failed to load schools.");
     } finally {
-      setSchoolsLoading(false);
+      if (!signal.aborted) {
+        setSchoolsLoading(false);
+      }
     }
-  }, [schoolQuery]);
+  }, [schoolQuery, abortRead]);
 
   useEffect(() => {
-    queueMicrotask(() => {
-      handleSchoolSearch();
-    });
+    // Without this the search fired on every keystroke, and a slow early
+    // response could land after a later one and replace the newer results.
+    const timer = setTimeout(() => {
+      void handleSchoolSearch();
+    }, 300);
+    return () => clearTimeout(timer);
   }, [handleSchoolSearch]);
 
   const schoolStats = useMemo(() => {
@@ -334,6 +347,10 @@ export default function CampusTalentModule() {
     const totalCourses = schools.reduce((acc, s) => acc + (Number(s.course_count) || 0), 0);
     return { totalSchools, totalStudents, totalCourses };
   }, [schools]);
+
+  // A school search keeps the previous results, so only the first load — with
+  // nothing summed yet — may swap these three metrics for a placeholder.
+  const schoolStatsPending = schoolsLoading && schools.length === 0;
 
   const availableSchoolTypes = useMemo(() => {
     const types = new Set<string>();
@@ -351,6 +368,12 @@ export default function CampusTalentModule() {
   }, [schools, selectedSchoolType]);
 
   // ── Select School → Load Students ─────────────────────────────────────────
+  // Separate slots per school-scoped read: picking a second school must abandon
+  // the first school's roster and profile, not let a late response fill the
+  // student list of the school on screen.
+  const abortProfile = useRequestAbort();
+  const abortStudents = useRequestAbort();
+
   const handleSelectSchool = useCallback(async (school: School) => {
     setSelectedSchool(school);
     setView("STUDENTS");
@@ -365,23 +388,30 @@ export default function CampusTalentModule() {
     setSchoolProfile(null);
 
     // Fetch school profile
+    const profileSignal = abortProfile();
     fetchJson<{ data: PublicSchoolAdminProfile }>(
-      `/api/client/campus-talent/schools/${school.school_id}`
+      `/api/client/campus-talent/schools/${school.school_id}`,
+      { signal: profileSignal }
     )
       .then((data) => {
+        if (profileSignal.aborted) return;
         setSchoolProfile(data.data ?? null);
       })
       .catch((e: unknown) => {
+        if (profileSignal.aborted) return;
         setProfileError(e instanceof Error ? e.message : "Failed to load school profile.");
       })
       .finally(() => {
-        setProfileLoading(false);
+        if (!profileSignal.aborted) setProfileLoading(false);
       });
 
     try {
+      const studentsSignal = abortStudents();
       const data = await fetchJson<{ data: CampusCandidate[] }>(
-        `/api/client/campus-talent/schools/${school.school_id}/students`
+        `/api/client/campus-talent/schools/${school.school_id}/students`,
+        { signal: studentsSignal }
       );
+      if (studentsSignal.aborted) return;
       setCandidates(data.data ?? []);
     } catch (e: unknown) {
       setStudentsError(e instanceof Error ? e.message : "Failed to load students.");
@@ -394,12 +424,14 @@ export default function CampusTalentModule() {
     try {
       const jobData = await fetchJson<{ data: RawJobPosting[] }>("/api/client/campus-talent/jobs");
       setJobs(jobData.data ?? []);
-    } catch {
-      // Jobs failing silently — user can retry via job picker
+    } catch (e: unknown) {
+      // An unread roster of jobs looked like a company with none, and the picker
+      // then offered an empty list with nothing on screen to retry.
+      toast.error(e instanceof Error ? e.message : "Failed to load your job postings.");
     } finally {
       setJobsLoading(false);
     }
-  }, []);
+  }, [abortProfile, abortStudents]);
 
   // ── Run Match ─────────────────────────────────────────────────────────────
   const handleRunMatch = useCallback(async () => {
@@ -524,7 +556,7 @@ export default function CampusTalentModule() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-2xl font-bold tracking-tight text-foreground">
-                      {schoolStats.totalSchools}
+                      <KpiValue value={schoolStats.totalSchools} loading={schoolStatsPending} />
                     </p>
                     <p className="text-xs font-medium text-muted-foreground">
                       Partner Institutions
@@ -538,7 +570,7 @@ export default function CampusTalentModule() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-2xl font-bold tracking-tight text-foreground">
-                      {schoolStats.totalStudents.toLocaleString()}
+                      <KpiValue value={schoolStats.totalStudents} loading={schoolStatsPending} />
                     </p>
                     <p className="text-xs font-medium text-muted-foreground">
                       Verified Student Network
@@ -552,7 +584,7 @@ export default function CampusTalentModule() {
                   </div>
                   <div className="min-w-0">
                     <p className="text-2xl font-bold tracking-tight text-foreground">
-                      {schoolStats.totalCourses.toLocaleString()}
+                      <KpiValue value={schoolStats.totalCourses} loading={schoolStatsPending} />
                     </p>
                     <p className="text-xs font-medium text-muted-foreground">
                       Academic Degree Programs

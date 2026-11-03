@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
+import { mapPool } from "@/lib/server/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,13 +72,15 @@ export async function DELETE(
         { headers: getHeaders(), cache: "no-store" }
       );
       if (pinRes.ok) {
-        const pinData = (await pinRes.json()).data ?? [];
-        for (const p of pinData) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_message_pin/${p.pin_id}`, {
-            method: "DELETE",
-            headers: getHeaders(),
-          });
-        }
+        const pinData: Array<{ pin_id: number }> = (await pinRes.json()).data ?? [];
+        await mapPool(
+          pinData,
+          (p) =>
+            fetch(`${DIRECTUS_BASE}/items/vs_message_pin/${p.pin_id}`, {
+              method: "DELETE",
+              headers: getHeaders(),
+            })
+        );
       }
     } catch {
       // Ignore if vs_message_pin table does not exist
@@ -111,7 +115,7 @@ export async function DELETE(
       unpinned: true,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
+    const message = safeErrorMessage(err, "Internal server error");
     console.error("Error in DELETE /api/shared/messaging/messages/[messageId]:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }

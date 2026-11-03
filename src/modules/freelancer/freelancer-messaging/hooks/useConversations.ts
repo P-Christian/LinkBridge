@@ -10,6 +10,7 @@ import {
   archiveConversation,
 } from "../providers/MessagingProvider";
 import { useRealtime } from "@/modules/shared/providers/RealtimeProvider";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 
 export function useConversations(activeConversationId?: number | null) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -17,6 +18,7 @@ export function useConversations(activeConversationId?: number | null) {
   const [error, setError] = useState("");
 
   const { subscribe } = useRealtime();
+  const abortRead = useRequestAbort();
 
   const archivedFilterRef = useRef(false);
   const activeConversationIdRef = useRef<number | null>(activeConversationId ?? null);
@@ -61,18 +63,24 @@ export function useConversations(activeConversationId?: number | null) {
       archivedFilterRef.current = opts?.archived ?? false;
       if (!opts?.silent) setLoading(true);
       setError("");
+      // Toggling the archive tab fires a second read; whichever was started
+      // last owns the list, or the archived thread list can render under the
+      // active tab (and vice versa).
+      const signal = abortRead();
       try {
         const data = await fetchConversations(opts);
+        if (signal.aborted) return;
         setConversations(normalizeConversations(data));
       } catch (err: unknown) {
+        if (signal.aborted) return;
         const msg = err instanceof Error ? err.message : "Failed to load conversations.";
         setError(msg);
         if (!opts?.silent) toast.error(msg);
       } finally {
-        if (!opts?.silent) setLoading(false);
+        if (!opts?.silent && !signal.aborted) setLoading(false);
       }
     },
-    [normalizeConversations]
+    [normalizeConversations, abortRead]
   );
 
   const archive = useCallback(

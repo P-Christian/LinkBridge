@@ -2,7 +2,7 @@
 
 // src/modules/freelancer/freelancer-messaging/components/ChatPanel.tsx
 
-import React, { useEffect, useRef, useCallback, useState, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useCallback, useState, useMemo } from "react";
 import {
   RefreshCw,
   Briefcase,
@@ -31,7 +31,6 @@ interface Props {
   loading: boolean;
   loadingOlder?: boolean;
   hasMore?: boolean;
-  sending: boolean;
   uploading: boolean;
   error: string;
   isArchived?: boolean;
@@ -42,6 +41,8 @@ interface Props {
   onBack?: () => void;
   onToggleReaction?: (messageId: number, reaction: string) => void;
   onRetry?: (messageId: number) => void;
+  onDeleteMessage?: (messageId: number) => Promise<boolean>;
+  onTogglePin?: (messageId: number) => Promise<boolean>;
 }
 
 function parseDate(dateStr: string): Date {
@@ -143,7 +144,6 @@ export default function ChatPanel({
   loading,
   loadingOlder,
   hasMore,
-  sending,
   uploading,
   isArchived = false,
   onSend,
@@ -153,10 +153,16 @@ export default function ChatPanel({
   onBack,
   onToggleReaction,
   onRetry,
+  onDeleteMessage,
+  onTogglePin,
 }: Props) {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const stickRef = useRef(true); // true while the user is at (or near) the bottom
+  const anchorRef = useRef<{ height: number; top: number } | null>(null);
+  const prevLastIdRef = useRef<number | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [newBelow, setNewBelow] = useState(0);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showPinnedModal, setShowPinnedModal] = useState(false);
@@ -183,6 +189,9 @@ export default function ChatPanel({
 
   const handleJumpToMessage = useCallback(
     async (messageId: number) => {
+      // Pulling older pages grows the list above the viewport; without releasing
+      // the pin the resize observer would keep dragging the view back down.
+      stickRef.current = false;
       let el = document.querySelector(`[data-message-id="${messageId}"]`);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -220,28 +229,45 @@ export default function ChatPanel({
     [onLoadOlder]
   );
 
+  const pinningRef = useRef<Set<number>>(new Set());
+
   const handleTogglePin = useCallback(
     async (messageId: number) => {
+      // The route reads the current pin before writing it, so two overlapping
+      // toggles both see "not pinned" and insert two vs_message_pin rows for one
+      // message — and the menu item is still clickable while it animates out.
+      if (pinningRef.current.has(messageId)) return;
+      pinningRef.current.add(messageId);
       try {
-        const res = await fetch(`/api/shared/messaging/messages/${messageId}/pin`, {
-          method: "POST",
-        });
-        if (!res.ok) throw new Error("Failed to update pin status");
-        const data = await res.json();
-        toast.success(data.is_pinned ? "Message pinned." : "Message unpinned.", {
-          id: "pin-toggle-fl",
-          duration: 2500,
-        });
-        onRefresh();
-      } catch {
-        toast.error("Failed to pin/unpin message.");
+        if (onTogglePin) {
+          await onTogglePin(messageId);
+        } else {
+          const res = await fetch(`/api/shared/messaging/messages/${messageId}/pin`, {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("Failed to update pin status");
+          const data = await res.json();
+          toast.success(data.is_pinned ? "Message pinned." : "Message unpinned.", {
+            id: "pin-toggle-fl",
+            duration: 2500,
+          });
+          onRefresh();
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to pin/unpin message.");
+      } finally {
+        pinningRef.current.delete(messageId);
       }
     },
-    [onRefresh]
+    [onTogglePin, onRefresh]
   );
 
   const handleDelete = useCallback(
     async (messageId: number) => {
+      if (onDeleteMessage) {
+        await onDeleteMessage(messageId);
+        return;
+      }
       try {
         const res = await fetch(`/api/shared/messaging/messages/${messageId}`, {
           method: "DELETE",
@@ -253,7 +279,7 @@ export default function ChatPanel({
         toast.error("Failed to remove message.");
       }
     },
-    [onRefresh]
+    [onDeleteMessage, onRefresh]
   );
 
   const handleOpenReport = useCallback((messageId?: number | null) => {
@@ -292,61 +318,74 @@ export default function ChatPanel({
   }
 
   const handleScroll = useCallback(() => {
-    if (!messagesContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
-    const isFarFromBottom = scrollHeight - scrollTop - clientHeight > 150;
-    setShowScrollBottom(isFarFromBottom);
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    // Reading history is the reason a thread gets scrolled up; staying there has
+    // to survive a refresh and the other party's next message.
+    stickRef.current = distance < 120;
+    setShowScrollBottom(distance > 200);
+    if (distance < 120) setNewBelow(0);
   }, []);
 
   const scrollToBottom = useCallback((smooth = false) => {
-    if (messagesContainerRef.current) {
-      messagesContainerRef.current.scrollTo({
-        top: messagesContainerRef.current.scrollHeight,
-        behavior: smooth ? "smooth" : "auto",
-      });
-    }
-    bottomRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "auto" });
   }, []);
 
-  const prevMessagesLengthRef = useRef(messages.length);
-  const prevConversationIdRef = useRef(conversation.conversation_id);
-  const wasLoadingOlderRef = useRef(loadingOlder);
-
+  // Keep pinned to the bottom while the content grows (images loading, etc.)
   useEffect(() => {
-    const isNewConversation = prevConversationIdRef.current !== conversation.conversation_id;
-    const isNewMessageAdded = messages.length > prevMessagesLengthRef.current;
-    const justFinishedLoadingOlder = wasLoadingOlderRef.current && !loadingOlder;
+    const content = contentRef.current;
+    if (!content || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current) scrollToBottom(false);
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [scrollToBottom]);
 
-    prevConversationIdRef.current = conversation.conversation_id;
-    prevMessagesLengthRef.current = messages.length;
-    wasLoadingOlderRef.current = loadingOlder;
-
+  // Initial load + new messages landing at the bottom of the thread
+  useEffect(() => {
     if (loading) return;
+    const last = messages[messages.length - 1];
+    const prevLastId = prevLastIdRef.current;
+    prevLastIdRef.current = last?.message_id ?? null;
+    if (!last) return;
 
-    if (isNewConversation) {
+    if (prevLastId === null) {
+      stickRef.current = true;
       scrollToBottom(false);
-      const t1 = setTimeout(() => scrollToBottom(false), 50);
-      const t2 = setTimeout(() => scrollToBottom(false), 200);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+      return;
     }
+    if (last.message_id === prevLastId) return;
 
-    if (isNewMessageAdded && !justFinishedLoadingOlder) {
+    if (last.sender_id === currentUserId || stickRef.current) {
+      stickRef.current = true;
       scrollToBottom(true);
-      const t1 = setTimeout(() => scrollToBottom(true), 50);
-      const t2 = setTimeout(() => scrollToBottom(true), 150);
-      return () => {
-        clearTimeout(t1);
-        clearTimeout(t2);
-      };
+    } else {
+      setNewBelow((n) => n + 1);
     }
-  }, [conversation.conversation_id, messages.length, loading, loadingOlder, scrollToBottom]);
+  }, [messages, loading, currentUserId, scrollToBottom]);
+
+  // Load older: remember the position, then restore it so the view doesn't jump
+  const handleLoadOlder = useCallback(() => {
+    const el = messagesContainerRef.current;
+    if (el) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    stickRef.current = false;
+    onLoadOlder?.();
+  }, [onLoadOlder]);
+
+  useLayoutEffect(() => {
+    const el = messagesContainerRef.current;
+    const anchor = anchorRef.current;
+    if (!el || !anchor || loadingOlder) return;
+    el.scrollTop = anchor.top + (el.scrollHeight - anchor.height);
+    anchorRef.current = null;
+  }, [messages, loadingOlder]);
 
   return (
     <motion.div
-      key={conversation.conversation_id}
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: "easeOut" }}
@@ -468,14 +507,18 @@ export default function ChatPanel({
       <div
         ref={messagesContainerRef}
         onScroll={handleScroll}
-        className="flex-1 w-full min-w-0 overflow-y-auto overflow-x-hidden px-4 py-4 bg-muted/20"
+        role="log"
+        aria-live="polite"
+        aria-busy={loading}
+        className="flex-1 w-full min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain px-4 py-4 bg-muted/20"
       >
+        <div ref={contentRef} className="flex flex-col min-h-full w-full min-w-0">
         {loading ? (
-          <div className="flex justify-center items-center h-full">
+          <div className="flex flex-1 justify-center items-center">
             <Loader2 className="h-6 w-6 text-primary animate-spin" />
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center gap-3">
+          <div className="flex flex-1 flex-col items-center justify-center text-center gap-3">
             <div className="p-4 rounded-2xl bg-muted/60">
               <span className="text-2xl">💬</span>
             </div>
@@ -489,18 +532,12 @@ export default function ChatPanel({
             </div>
           </div>
         ) : (
-          <motion.div
-            key={messages.length > 0 ? messages[0].message_id : "empty"}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.15 }}
-            className="flex flex-col justify-start min-h-full w-full min-w-0"
-          >
+          <>
             {/* Load Older Messages Trigger */}
             {hasMore && (
               <div className="flex justify-center mb-2">
                 <button
-                  onClick={onLoadOlder}
+                  onClick={handleLoadOlder}
                   disabled={loadingOlder}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm md:text-xs font-semibold bg-card text-muted-foreground hover:text-foreground border border-border/60 shadow-2xs hover:bg-muted/60 transition disabled:opacity-50 max-md:min-h-11"
                 >
@@ -561,23 +598,37 @@ export default function ChatPanel({
                 />
               );
             })}
-            <div ref={bottomRef} />
-          </motion.div>
+            <div className="h-6 shrink-0" aria-hidden="true" />
+          </>
         )}
+        </div>
       </div>
 
       {/* Floating Jump to Bottom Button */}
       <AnimatePresence>
         {showScrollBottom && (
           <motion.button
+            type="button"
             initial={{ opacity: 0, scale: 0.8, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8, y: 10 }}
-            onClick={() => scrollToBottom(true)}
-            title="Jump to recent messages"
-            className="absolute right-6 bottom-20 z-20 p-2.5 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/30 transition-transform active:scale-95 flex items-center justify-center cursor-pointer max-md:size-11"
+            onClick={() => {
+              stickRef.current = true;
+              setNewBelow(0);
+              scrollToBottom(true);
+            }}
+            aria-label={
+              newBelow > 0
+                ? `${newBelow} new messages, jump to latest`
+                : "Jump to recent messages"
+            }
+            className={cn(
+              "absolute right-6 bottom-20 z-20 h-10 rounded-full bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/30 transition-transform active:scale-95 flex items-center justify-center gap-1.5 cursor-pointer max-md:size-11",
+              newBelow > 0 ? "px-4 text-xs font-semibold" : "w-10"
+            )}
           >
             <ArrowDown className="h-4 w-4" />
+            {newBelow > 0 && <span>{newBelow} new</span>}
           </motion.button>
         )}
       </AnimatePresence>
@@ -585,7 +636,6 @@ export default function ChatPanel({
       {/* Input */}
       <MessageInput
         disabled={loading}
-        sending={sending}
         uploading={uploading}
         replyingTo={replyingTo}
         onCancelReply={handleCancelReply}

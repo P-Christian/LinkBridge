@@ -49,11 +49,9 @@ export interface ConversationDetailsSidebarProps {
   currentUserId: number;
   onJumpToMessage?: (messageId: number) => void;
   onTogglePin?: (messageId: number) => void;
-  onOpenSearch?: () => void;
   onRefresh?: () => void;
   onArchive?: () => void;
   onOpenReport?: (messageId?: number | null) => void;
-  profileHref?: string;
   userRole?: "client" | "freelancer";
 }
 

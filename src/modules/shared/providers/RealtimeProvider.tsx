@@ -77,7 +77,9 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Ensure Service Worker is registered automatically across the entire app
   usePushNotifications();
 
-  const pathname = usePathname();
+  // Derived, not the raw pathname: the stream must survive in-app navigation, so
+  // only crossing into/out of an auth page may tear the EventSource down.
+  const onAuthRoute = isAuthRoute(usePathname());
 
   const [mode, setModeState] = useState<RealtimeMode>(DEFAULT_REALTIME_MODE);
   const [isConnected, setIsConnected] = useState(false);
@@ -266,6 +268,44 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, []);
 
+  // ─── Degraded refresh while the server-side relay is down ────────────────
+  // Kept separate from `mode`: the EventSource stays open so the relay can
+  // report its recovery, while subscribers refresh on a slower timer.
+  const degradedTickRef = useRef<NodeJS.Timeout | null>(null);
+
+  const stopDegradedRefresh = useCallback(() => {
+    if (degradedTickRef.current) {
+      clearInterval(degradedTickRef.current);
+      degradedTickRef.current = null;
+    }
+  }, []);
+
+  const applyRelayState = useCallback(
+    (raw: unknown) => {
+      if (raw !== "connected" && raw !== "connecting" && raw !== "down") return;
+      if (raw === "down") {
+        if (!degradedTickRef.current) {
+          degradedTickRef.current = setInterval(() => {
+            Array.from(subscribersRef.current.keys()).forEach((collection) => {
+              notifySubscribers(collection, "update", []);
+            });
+          }, 5000);
+        }
+        toast.warning("Live updates are unavailable. Content will refresh periodically.", {
+          id: "realtime-relay",
+          duration: 6000,
+        });
+      } else if (raw === "connected") {
+        const wasDegraded = degradedTickRef.current !== null;
+        stopDegradedRefresh();
+        if (wasDegraded) {
+          toast.success("Live updates restored.", { id: "realtime-relay", duration: 3000 });
+        }
+      }
+    },
+    [notifySubscribers, stopDegradedRefresh]
+  );
+
   const startOfflineProbe = useCallback(() => {
     if (offlineProbeIntervalRef.current) return;
     offlineProbeIntervalRef.current = setInterval(async () => {
@@ -297,7 +337,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const connectStream = useCallback(() => {
     if (typeof window === "undefined") return;
-    if (isAuthRoute(pathname)) {
+    if (onAuthRoute) {
       return;
     }
     if (eventSourceRef.current) return;
@@ -332,14 +372,19 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           clearTimeout(offlineDebounceRef.current);
           offlineDebounceRef.current = null;
         }
-        // Capture the authenticated userId so we can suppress self-notifications
+        // Capture the authenticated userId so we can suppress self-notifications,
+        // and the relay's health so a dead data plane is not shown as a live one.
         try {
-          const data = JSON.parse(event.data) as { userId?: string | number };
+          const data = JSON.parse(event.data) as {
+            userId?: string | number;
+            relay?: unknown;
+          };
           if (data.userId != null) {
             sessionUserIdRef.current = String(data.userId);
           }
-        } catch {
-          // non-critical, ignore parse errors
+          applyRelayState(data.relay);
+        } catch (e) {
+          console.warn("⚠️ [Realtime Stream] Could not parse the connected frame:", e);
         }
 
         // If the user was offline, display a success toast and dismiss any offline alert
@@ -360,6 +405,15 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // Listen for explicit server ping events to reset heartbeat watchdog
       es.addEventListener("ping", () => {
         resetHeartbeatWatchdog();
+      });
+
+      // The relay can die or recover while this stream stays open.
+      es.addEventListener("relay", (event: MessageEvent) => {
+        try {
+          applyRelayState((JSON.parse(event.data) as { relay?: unknown }).relay);
+        } catch (e) {
+          console.warn("⚠️ [Realtime Stream] Could not parse relay state frame:", e);
+        }
       });
 
       es.onmessage = (event) => {
@@ -415,7 +469,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         window.requestAnimationFrame(() => setIsConnected(false));
       }
     }
-  }, [pathname, handleIncomingStreamPayload, notifySubscribers, resetHeartbeatWatchdog, startOfflineProbe, stopOfflineProbe]);
+  }, [onAuthRoute, handleIncomingStreamPayload, notifySubscribers, resetHeartbeatWatchdog, startOfflineProbe, stopOfflineProbe, applyRelayState]);
 
   useEffect(() => {
     connectStreamRef.current = connectStream;
@@ -423,8 +477,9 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   // Handle Mode Switching (Stream vs Polling) & Route Transitions
   useEffect(() => {
-    if (isAuthRoute(pathname)) {
+    if (onAuthRoute) {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      stopDegradedRefresh();
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -458,6 +513,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     return () => {
       if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+      stopDegradedRefresh();
       if (heartbeatTimeoutRef.current) {
         clearTimeout(heartbeatTimeoutRef.current);
         heartbeatTimeoutRef.current = null;
@@ -472,7 +528,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         eventSourceRef.current = null;
       }
     };
-  }, [mode, pathname, connectStream, notifySubscribers, stopOfflineProbe]);
+  }, [mode, onAuthRoute, connectStream, notifySubscribers, stopOfflineProbe, stopDegradedRefresh]);
 
   const reconnect = useCallback(() => {
     if (heartbeatTimeoutRef.current) {

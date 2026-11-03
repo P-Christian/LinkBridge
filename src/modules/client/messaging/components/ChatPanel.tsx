@@ -45,7 +45,6 @@ interface Props {
   loading: boolean;
   loadingOlder?: boolean;
   hasMore?: boolean;
-  sending: boolean;
   uploading: boolean;
   error: string;
   /** How many unread messages this conversation had when it was opened */
@@ -53,11 +52,13 @@ interface Props {
   isArchived?: boolean;
   onSend: (content: string, files: File[], replyToMessageId?: number) => Promise<boolean>;
   onRefresh: () => void;
-  onLoadOlder?: () => void;
+  onLoadOlder?: () => Promise<"loaded" | "exhausted" | "failed">;
   onArchive?: () => void;
   onBack?: () => void; // mobile
   onToggleReaction?: (messageId: number, reaction: string) => void;
   onRetry?: (messageId: number) => void;
+  onDeleteMessage?: (messageId: number) => Promise<boolean>;
+  onTogglePin?: (messageId: number) => Promise<boolean>;
 }
 
 // Only keep the most recent "interview rescheduled" card
@@ -133,8 +134,8 @@ export default function ChatPanel({
   loading,
   loadingOlder,
   hasMore,
-  sending,
   uploading,
+  error,
   unreadAtOpen = 0,
   isArchived = false,
   onSend,
@@ -144,6 +145,8 @@ export default function ChatPanel({
   onBack,
   onToggleReaction,
   onRetry,
+  onDeleteMessage,
+  onTogglePin,
 }: Props) {
   const {
     other_party_avatar,
@@ -208,7 +211,7 @@ export default function ChatPanel({
       if (onLoadOlder) {
         const toastId = toast.loading("Loading message history…");
         for (let i = 0; i < 5; i++) {
-          await onLoadOlder();
+          const outcome = await onLoadOlder();
           await new Promise((r) => setTimeout(r, 250));
           el = document.querySelector(`[data-message-id="${messageId}"]`);
           if (el) {
@@ -220,11 +223,22 @@ export default function ChatPanel({
             }, 2000);
             return;
           }
+          if (outcome === "failed") {
+            // Without this the loop burned all five attempts on a failing
+            // endpoint and then declared the message missing.
+            toast.dismiss(toastId);
+            toast.error("Older messages could not be loaded. Please try again.", {
+              id: "jump-older",
+              duration: 4000,
+            });
+            return;
+          }
+          if (outcome === "exhausted") break;
         }
         toast.dismiss(toastId);
       }
 
-      toast.info("Message could not be found in history.", {
+      toast.info("Message could not be found in the history loaded so far.", {
         id: "jump-older",
         duration: 3000,
       });
@@ -232,28 +246,45 @@ export default function ChatPanel({
     [onLoadOlder]
   );
 
+  const pinningRef = useRef<Set<number>>(new Set());
+
   const handleTogglePin = useCallback(
     async (messageId: number) => {
+      // The route reads the current pin before writing it, so two overlapping
+      // toggles both see "not pinned" and insert two vs_message_pin rows for one
+      // message — and the menu item is still clickable while it animates out.
+      if (pinningRef.current.has(messageId)) return;
+      pinningRef.current.add(messageId);
       try {
-        const res = await fetch(`/api/shared/messaging/messages/${messageId}/pin`, {
-          method: "POST",
-        });
-        if (!res.ok) throw new Error("Failed to update pin status");
-        const data = await res.json();
-        toast.success(data.is_pinned ? "Message pinned." : "Message unpinned.", {
-          id: "pin-toggle",
-          duration: 2500,
-        });
-        onRefresh();
-      } catch {
-        toast.error("Failed to pin/unpin message.");
+        if (onTogglePin) {
+          await onTogglePin(messageId);
+        } else {
+          const res = await fetch(`/api/shared/messaging/messages/${messageId}/pin`, {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("Failed to update pin status");
+          const data = await res.json();
+          toast.success(data.is_pinned ? "Message pinned." : "Message unpinned.", {
+            id: "pin-toggle",
+            duration: 2500,
+          });
+          onRefresh();
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to pin/unpin message.");
+      } finally {
+        pinningRef.current.delete(messageId);
       }
     },
-    [onRefresh]
+    [onTogglePin, onRefresh]
   );
 
   const handleDelete = useCallback(
     async (messageId: number) => {
+      if (onDeleteMessage) {
+        await onDeleteMessage(messageId);
+        return;
+      }
       try {
         const res = await fetch(`/api/shared/messaging/messages/${messageId}`, {
           method: "DELETE",
@@ -265,7 +296,7 @@ export default function ChatPanel({
         toast.error("Failed to remove message.");
       }
     },
-    [onRefresh]
+    [onDeleteMessage, onRefresh]
   );
 
   const handleOpenReport = useCallback((messageId?: number | null) => {
@@ -339,7 +370,7 @@ export default function ChatPanel({
     const el = scrollRef.current;
     if (el) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     stickRef.current = false;
-    onLoadOlder?.();
+    void onLoadOlder?.();
   };
 
   useLayoutEffect(() => {
@@ -379,7 +410,13 @@ export default function ChatPanel({
     () =>
       trimmedQuery
         ? displayMessages
-            .filter((m) => m.message_content?.toLowerCase().includes(trimmedQuery))
+            .filter(
+              (m) =>
+                m.message_content?.toLowerCase().includes(trimmedQuery) ||
+                m.attachments?.some((a) =>
+                  a.file_name?.toLowerCase().includes(trimmedQuery)
+                )
+            )
             .map((m) => m.message_id)
         : [],
     [displayMessages, trimmedQuery]
@@ -596,23 +633,41 @@ export default function ChatPanel({
             {loading ? (
               <MessagesSkeleton />
             ) : messages.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
-                <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
-                  <span className="text-2xl" aria-hidden="true">
-                    💬
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Start the conversation with {firstName}
+              error ? (
+                // An unread thread must not render as an empty one: the "start
+                // the conversation" copy below invites a first message into a
+                // conversation whose history we simply could not read.
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+                  <p className="mx-auto max-w-xs text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    This conversation could not be loaded.
                   </p>
-                  <p className="mx-auto mt-1 max-w-xs text-xs text-zinc-500">
-                    {job_title
-                      ? `Ask about availability, rates, or past work for ${job_title}.`
-                      : "Send a message below."}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                  >
+                    Try again
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+                  <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
+                    <span className="text-2xl" aria-hidden="true">
+                      💬
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Start the conversation with {firstName}
+                    </p>
+                    <p className="mx-auto mt-1 max-w-xs text-xs text-zinc-500">
+                      {job_title
+                        ? `Ask about availability, rates, or past work for ${job_title}.`
+                        : "Send a message below."}
+                    </p>
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 {hasMore && (
@@ -671,6 +726,7 @@ export default function ChatPanel({
                     </React.Fragment>
                   );
                 })}
+                <div className="h-6 shrink-0" aria-hidden="true" />
               </>
             )}
           </div>
@@ -705,7 +761,6 @@ export default function ChatPanel({
       {/* Input: per-conversation drafts via draftKey */}
       <MessageInput
         disabled={loading}
-        sending={sending}
         uploading={uploading}
         draftKey={conversation_id}
         replyingTo={replyingTo}
@@ -720,7 +775,6 @@ export default function ChatPanel({
         onClose={() => setSidebarOpen(false)}
         otherPartyName={otherName}
         otherPartyAvatar={other_party_avatar}
-        otherPartySubtitle={undefined}
         userRole="client"
         conversationType={conversation_type}
         conversationId={conversation_id}
@@ -729,7 +783,6 @@ export default function ChatPanel({
         currentUserId={currentUserId}
         onJumpToMessage={handleJumpToMessage}
         onTogglePin={handleTogglePin}
-        onOpenSearch={() => setSearchOpen(true)}
         onRefresh={onRefresh}
         onArchive={onArchive}
         onOpenReport={handleOpenReport}

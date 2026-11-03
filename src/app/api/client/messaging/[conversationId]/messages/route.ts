@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { checkRestriction, checkCompanyVerificationStatus } from "@/lib/status-validator";
+import { checkRestrictionState, checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { getPHTimeString } from "@/lib/utils";
 import { encryptMessage, safeDecryptMessage } from "@/lib/message-encryption";
 
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { pageParams } from "@/lib/server/paging";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +16,9 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
   ""
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/** Attachment rows accepted for one outgoing message. */
+const MAX_ATTACHMENTS_PER_MESSAGE = 10;
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
@@ -31,6 +37,12 @@ export async function GET(
 ) {
   try {
     const { conversationId } = await params;
+    // The raw segment is interpolated into Directus filter URLs below, so only a
+    // positive integer may reach them.
+    const convId = toId(conversationId);
+    if (convId === null) {
+      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+    }
 
     const session = await authenticateRequest(req);
     if (!session || !isClientSession(session)) {
@@ -44,7 +56,7 @@ export async function GET(
 
     // Verify client belongs to this conversation
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${conversationId}&fields=conversation_id,client_id,freelancer_id`,
+      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${convId}&fields=conversation_id,client_id,freelancer_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -62,7 +74,7 @@ export async function GET(
 
     if (!conv) {
       return NextResponse.json(
-        { error: `Conversation #${conversationId} not found.` },
+        { error: `Conversation #${convId} not found.` },
         { status: 404 }
       );
     }
@@ -71,13 +83,13 @@ export async function GET(
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
 
-    const { searchParams } = new URL(req.url);
-    const limit = parseInt(searchParams.get("limit") ?? "50", 10);
-    const offset = parseInt(searchParams.get("offset") ?? "0", 10);
+    const { limit, offset } = pageParams(new URL(req.url).searchParams);
 
-    // Fetch messages
+    // Fetch messages. `created_at` is a MySQL TIMESTAMP with one-second
+    // resolution, so a burst of messages shares a sort key; without the
+    // message_id tiebreaker an offset page can repeat or skip a row.
     const msgsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${conversationId}&sort[]=-created_at&limit=${limit}&offset=${offset}&fields=message_id,conversation_id,sender_id,message_type,message_content,is_edited,edited_at,created_at,is_deleted,reply_to_message_id,is_pinned,pinned_at,pinned_by`,
+      `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${convId}&sort[]=-created_at&sort[]=-message_id&limit=${limit}&offset=${offset}&fields=message_id,conversation_id,sender_id,message_type,message_content,is_edited,edited_at,created_at,is_deleted,reply_to_message_id,is_pinned,pinned_at,pinned_by`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -91,22 +103,49 @@ export async function GET(
     const msgsJson = await msgsRes.json();
     const messages: Record<string, unknown>[] = msgsJson.data ?? [];
 
-    // Fetch attachments for these messages
+    // Parts of a thread are read from side collections. When one of those reads
+    // fails the bubbles still render, so the response has to say which parts
+    // are unreliable instead of letting "we could not read it" appear as "there
+    // was nothing there".
+    const warnings: string[] = [];
+    // Set once when any card lookup fails: the builders below substitute
+    // "Position", "Candidate" and "Updated Stage", so one honest notice beats
+    // four identical toasts.
+    let cardDataIncomplete = false;
+
+    // Fetch attachments for these messages and any quoted reply messages
     const messageIds = messages.map((m) => m.message_id as number);
+    const replyIds = Array.from(
+      new Set(
+        messages
+          .map((m) => m.reply_to_message_id as number | undefined)
+          .filter((id): id is number => typeof id === "number" && id > 0)
+      )
+    );
+    const allAttachmentMessageIds = Array.from(new Set([...messageIds, ...replyIds]));
     const attachmentsMap = new Map<number, Record<string, unknown>[]>();
 
-    if (messageIds.length > 0) {
+    if (allAttachmentMessageIds.length > 0) {
+      // No cap: a 100-message page at 10 files each is 1000 rows, and a short
+      // read made whole bubbles look like they had never carried a file.
       const attachRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_in]=${messageIds.join(",")}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=500`,
+        `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_in]=${allAttachmentMessageIds.join(",")}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
+      const attachJson = attachRes.ok ? await attachRes.json().catch(() => null) : null;
+      const attachRows = Array.isArray(attachJson?.data)
+        ? (attachJson.data as Record<string, unknown>[])
+        : null;
 
-      if (attachRes.ok) {
-        const attachJson = await attachRes.json();
-        for (const att of (attachJson.data ?? []) as Record<
-          string,
-          unknown
-        >[]) {
+      if (attachRows === null) {
+        console.error(
+          `Attachment lookup failed for conversation #${convId}: ${attachRes.status}`
+        );
+        warnings.push(
+          "Some attachments could not be loaded, so files in this conversation may appear missing. Refresh the thread to try again."
+        );
+      } else {
+        for (const att of attachRows) {
           const mid = att.message_id as number;
           if (!attachmentsMap.has(mid)) attachmentsMap.set(mid, []);
           attachmentsMap.get(mid)!.push(att);
@@ -119,33 +158,60 @@ export async function GET(
         .map((m) => m.message_id as number);
 
       if (unreadIds.length > 0) {
-        // Check which are already read
+        // Check which are already read. A failed lookup is treated as "do not
+        // write": answering from an empty set would re-insert receipts that
+        // already exist (the collection has no unique key), and parsing a
+        // non-JSON error body used to throw and fail the whole thread read.
         const readRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${unreadIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id`,
+          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${unreadIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id&limit=-1`,
           { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []);
-
-        const alreadyReadIds = new Set(
-          (readRes as Record<string, unknown>[]).map((r) => r.message_id as number)
         );
 
-        const toMarkIds = unreadIds.filter((id) => !alreadyReadIds.has(id));
+        if (readRes.ok) {
+          const readJson = (await readRes.json().catch(() => null)) as {
+            data?: Record<string, unknown>[];
+          } | null;
+          const alreadyReadIds = new Set(
+            (readJson?.data ?? []).map((r) => r.message_id as number)
+          );
 
-        if (toMarkIds.length > 0) {
-          const nowISO = new Date().toISOString().slice(0, 19).replace("T", " ");
-          const readPayloads = toMarkIds.map((mid) => ({
-            message_id: mid,
-            user_id: userId,
-            read_at: nowISO,
-          }));
+          const toMarkIds = unreadIds.filter((id) => !alreadyReadIds.has(id));
 
-          await fetch(`${DIRECTUS_BASE}/items/vs_message_read`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify(readPayloads),
-          }).catch((e) => console.error("Mark read error:", e));
+          if (toMarkIds.length > 0) {
+            const nowPH = getPHTimeString();
+            const readPayloads = toMarkIds.map((mid) => ({
+              message_id: mid,
+              user_id: userId,
+              read_at: nowPH,
+            }));
+
+            const markRes = await fetch(`${DIRECTUS_BASE}/items/vs_message_read`, {
+              method: "POST",
+              headers: getHeaders(),
+              body: JSON.stringify(readPayloads),
+            }).catch((e) => {
+              console.error("Mark read error:", e);
+              return null;
+            });
+            if (markRes && !markRes.ok) {
+              console.error(`Mark read failed: ${markRes.status}`);
+            }
+            if (markRes === null || !markRes.ok) {
+              // The UI clears the badge as soon as the thread opens, so a failed
+              // receipt has to be said out loud rather than left to reappear on
+              // the next list refresh.
+              warnings.push(
+                "This thread could not be marked as read, so its unread count may return."
+              );
+            }
+          }
+        } else {
+          console.error(
+            `Mark-read lookup failed for conversation #${convId}: ${readRes.status}`
+          );
+          warnings.push(
+            "Read receipts could not be checked, so this thread may still show as unread."
+          );
         }
       }
     }
@@ -160,12 +226,22 @@ export async function GET(
 
     if (systemMsgIds.length > 0) {
       const smRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_in]=${systemMsgIds.join(",")}&fields=system_message_id,message_id,event_type,application_id,interview_id,stage_history_id&limit=200`,
+        `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_in]=${systemMsgIds.join(",")}&fields=system_message_id,message_id,event_type,application_id,interview_id,stage_history_id&limit=-1`,
         { headers: getHeaders(), cache: "no-store" }
       );
-      if (smRes.ok) {
-        const smJson = await smRes.json();
-        const smList = (smJson.data ?? []) as Record<string, unknown>[];
+      const smJson = smRes.ok ? await smRes.json().catch(() => null) : null;
+      const smList = Array.isArray(smJson?.data)
+        ? (smJson.data as Record<string, unknown>[])
+        : null;
+
+      if (smList === null) {
+        console.error(
+          `System event lookup failed for conversation #${convId}: ${smRes.status}`
+        );
+        warnings.push(
+          "The cards on some system notices could not be loaded, so those messages show as plain text."
+        );
+      } else {
         for (const sm of smList) {
           systemMsgMap[sm.message_id as number] = sm;
         }
@@ -175,27 +251,53 @@ export async function GET(
         const ivIds = Array.from(new Set(smList.map((s) => s.interview_id).filter(Boolean))) as number[];
         const shIds = Array.from(new Set(smList.map((s) => s.stage_history_id).filter(Boolean))) as number[];
 
+        // Card lookups resolve to an empty list when they fail, and the builders
+        // below then substitute "Position", "Candidate" or "Updated Stage" for a
+        // value that was never read. Checking the response lets one warning cover
+        // the card instead of rendering an invented label.
+        const readCardRows = async (
+          path: string
+        ): Promise<Record<string, unknown>[]> => {
+          // &limit=-1: every card path is an id list, and Directus' implicit 100
+          // would return a short list that the builders below render as "no such
+          // application/interview" instead of a read failure.
+          const res = await fetch(`${DIRECTUS_BASE}${path}&limit=-1`, {
+            headers: getHeaders(),
+            cache: "no-store",
+          }).catch(() => null);
+          if (res === null || !res.ok) {
+            console.error(
+              `[messaging] Card lookup failed (${res?.status ?? "no response"}): ${path}`
+            );
+            cardDataIncomplete = true;
+            return [];
+          }
+          const json = (await res.json().catch(() => null)) as {
+            data?: Record<string, unknown>[];
+          } | null;
+          if (!Array.isArray(json?.data)) {
+            console.error(`[messaging] Card lookup was unreadable: ${path}`);
+            cardDataIncomplete = true;
+            return [];
+          }
+          return json.data;
+        };
+
+        const emptyRows = Promise.resolve<Record<string, unknown>[]>([]);
+
         const [appsRes, ivsRes, shRes, jaRes] = await Promise.all([
           appIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_job_application?filter[application_id][_in]=${appIds.join(",")}&fields=*`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_job_application?filter[application_id][_in]=${appIds.join(",")}&fields=*`)
+            : emptyRows,
           ivIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${ivIds.join(",")}&fields=*`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_interview?filter[interview_id][_in]=${ivIds.join(",")}&fields=*`)
+            : emptyRows,
           shIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_application_stage_history?filter[id][_in]=${shIds.join(",")}&fields=*`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_application_stage_history?filter[id][_in]=${shIds.join(",")}&fields=*`)
+            : emptyRows,
           appIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,interview_id`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_interview_application?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,interview_id`)
+            : emptyRows,
         ]);
 
         const appMap = new Map<number, Record<string, unknown>>(appsRes.map((a: Record<string, unknown>) => [a.application_id as number, a]));
@@ -205,23 +307,18 @@ export async function GET(
         const extraIvIds = Array.from(
           new Set(
             jaRes
-              .map((j: { interview_id: number }) => j.interview_id)
-              .filter((id: number) => Boolean(id) && !ivMap.has(id))
+              .map((j) => Number(j.interview_id))
+              .filter((id) => id > 0 && !ivMap.has(id))
           )
-        ) as number[];
+        );
 
         if (extraIvIds.length > 0) {
-          try {
-            const extraIvs = await fetch(
-              `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${extraIvIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=*`,
-              { headers: getHeaders(), cache: "no-store" }
-            )
-              .then((r) => r.json())
-              .then((j) => j.data ?? []);
-            for (const ei of extraIvs) {
-              ivMap.set(ei.interview_id as number, ei);
-            }
-          } catch {}
+          const extraIvs = await readCardRows(
+            `/items/vs_interview?filter[interview_id][_in]=${extraIvIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=*`
+          );
+          for (const ei of extraIvs) {
+            ivMap.set(ei.interview_id as number, ei);
+          }
         }
 
         const appIvIdsMap = new Map<number, number[]>();
@@ -242,15 +339,11 @@ export async function GET(
 
         const [usersRes, jobsRes] = await Promise.all([
           userIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_contact,profile_image_url`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_user?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_contact,profile_image_url`)
+            : emptyRows,
           jobIds.length > 0
-            ? fetch(`${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,job_title,salary_min,salary_max`, { headers: getHeaders(), cache: "no-store" })
-                .then((r) => r.json())
-                .then((j) => j.data ?? [])
-            : Promise.resolve([]),
+            ? readCardRows(`/items/vs_job_posting?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,job_title,salary_min,salary_max`)
+            : emptyRows,
         ]);
 
         const userMap = new Map<number, Record<string, unknown>>(usersRes.map((u: Record<string, unknown>) => [u.user_id as number, u]));
@@ -264,7 +357,21 @@ export async function GET(
 
           if (et === "APPLICATION_STATUS_CHANGED" || et === "HIRED") {
             const sh = sm.stage_history_id ? shMap.get(sm.stage_history_id as number) : null;
-            const meta = typeof sh?.metadata === "string" ? JSON.parse(sh.metadata as string) : (sh?.metadata as Record<string, unknown> | null);
+            // One malformed metadata blob used to throw out of this loop and take
+            // the whole thread read with it: a single corrupted stage row made the
+            // conversation unreadable rather than just losing that card.
+            let meta: Record<string, unknown> | null = null;
+            if (typeof sh?.metadata === "string") {
+              try {
+                meta = JSON.parse(sh.metadata) as Record<string, unknown>;
+              } catch {
+                console.error(
+                  `[messaging] Stage history metadata is not valid JSON for message #${mid}`
+                );
+              }
+            } else if (sh?.metadata && typeof sh.metadata === "object") {
+              meta = sh.metadata as Record<string, unknown>;
+            }
             const msgObj = messages.find((m) => (m.message_id as number) === mid);
             let fromStageName = (meta?.from_stage_name as string) ?? null;
             let toStageName = (meta?.to_stage_name as string) ?? null;
@@ -442,26 +549,54 @@ export async function GET(
         const reactionsRes = await fetch(
           `${DIRECTUS_BASE}/items/vs_message_reaction?filter[message_id][_in]=${messageIds.join(
             ","
-          )}&fields=reaction_id,message_id,user_id,reaction,created_at&sort[]=created_at&limit=500`,
+          )}&fields=reaction_id,message_id,user_id,reaction,created_at&sort[]=created_at&limit=-1`,
           { headers: getHeaders(), cache: "no-store" }
         );
 
-        if (reactionsRes.ok) {
-          const reactionsJson = await reactionsRes.json();
-          const rawReactions = (reactionsJson.data ?? []) as {
-            reaction_id: number;
-            message_id: number;
-            user_id: number;
-            reaction: string;
-          }[];
+        const reactionsJson = reactionsRes.ok
+          ? await reactionsRes.json().catch(() => null)
+          : null;
+        const rawReactions = Array.isArray(reactionsJson?.data)
+          ? (reactionsJson.data as {
+              reaction_id: number;
+              message_id: number;
+              user_id: number;
+              reaction: string;
+            }[])
+          : null;
 
-          const rUserIds = Array.from(new Set(rawReactions.map((r) => r.user_id)));
+        // A failed reaction read used to leave every bubble looking like nobody
+        // had reacted to it.
+        if (rawReactions === null) {
+          console.error(
+            `Reaction lookup failed for conversation #${convId}: ${reactionsRes.status}`
+          );
+          warnings.push(
+            "Reactions could not be loaded, so they may be missing from this thread."
+          );
+        } else {
+
+          const parseUid = (val: unknown): number => {
+            if (val && typeof val === "object") {
+              const obj = val as Record<string, unknown>;
+              return Number(obj.user_id ?? obj.id ?? 0);
+            }
+            return Number(val ?? 0);
+          };
+
+          const rUserIds = Array.from(
+            new Set(
+              rawReactions
+                .map((r) => parseUid(r.user_id))
+                .filter((id) => !isNaN(id) && id > 0)
+            )
+          );
           const rUsersMap = new Map<number, string>();
           if (rUserIds.length > 0) {
             const ruRes = await fetch(
               `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${rUserIds.join(
                 ","
-              )}&fields=user_id,user_fname,user_lname&limit=100`,
+              )}&fields=user_id,user_fname,user_lname&limit=-1`,
               { headers: getHeaders(), cache: "no-store" }
             );
             if (ruRes.ok) {
@@ -473,7 +608,7 @@ export async function GET(
               }[]) {
                 const name =
                   `${u.user_fname ?? ""} ${u.user_lname ?? ""}`.trim() || "User";
-                rUsersMap.set(u.user_id, name);
+                rUsersMap.set(Number(u.user_id), name);
               }
             }
           }
@@ -505,12 +640,13 @@ export async function GET(
               });
             }
             const g = emojiMap.get(r.reaction)!;
+            const rUid = parseUid(r.user_id);
             g.count += 1;
             g.users.push({
-              user_id: r.user_id,
-              user_name: rUsersMap.get(r.user_id) || "User",
+              user_id: rUid,
+              user_name: rUsersMap.get(rUid) || "User",
             });
-            if (r.user_id === userId) {
+            if (rUid === userId) {
               g.reacted_by_me = true;
             }
           }
@@ -525,16 +661,16 @@ export async function GET(
     }
 
     // Batch-fetch reply-to quoted messages
-    const replyIds = Array.from(
-      new Set(
-        messages
-          .map((m) => m.reply_to_message_id as number | undefined)
-          .filter((id): id is number => typeof id === "number" && id > 0)
-      )
-    );
     const replyMap = new Map<
       number,
-      { message_id: number; sender_id: number; sender_name: string; message_content: string; message_type: string }
+      {
+        message_id: number;
+        sender_id: number;
+        sender_name: string;
+        message_content: string;
+        message_type: string;
+        attachments?: Record<string, unknown>[];
+      }
     >();
 
     if (replyIds.length > 0) {
@@ -574,12 +710,20 @@ export async function GET(
               sId === userId
                 ? "You"
                 : (resolvedName || conv.freelancer_name || "Freelancer");
+            const replyAtts = attachmentsMap.get(rm.message_id as number) ?? [];
+            const firstAtt = replyAtts[0] as { file_name?: string } | undefined;
+            const fallbackFileName = firstAtt?.file_name ?? "";
+            const displayContent = dec
+              ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec)
+              : fallbackFileName;
+
             replyMap.set(rm.message_id as number, {
               message_id: rm.message_id as number,
               sender_id: sId,
               sender_name: sName,
-              message_content: dec ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec) : "",
+              message_content: displayContent,
               message_type: (rm.message_type as string) || "TEXT",
+              attachments: replyAtts,
             });
           }
         }
@@ -588,21 +732,36 @@ export async function GET(
       }
     }
 
-    // Fetch pinned message IDs for this user
+    // Fetch pinned message IDs for this user. Which mechanism answers depends on
+    // why the read landed: the per-user list when it was read, the legacy shared
+    // flag only when vs_message_pin does not exist at all, and "nothing is
+    // pinned" when the read failed — borrowing the shared flag after an outage
+    // would show a pin the other participant set.
     const userPinnedSet = new Set<number>();
-    try {
-      const pinRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_message_pin?filter[user_id][_eq]=${userId}&filter[conversation_id][_eq]=${conversationId}&fields=message_id&limit=100`,
-        { headers: getHeaders(), cache: "no-store" }
-      );
-      if (pinRes.ok) {
-        const pinData = (await pinRes.json()).data ?? [];
-        for (const p of pinData) {
+    let pinSource: "per-user" | "legacy" | "unknown" = "unknown";
+    const pinRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_message_pin?filter[user_id][_eq]=${userId}&filter[conversation_id][_eq]=${convId}&fields=message_id&limit=-1`,
+      { headers: getHeaders(), cache: "no-store" }
+    ).catch((err: unknown) => {
+      console.error("Pin lookup threw for conversation:", err);
+      return null;
+    });
+    if (pinRes !== null && pinRes.ok) {
+      const pinJson = (await pinRes.json().catch(() => null)) as {
+        data?: { message_id: number }[];
+      } | null;
+      if (Array.isArray(pinJson?.data)) {
+        pinSource = "per-user";
+        for (const p of pinJson.data) {
           userPinnedSet.add(Number(p.message_id));
         }
       }
-    } catch {
-      /* fallback */
+    } else if (pinRes !== null && (pinRes.status === 404 || pinRes.status === 403)) {
+      pinSource = "legacy";
+    }
+    if (pinSource === "unknown") {
+      console.error(`Pin lookup unavailable for conversation #${convId}`);
+      warnings.push("Pinned markers could not be loaded, so they may be missing here.");
     }
 
     // Enrich messages with attachments, system_message, system_card_data, reactions, and reply_to
@@ -615,7 +774,7 @@ export async function GET(
       const cardData = cardDataMap[msg.message_id as number];
       const sm = systemMsgMap[msg.message_id as number];
 
-      if (msg.message_type === "SYSTEM" && (cardData || sm)) {
+      if (msg.message_type === "SYSTEM" && (cardData || sm) && !cardDataIncomplete) {
         const eventType = (sm?.event_type ?? cardData?.event_type) as string;
         const applicantName = (cardData?.applicant_name as string) || "Candidate";
         const jobTitle = (cardData?.job_title as string) || "Position";
@@ -636,9 +795,12 @@ export async function GET(
         }
       }
 
-      const isPinnedForUser = userPinnedSet.size > 0
-        ? userPinnedSet.has(msg.message_id as number)
-        : Boolean(msg.is_pinned && Number(msg.pinned_by) === userId);
+      const isPinnedForUser =
+        pinSource === "per-user"
+          ? userPinnedSet.has(msg.message_id as number)
+          : pinSource === "legacy"
+            ? Boolean(msg.is_pinned && Number(msg.pinned_by) === userId)
+            : false;
 
       return {
         ...msg,
@@ -654,11 +816,17 @@ export async function GET(
       };
     }).reverse();
 
-    return NextResponse.json({ messages: enriched });
+    if (cardDataIncomplete) {
+      warnings.push(
+        "Some application, interview and stage details could not be loaded, so system notices in this thread may look incomplete."
+      );
+    }
+
+    return NextResponse.json({ messages: enriched, warnings });
   } catch (err: unknown) {
     console.error("GET /api/client/messaging/[id]/messages error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -672,6 +840,10 @@ export async function POST(
 ) {
   try {
     const { conversationId } = await params;
+    const convId = toId(conversationId);
+    if (convId === null) {
+      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+    }
 
     const session = await authenticateRequest(req);
     if (!session || !isClientSession(session)) {
@@ -684,8 +856,17 @@ export async function POST(
     const userId = Number(session.userId);
 
     // Validate SEND_MESSAGES Restriction
-    const isRestricted = await checkRestriction(userId, "SEND_MESSAGES");
-    if (isRestricted) {
+    const restriction = await checkRestrictionState(userId, "SEND_MESSAGES");
+    if (restriction.restricted) {
+      if (restriction.reason === "unavailable") {
+        return NextResponse.json(
+          {
+            error:
+              "Your account status could not be verified, so this message was not sent. Please try again.",
+          },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         { error: "Your messaging privileges are temporarily suspended." },
         { status: 403 }
@@ -693,8 +874,18 @@ export async function POST(
     }
 
     // BUSINESS RULE: Only VERIFIED companies can send candidate messages
-    const { isVerified, verification_status } = await checkCompanyVerificationStatus(userId);
+    const { isVerified, verification_status, readFailed } =
+      await checkCompanyVerificationStatus(userId);
     if (!isVerified) {
+      if (readFailed) {
+        return NextResponse.json(
+          {
+            error:
+              "Your company verification status could not be read, so this message was not sent. Please try again.",
+          },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         {
           error: `Restricted: Your company verification status is currently ${verification_status}. Sending candidate messages is restricted until your company is verified by an admin.`,
@@ -706,7 +897,11 @@ export async function POST(
 
     const body = await req.json().catch(() => null);
 
-    if (!body?.message_content && !body?.attachments?.length) {
+    const incomingAttachments = Array.isArray(body?.attachments)
+      ? body.attachments.slice(0, MAX_ATTACHMENTS_PER_MESSAGE)
+      : [];
+
+    if (!body?.message_content && incomingAttachments.length === 0) {
       return NextResponse.json(
         { error: "message_content or attachments required." },
         { status: 400 }
@@ -715,7 +910,7 @@ export async function POST(
 
     // Verify access
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${conversationId}&fields=conversation_id,client_id,freelancer_id,status`,
+      `${DIRECTUS_BASE}/items/vs_conversation?filter[conversation_id][_eq]=${convId}&fields=conversation_id,client_id,freelancer_id,status`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -733,7 +928,7 @@ export async function POST(
 
     if (!conv) {
       return NextResponse.json(
-        { error: `Conversation #${conversationId} not found.` },
+        { error: `Conversation #${convId} not found.` },
         { status: 404 }
       );
     }
@@ -761,7 +956,7 @@ export async function POST(
       : body.message_content ?? null;
 
     const messageInsertBody: Record<string, unknown> = {
-      conversation_id: Number(conversationId),
+      conversation_id: convId,
       sender_id: userId,
       message_type: body.message_type ?? "TEXT",
       message_content: contentToStore,
@@ -799,8 +994,13 @@ export async function POST(
 
     // Insert attachments if any
     let attachments: unknown[] = [];
-    if (body.attachments?.length && newMessage?.message_id) {
-      const attPayloads = body.attachments.map(
+    // The message row is already committed by now, so a failed follow-up write
+    // must not come back as an error: an error invites a resend, and a resend
+    // is a second copy of the same message. These are reported alongside the
+    // 201 instead.
+    const sendWarnings: string[] = [];
+    if (incomingAttachments.length && newMessage?.message_id) {
+      const attPayloads = incomingAttachments.map(
         (a: Record<string, unknown>) => ({
           message_id: newMessage.message_id,
           file_name: a.file_name,
@@ -819,18 +1019,84 @@ export async function POST(
         }
       );
 
-      if (attRes.ok) {
-        const attJson = await attRes.json();
-        attachments = attJson.data ?? [];
+      const attJson = attRes.ok ? await attRes.json().catch(() => null) : null;
+      const inserted = Array.isArray(attJson?.data) ? attJson.data : [];
+      attachments = inserted;
+      if (!attRes.ok) {
+        const errText = await attRes.text().catch(() => "");
+        console.error("[client messaging] attachment insert failed:", attRes.status, errText);
+      }
+      if (inserted.length !== attPayloads.length) {
+        sendWarnings.push(
+          `The message was sent, but ${attPayloads.length - inserted.length} of ${attPayloads.length} attachment${attPayloads.length === 1 ? " was" : "s were"} not recorded, so the other side cannot open the file.`
+        );
       }
     }
 
     // Update conversation last_message_at
-    fetch(`${DIRECTUS_BASE}/items/vs_conversation/${conversationId}`, {
+    const previewRes = await fetch(`${DIRECTUS_BASE}/items/vs_conversation/${convId}`, {
       method: "PATCH",
       headers: getHeaders(),
       body: JSON.stringify({ last_message_at: nowPH }),
-    }).catch((e) => console.error("Update last_message_at error:", e));
+    }).catch((e) => {
+      console.error("Update last_message_at error:", e);
+      return null;
+    });
+    if (previewRes !== null && !previewRes.ok) {
+      console.error("Update last_message_at failed:", previewRes.status);
+      sendWarnings.push(
+        "The message was sent, but the conversation list could not be updated, so its position and last-activity time may be out of date."
+      );
+    }
+
+    // Resolve reply_to quoted message if replying
+    let replyToObj: {
+      message_id: number;
+      sender_id: number;
+      sender_name: string;
+      message_content: string;
+      message_type: string;
+      attachments?: Record<string, unknown>[];
+    } | null = null;
+
+    if (body.reply_to_message_id) {
+      const parentMid = Number(body.reply_to_message_id);
+      try {
+        const [pMsgRes, pAttRes] = await Promise.all([
+          fetch(
+            `${DIRECTUS_BASE}/items/vs_message?filter[message_id][_eq]=${parentMid}&fields=message_id,sender_id,message_type,message_content`,
+            { headers: getHeaders(), cache: "no-store" }
+          ),
+          fetch(
+            `${DIRECTUS_BASE}/items/vs_message_attachment?filter[message_id][_eq]=${parentMid}&fields=attachment_id,message_id,file_name,file_path,file_size,mime_type,created_at&limit=5`,
+            { headers: getHeaders(), cache: "no-store" }
+          ),
+        ]);
+        if (pMsgRes.ok) {
+          const pMsgJson = await pMsgRes.json();
+          const pMsg = Array.isArray(pMsgJson.data) ? pMsgJson.data[0] : pMsgJson.data;
+          if (pMsg) {
+            const dec = safeDecryptMessage(pMsg.message_content as string | null);
+            const pAttJson = pAttRes.ok ? await pAttRes.json().catch(() => null) : null;
+            const pAtts = Array.isArray(pAttJson?.data) ? pAttJson.data : [];
+            const firstAtt = pAtts[0] as { file_name?: string } | undefined;
+            const content = dec
+              ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec)
+              : (firstAtt?.file_name ?? "");
+            replyToObj = {
+              message_id: parentMid,
+              sender_id: Number(pMsg.sender_id),
+              sender_name: Number(pMsg.sender_id) === userId ? "You" : (conv.freelancer_name || "Freelancer"),
+              message_content: content,
+              message_type: (pMsg.message_type as string) || "TEXT",
+              attachments: pAtts,
+            };
+          }
+        }
+      } catch (e) {
+        console.error("Failed to resolve reply_to in POST:", e);
+      }
+    }
 
     return NextResponse.json(
       {
@@ -839,17 +1105,19 @@ export async function POST(
           message_content: safeDecryptMessage(newMessage?.message_content),
           attachments,
           reply_to_message_id: body.reply_to_message_id ? Number(body.reply_to_message_id) : null,
+          reply_to: replyToObj,
           is_pinned: false,
           pinned_at: null,
           pinned_by: null,
         },
+        warnings: sendWarnings,
       },
       { status: 201 }
     );
   } catch (err: unknown) {
     console.error("POST /api/client/messaging/[id]/messages error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

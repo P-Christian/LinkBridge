@@ -2,10 +2,31 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
-import { directusWsRelay, ensureDirectusRelayStarted, RelayEventPayload, resolveSenderName } from "@/lib/realtime/directus-ws-relay";
+import { safeDecryptMessage } from "@/lib/message-encryption";
+import {
+  directusWsRelay,
+  ensureDirectusRelayStarted,
+  RelayEventPayload,
+  RelayState,
+  resolveSenderName,
+  resolveUserCompanyIds,
+} from "@/lib/realtime/directus-ws-relay";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+function sameId(value: unknown, userId: string | number): boolean {
+  return value !== null && value !== undefined && String(value) === String(userId);
+}
+
+// The relay flattens conversation participants onto both messages and reactions
+function isConversationMember(
+  rec: Record<string, unknown>,
+  userId: string | number
+): boolean {
+  return sameId(rec.client_id, userId) || sameId(rec.freelancer_id, userId);
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -22,14 +43,30 @@ export async function GET(req: NextRequest) {
 
     const encoder = new TextEncoder();
     let cleanupListener: (() => void) | null = null;
+    let relayListener: (() => void) | null = null;
     let heartbeatInterval: NodeJS.Timeout | null = null;
 
     const stream = new ReadableStream({
       start(controller) {
+        // The browser's stream opening says nothing about the relay that has to
+        // feed it: a relay that never authenticated with Directus still let every
+        // portal report a live connection while no event could arrive. State is
+        // sent with the handshake and re-sent whenever it changes.
+        const sendRelayState = (state: RelayState) => {
+          try {
+            controller.enqueue(
+              encoder.encode(`event: relay\ndata: ${JSON.stringify({ relay: state })}\n\n`)
+            );
+          } catch {
+            // Client already gone; the abort handler cleans up.
+          }
+        };
+
         // 1. Initial connection acknowledgment frame
         controller.enqueue(
-          encoder.encode(`event: connected\ndata: ${JSON.stringify({ status: "connected", userId: session.userId })}\n\n`)
+          encoder.encode(`event: connected\ndata: ${JSON.stringify({ status: "connected", userId: session.userId, relay: directusWsRelay.status })}\n\n`)
         );
+        relayListener = directusWsRelay.onStateChange(sendRelayState);
 
         // 2. 20-second heartbeat to prevent proxy/tunnel idle drops (Tailscale, Nginx)
         heartbeatInterval = setInterval(() => {
@@ -40,69 +77,93 @@ export async function GET(req: NextRequest) {
           }
         }, 20000);
 
-        // 3. Listen to real-time events from the Directus relay
+        // 3. Listen to real-time events from the Directus relay.
+        // Every collection is membership-scoped before enqueue; anything the
+        // subscriber is not a participant of is dropped, including unknown collections.
+        let companyIds: number[] | null = null;
         cleanupListener = directusWsRelay.onEvent(async (payload: RelayEventPayload) => {
           try {
-            // User-scoped filtering for private notifications
-            let filteredData = payload.data;
-            if (
-              payload.collection === "vs_freelancer_notification" ||
-              payload.collection === "vs_employer_notification"
-            ) {
-              filteredData = payload.data.filter((rec) => {
-                if (rec.user_id !== undefined && rec.user_id !== null) {
-                  return String(rec.user_id) === String(session.userId);
+            let records = payload.data;
+
+            switch (payload.collection) {
+              case "vs_message":
+              case "vs_message_reaction":
+                records = records.filter((rec) =>
+                  isConversationMember(rec, session.userId)
+                );
+                break;
+              case "vs_freelancer_notification":
+              case "vs_employer_notification":
+              case "vs_job_application":
+                records = records.filter((rec) =>
+                  sameId(rec.user_id, session.userId)
+                );
+                break;
+              case "vs_interview": {
+                if (companyIds === null) {
+                  companyIds = await resolveUserCompanyIds(session.userId);
                 }
-                return true;
-              });
-              if (filteredData.length === 0) return;
+                const owned = companyIds;
+                records = records.filter(
+                  (rec) =>
+                    sameId(rec.interviewer_user_id, session.userId) ||
+                    owned.includes(Number(rec.company_id))
+                );
+                break;
+              }
+              default:
+                return;
             }
 
-            // Participant-scoped filtering and sender_name guarantee for messages
+            if (records.length === 0) return;
+
+            // Decrypt and name-resolve only the rows this subscriber may read
             if (payload.collection === "vs_message") {
-              // Guarantee sender_name is resolved on every message record before streaming
-              await Promise.all(
-                payload.data.map(async (rec) => {
-                  if (!rec.sender_name && rec.sender_id != null) {
-                    const name = await resolveSenderName(Number(rec.sender_id));
-                    if (name) {
-                      rec.sender_name = name;
-                    }
+              records = await Promise.all(
+                records.map(async (rec) => {
+                  const row = { ...rec };
+                  if (!row.sender_name && row.sender_id != null) {
+                    const name = await resolveSenderName(Number(row.sender_id));
+                    if (name) row.sender_name = name;
                   }
+                  if (typeof row.message_content === "string") {
+                    row.message_content =
+                      safeDecryptMessage(row.message_content) ?? row.message_content;
+                  }
+                  return row;
                 })
               );
-
-              filteredData = payload.data.filter((rec) => {
-                const clientId = rec.client_id;
-                const freelancerId = rec.freelancer_id;
-                // If participant IDs are present, enforce the check.
-                // If absent (e.g. reaction update without participant data), allow through.
-                if (clientId == null && freelancerId == null) return true;
-                return (
-                  String(clientId) === String(session.userId) ||
-                  String(freelancerId) === String(session.userId)
-                );
-              });
-              if (filteredData.length === 0) return;
             }
 
             const ssePayload = {
               collection: payload.collection,
               event: payload.event,
-              data: filteredData,
+              data: records,
             };
 
-            controller.enqueue(
-              encoder.encode(`data: ${JSON.stringify(ssePayload)}\n\n`)
+            const frame = `data: ${JSON.stringify(ssePayload)}\n\n`;
+
+            // Enqueue gets its own guard: a closed client is expected on every
+            // navigation, but the checks above can fail for real reasons
+            // (Directus unreachable during name resolution) and dropping the
+            // batch then has to leave a trace.
+            try {
+              controller.enqueue(encoder.encode(frame));
+            } catch {
+              // Client closed stream
+            }
+          } catch (err) {
+            console.error(
+              `[realtime] Could not prepare ${payload.collection}/${payload.event} frame:`,
+              err
             );
-          } catch {
-            // Client closed stream
           }
         });
 
         // Clean up on client abort
         req.signal.addEventListener("abort", () => {
           if (cleanupListener) cleanupListener();
+          if (relayListener) relayListener();
           if (heartbeatInterval) clearInterval(heartbeatInterval);
           try {
             controller.close();
@@ -111,6 +172,7 @@ export async function GET(req: NextRequest) {
       },
       cancel() {
         if (cleanupListener) cleanupListener();
+        if (relayListener) relayListener();
         if (heartbeatInterval) clearInterval(heartbeatInterval);
       },
     });
@@ -124,7 +186,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal Error";
+    const message = safeErrorMessage(error, "Internal Error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

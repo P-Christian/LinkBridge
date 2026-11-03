@@ -16,7 +16,6 @@ interface PendingFile {
 
 interface Props {
   disabled?: boolean;
-  sending?: boolean;
   uploading?: boolean;
   replyingTo?: Message | null;
   onCancelReply?: () => void;
@@ -57,7 +56,6 @@ const isTouchPrimary = () =>
 
 export default function MessageInput({
   disabled,
-  sending,
   uploading,
   replyingTo,
   onCancelReply,
@@ -74,7 +72,7 @@ export default function MessageInput({
   const dragDepthRef = useRef(0);
   const pendingRef = useRef<PendingFile[]>([]);
 
-  const isBusy = !!(sending || uploading || disabled);
+  const isBusy = !!(uploading || disabled);
   const canSend = (content.trim().length > 0 || pendingFiles.length > 0) && !isBusy;
 
   useEffect(() => {
@@ -231,7 +229,10 @@ export default function MessageInput({
               Replying:
             </span>
             <span className="truncate text-[11px] text-zinc-600 dark:text-zinc-400">
-              {replyingTo.message_content || "Attachment"}
+              {replyingTo.message_content ||
+                (replyingTo.attachments?.[0]?.file_name
+                  ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
+                  : "Attachment")}
             </span>
           </div>
           {onCancelReply && (
@@ -359,7 +360,7 @@ export default function MessageInput({
               : "cursor-not-allowed bg-slate-100 text-slate-300 dark:bg-zinc-800/60 dark:text-zinc-600"
           )}
         >
-          {sending || uploading ? (
+          {uploading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Send className="ml-0.5 h-4 w-4" />

@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { HiringViewerRole } from "@/modules/client/messaging/types";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,16 @@ function getHeaders(): Record<string, string> {
   };
   if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
   return h;
+}
+
+/**
+ * A Directus outage is not "this row was deleted". Answering 404 made the cards
+ * report a live application, interview or message as missing content.
+ */
+function upstreamFailure(res: Response, label: string): NextResponse {
+  return res.status === 404
+    ? NextResponse.json({ error: `${label} not found.` }, { status: 404 })
+    : NextResponse.json({ error: `The ${label.toLowerCase()} could not be read.` }, { status: 502 });
 }
 
 function formatAvatarUrl(url?: string | null): string | null {
@@ -43,17 +55,17 @@ export async function GET(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // ── Params ────────────────────────────────────────────────────────────
     const { searchParams } = new URL(req.url);
-    const messageId = searchParams.get("message_id");
+    const messageId = toId(searchParams.get("message_id"));
 
-    if (!messageId || isNaN(Number(messageId))) {
+    if (messageId === null) {
       return NextResponse.json({ error: "message_id is required." }, { status: 400 });
     }
 
@@ -64,7 +76,7 @@ export async function GET(req: NextRequest) {
     );
 
     if (!msgRes.ok) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return upstreamFailure(msgRes, "Message");
     }
 
     const msg = (await msgRes.json()).data;
@@ -74,18 +86,26 @@ export async function GET(req: NextRequest) {
 
     // ── Verify user belongs to this conversation ──────────────────────────
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation/${msg.conversation_id}?fields=client_id,freelancer_id`,
+      // job_id is part of this read because the stage and interview cards below
+      // resolve the position title from it; omitting it made them fall back to
+      // "Position" for every card.
+      `${DIRECTUS_BASE}/items/vs_conversation/${msg.conversation_id}?fields=conversation_id,job_id,client_id,freelancer_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
     if (!convRes.ok) {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+      return upstreamFailure(convRes, "Conversation");
     }
 
     const conv = (await convRes.json()).data;
-    if (userId !== conv.client_id && userId !== conv.freelancer_id) {
+    // Compare numerically: Directus can answer these ids as strings, and a string
+    // here would 403 a participant out of their own conversation card.
+    const clientId = Number(conv?.client_id);
+    const freelancerId = Number(conv?.freelancer_id);
+    if (userId !== clientId && userId !== freelancerId) {
       return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     }
+    const viewerIsCandidate = userId === freelancerId;
 
     // ── Fetch vs_system_message row ───────────────────────────────────────
     const smRes = await fetch(
@@ -94,7 +114,7 @@ export async function GET(req: NextRequest) {
     );
 
     if (!smRes.ok) {
-      return NextResponse.json({ error: "System message data not found." }, { status: 404 });
+      return upstreamFailure(smRes, "System message data");
     }
 
     const smData = ((await smRes.json()).data ?? [])[0];
@@ -103,8 +123,7 @@ export async function GET(req: NextRequest) {
     }
 
     const { event_type, application_id, interview_id, stage_history_id } = smData;
-    const isCandidate = conv.freelancer_id === userId;
-    const viewerRole: HiringViewerRole = isCandidate ? "FREELANCER" : "CLIENT";
+    const viewerRole: HiringViewerRole = viewerIsCandidate ? "FREELANCER" : "CLIENT";
 
     // ── Resolve card data by event type ───────────────────────────────────
 
@@ -330,7 +349,7 @@ export async function GET(req: NextRequest) {
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!appRes.ok) {
-        return NextResponse.json({ error: "Application not found." }, { status: 404 });
+        return upstreamFailure(appRes, "Application");
       }
       const app = (await appRes.json()).data;
       const applicantUserId = app?.user_id;
@@ -434,7 +453,7 @@ export async function GET(req: NextRequest) {
         url: s.profile_url || s.url || "#",
       }));
 
-      const isCandidate = app?.user_id === userId || conv.freelancer_id === userId;
+      const isCandidate = (app?.user_id != null && Number(app.user_id) === userId) || viewerIsCandidate;
       const viewerRole: HiringViewerRole = isCandidate ? "FREELANCER" : "CLIENT";
 
       return NextResponse.json({
@@ -498,11 +517,10 @@ export async function GET(req: NextRequest) {
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!ivRes.ok) {
-        return NextResponse.json({ error: "Interview not found." }, { status: 404 });
+        return upstreamFailure(ivRes, "Interview");
       }
       const iv = (await ivRes.json()).data;
-      const isCandidate = conv.freelancer_id === userId;
-      const viewerRole: HiringViewerRole = isCandidate ? "FREELANCER" : "CLIENT";
+      const viewerRole: HiringViewerRole = viewerIsCandidate ? "FREELANCER" : "CLIENT";
 
       // Also resolve candidate name and job title from conversation if available
       const [candUserRes, jobRes] = await Promise.all([
@@ -587,7 +605,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/messaging/system-card error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

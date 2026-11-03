@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { CampusMatchResult } from "@/modules/matching-engine/campus/types";
 
 interface SendInvitationDialogProps {
@@ -64,11 +65,18 @@ export default function SendInvitationDialog({
       const json = (await res.json()) as {
         success?: boolean;
         error?: string;
+        warnings?: string[];
       };
 
       if (!res.ok || !json.success) {
         throw new Error(json.error ?? "Failed to send invitation.");
       }
+
+      // The invite went out; part of recording it may still have failed, and
+      // the dialog closes on a green check, so the gap has to be said elsewhere.
+      (Array.isArray(json.warnings) ? json.warnings : []).forEach((warning) =>
+        toast.warning(warning)
+      );
 
       setState("SUCCESS");
 

@@ -40,7 +40,6 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
     loading: msgsLoading,
     loadingOlder,
     hasMore,
-    sending,
     uploading,
     error: msgsError,
     loadMessages,
@@ -49,6 +48,8 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
     send,
     retry,
     upload,
+    deleteMessage,
+    togglePin,
     toggleReaction,
     clearMessages,
   } = useMessages(currentUserId);
@@ -122,12 +123,8 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
           }));
       }
 
-      const messageType =
-        attachments.length > 0 && !content
-          ? attachments[0].mime_type.startsWith("image/")
-            ? "IMAGE"
-            : "FILE"
-          : "TEXT";
+      const hasText = Boolean(content.trim());
+      if (!hasText && attachments.length === 0) return false;
 
       // Optimistic: update the sidebar preview instantly without any fetch or skeleton
       const now = new Date().toISOString();
@@ -137,12 +134,27 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
       const preview = `You: ${rawText}`;
       updateConversationPreview(activeConversation.conversation_id, preview, now);
 
-      await send(activeConversation.conversation_id, {
-        message_content: content || undefined,
-        message_type: messageType,
-        attachments: attachments.length > 0 ? attachments : undefined,
-        reply_to_message_id: replyToMessageId,
-      });
+      // If text is provided, send text message first
+      if (hasText) {
+        await send(activeConversation.conversation_id, {
+          message_content: content.trim(),
+          message_type: "TEXT",
+          reply_to_message_id: replyToMessageId,
+        });
+      }
+
+      // Send each file as its own message so each file can be pinned independently
+      if (attachments.length > 0) {
+        for (let i = 0; i < attachments.length; i++) {
+          const att = attachments[i];
+          const isImg = att.mime_type.startsWith("image/");
+          await send(activeConversation.conversation_id, {
+            message_type: isImg ? "IMAGE" : "FILE",
+            attachments: [att],
+            reply_to_message_id: !hasText && i === 0 ? replyToMessageId : undefined,
+          });
+        }
+      }
 
       return true;
     },
@@ -202,13 +214,13 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
             {activeConversation ? (
               <div className="w-full h-full min-w-0 flex flex-col min-h-0 overflow-hidden">
                 <ChatPanel
+                  key={activeConversation.conversation_id}
                   conversation={activeConversation}
                   messages={messages}
                   currentUserId={currentUserId}
                   loading={msgsLoading}
                   loadingOlder={loadingOlder}
                   hasMore={hasMore}
-                  sending={sending}
                   uploading={uploading}
                   error={msgsError}
                   isArchived={!!activeConversation.archived_by_freelancer}
@@ -224,6 +236,8 @@ export default function FreelancerMessagingModule({ currentUserId }: Props) {
                   onBack={handleCloseConversation}
                   onToggleReaction={toggleReaction}
                   onRetry={retry}
+                  onDeleteMessage={deleteMessage}
+                  onTogglePin={togglePin}
                 />
               </div>
             ) : (

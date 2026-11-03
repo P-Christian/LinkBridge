@@ -100,7 +100,7 @@ export async function uploadFile(file: File): Promise<{
 export async function toggleReaction(
   messageId: number,
   reaction: string
-): Promise<MessageReactionGroup[]> {
+): Promise<{ reactions: MessageReactionGroup[] | null; warning: string | null }> {
   const res = await fetch(`/api/shared/messaging/messages/${messageId}/reactions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -108,5 +108,8 @@ export async function toggleReaction(
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Failed to toggle reaction.");
-  return json.reactions ?? [];
+  return {
+    reactions: Array.isArray(json.reactions) ? json.reactions : null,
+    warning: typeof json.warning === "string" ? json.warning : null,
+  };
 }
