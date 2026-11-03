@@ -268,6 +268,13 @@ class DirectusWsRelay {
         try {
           const msg = JSON.parse(String(event.data));
 
+          // Directus closes any socket that stops answering its ping frames (~30s
+          // after the first one), which used to drop this relay once a minute.
+          if (msg.type === "ping") {
+            this.ws?.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+
           if (msg.type === "auth") {
             if (msg.status === "ok") {
               this.isConnected = true;
