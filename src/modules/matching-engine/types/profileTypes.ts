@@ -27,7 +27,6 @@ export interface NormalizedCertEntry {
 export interface NormalizedProfile {
   id: number;
   name: string;
-  email: string;
   headline: string | null;
   summary: string | null;
   location: string;

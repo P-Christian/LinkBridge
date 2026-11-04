@@ -5,16 +5,31 @@ import { matchSchool } from "../retrieval/schoolMatcher";
 export function calculateRankingScore(
   compatibilityScore: number,
   profile: NormalizedProfile,
-  searchKeyword?: string
+  searchKeyword?: string,
+  layer1Score: number = 0
 ): number {
-  // ranking_score = (compatibility_score * 0.85) + (profileCompleteness * 0.10) + (activityScore * 0.05)
+  const hasKeyword = Boolean(searchKeyword && searchKeyword.trim());
+
+  // In search mode with a keyword:
+  // If a candidate scored 0 in Layer 1 (no role, title, alias, skill, summary, or education match),
+  // their completeness and activity should NOT elevate them above candidates who actually matched.
+  const hasRelevanceMatch = !hasKeyword || layer1Score > 0 || compatibilityScore > 20;
+  const completenessWeight = hasRelevanceMatch ? 0.10 : 0.02;
+  const activityWeight = hasRelevanceMatch ? 0.05 : 0.01;
+
   let score =
     compatibilityScore * 0.85 +
-    profile.profileCompletenessScore * 0.10 +
-    profile.activityScore * 0.05;
+    profile.profileCompletenessScore * completenessWeight +
+    profile.activityScore * activityWeight;
 
-  if (searchKeyword && searchKeyword.trim()) {
-    const rawKeyword = searchKeyword.trim();
+  // Layer 1 retrieval bonus: candidates with strong domain match (title, alias, role skill)
+  // receive a direct ranking boost proportional to their retrieval score (up to 20 pts).
+  if (hasKeyword && layer1Score > 0) {
+    score += (layer1Score / 100) * 20;
+  }
+
+  if (hasKeyword) {
+    const rawKeyword = searchKeyword!.trim();
     const nameMatch = matchCandidateName(rawKeyword, profile.name);
     if (nameMatch.matched) {
       // Prioritize explicit name search results at the top

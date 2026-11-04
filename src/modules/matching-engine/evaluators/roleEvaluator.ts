@@ -195,7 +195,7 @@ export function evaluateRole(profile: NormalizedProfile, context: MatchContext, 
   return {
     factor: "ROLE",
     label: "Role Similarity",
-    score: 10,
+    score: 0,
     maxScore,
     weight,
     evidence: [],

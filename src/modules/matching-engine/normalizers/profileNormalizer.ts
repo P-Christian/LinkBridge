@@ -7,7 +7,6 @@ import { normalizeSkills } from "./skillNormalizer";
 export function normalizeRawCandidate(raw: {
   user_id: number;
   name: string;
-  email: string;
   headline?: string | null;
   summary?: string | null;
   location?: string | null;
@@ -91,7 +90,6 @@ export function normalizeRawCandidate(raw: {
   return {
     id: raw.user_id,
     name: raw.name,
-    email: raw.email,
     headline: raw.headline ?? null,
     summary: raw.summary ?? null,
     location: raw.location ?? "",

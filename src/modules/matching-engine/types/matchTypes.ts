@@ -32,6 +32,7 @@ export interface MatchContext {
   requiredExperience?: number;
   targetRoleId?: number;
   taxonomyContext?: ResolvedTaxonomyContext;
+  layer1Score?: number;
 }
 
 export interface BreakdownSection {
