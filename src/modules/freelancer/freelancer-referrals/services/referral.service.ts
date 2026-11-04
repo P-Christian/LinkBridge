@@ -64,7 +64,14 @@ export async function checkUserReferralLimit(userId: number, jobId: number): Pro
   return true;
 }
 
-export async function createReferralRecord(userId: number, jobId: number, recipientEmail?: string) {
+export async function createReferralRecord(
+  userId: number,
+  jobId: number,
+  recipientEmail?: string,
+  referralType: "CLOSED" | "OPEN" = "CLOSED",
+  customExpiryDays?: number,
+  customExpiresAt?: string
+) {
   const { plain, hash } = generateToken();
   const policy = await getReferralPolicy(jobId);
   
@@ -78,7 +85,13 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + policy.expiry_days * 24 * 60 * 60 * 1000);
+  let expiresAt: Date;
+  if (customExpiresAt && !isNaN(Date.parse(customExpiresAt))) {
+    expiresAt = new Date(customExpiresAt);
+  } else {
+    const days = customExpiryDays && customExpiryDays > 0 ? customExpiryDays : policy.expiry_days;
+    expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  }
 
   const payload: Record<string, unknown> = {
     job_id: jobId,
@@ -88,7 +101,10 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
     expires_at: expiresAt.toISOString(),
   };
 
-  if (recipientEmail) {
+  if (referralType === "OPEN") {
+    payload.display_hint = "Public share link";
+    // Also include referral_type note if permitted by backend
+  } else if (recipientEmail) {
     payload.recipient_email_hash = crypto.createHash("sha256").update(recipientEmail.trim().toLowerCase()).digest("hex");
     payload.display_hint = recipientEmail.trim().split("@")[0];
   }
@@ -117,8 +133,12 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
 
 export async function getReferralByToken(token: string) {
   const hash = crypto.createHash("sha256").update(token).digest("hex");
+  // Support both plain token (sha256 match) and direct token_hash copied from dashboard
+  const filter = token.length === 64
+    ? `filter[_or][0][token_hash][_eq]=${hash}&filter[_or][1][token_hash][_eq]=${token}`
+    : `filter[token_hash][_eq]=${hash}`;
   const res = await fetch(
-    `${DIRECTUS_BASE}/items/vs_job_referral?filter[token_hash][_eq]=${hash}&fields=*,job_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
+    `${DIRECTUS_BASE}/items/vs_job_referral?${filter}&fields=*,job_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
     { headers: getHeaders(), cache: "no-store" }
   );
   if (!res.ok) return null;
@@ -165,7 +185,7 @@ export async function claimReferralRecord(
   candidateEmail?: string | null
 ) {
   const refRes = await fetch(
-    `${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id,job_id.job_id,job_id.job_title,status,expires_at,recipient_email_hash`,
+    `${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id,job_id.job_id,job_id.job_title,status,expires_at,recipient_email_hash,display_hint`,
     { headers: getHeaders(), cache: "no-store" }
   );
   if (!refRes.ok) {
@@ -177,6 +197,7 @@ export async function claimReferralRecord(
     status?: string | null;
     expires_at?: string | null;
     recipient_email_hash?: string | null;
+    display_hint?: string | null;
   } | null = (await refRes.json()).data;
   if (!refData) {
     throw new Error("Referral invitation not found or no longer valid.");
@@ -239,12 +260,38 @@ export async function claimReferralRecord(
 
   const claim = (await res.json()).data;
 
-  // Update main status
-  await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
-    method: "PATCH",
-    headers: getHeaders(),
-    body: JSON.stringify({ status: "CLAIMED", claimed_at: new Date().toISOString() })
-  });
+  // Auto-bookmark this job for the candidate so the opportunity is saved to their account permanently
+  try {
+    const existingBookmarkRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_job_bookmark?filter[job_id][_eq]=${jobId}&filter[user_id][_eq]=${candidateUserId}&fields=bookmark_id&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    const existingJson = await existingBookmarkRes.json().catch(() => ({}));
+    const hasBookmark = existingJson?.data && existingJson.data.length > 0;
+    if (!hasBookmark) {
+      await fetch(`${DIRECTUS_BASE}/items/vs_job_bookmark`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          job_id: jobId,
+          user_id: candidateUserId,
+          bookmarked_at: new Date().toISOString(),
+        }),
+      });
+    }
+  } catch (bmErr) {
+    console.error("Auto-bookmark on referral claim error:", bmErr);
+  }
+
+  // Update main status for closed referrals (or track open referrals)
+  const isPublicOpen = refData.display_hint === "Public share link" || !refData.recipient_email_hash;
+  if (!isPublicOpen) {
+    await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({ status: "CLAIMED", claimed_at: new Date().toISOString() })
+    });
+  }
 
   await logReferralHistory(referralId, "SENT", "CLAIMED", `user:${candidateUserId}`, "Consent Bound");
 
@@ -346,12 +393,15 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
       return;
     }
 
-    // 4. Update the referral status to APPLIED and close the claim
-    await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify({ status: "APPLIED" })
-    });
+    // 4. Update the referral status to APPLIED and close the claim (if not open public link)
+    const isPublicOpen = referral.display_hint === "Public share link" || !referral.recipient_email_hash;
+    if (!isPublicOpen) {
+      await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({ status: "APPLIED" })
+      });
+    }
 
     await fetch(`${DIRECTUS_BASE}/items/vs_job_referral_claim/${claim.claim_id}`, {
       method: "PATCH",
