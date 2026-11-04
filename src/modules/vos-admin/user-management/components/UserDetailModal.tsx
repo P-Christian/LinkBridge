@@ -125,10 +125,14 @@ export function UserDetailModal({ user, isOpen, onClose, onReview }: Props) {
   const profileObj = getJobSeekerProfile(user);
   const prefsObj = getJobPreferences(user);
 
-  // Freelancer profile completion details
-  const completionPercent = user.role_id === 1 && profileObj
+  // Freelancer profile completion details; ensure pending submissions reflect in completion meter
+  const rawCompletion = user.role_id === 1 && profileObj
     ? Number(profileObj.profile_completion_percent || 0)
     : null;
+  const pendingDocsCount = verifications.filter(v => v.status === 'pending').length;
+  const completionPercent = rawCompletion !== null && rawCompletion === 0 && pendingDocsCount > 0
+    ? Math.min(30, pendingDocsCount * 10)
+    : rawCompletion;
 
   const completionColor =
     completionPercent !== null && completionPercent >= 90
@@ -178,8 +182,6 @@ export function UserDetailModal({ user, isOpen, onClose, onReview }: Props) {
                     <UserStatusBadge status={overallStatus} />
                   </DialogTitle>
                   <DialogDescription className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
-                    <span>ID: <strong className="font-mono">#{user.user_id}</strong></span>
-                    <span>•</span>
                     <span>Role: <strong className="text-primary">{getRoleName(user.role_id)}</strong></span>
                   </DialogDescription>
                 </div>
@@ -405,47 +407,66 @@ export function UserDetailModal({ user, isOpen, onClose, onReview }: Props) {
                             </div>
                           </div>
 
-                          {/* List of files matching Company Verification layout */}
-                          <div className="space-y-3">
-                            {attachments.length === 0 ? (
-                              <div className="text-xs text-muted-foreground italic">No image file attachments.</div>
-                            ) : (
-                              attachments.map((attach, idx) => (
-                                <div key={idx} className="flex items-center justify-between border rounded-xl p-3 bg-card hover:bg-muted/30 transition-colors">
-                                  <div className="flex items-center gap-3">
-                                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                                      <FileText className="h-4 w-4" />
-                                    </div>
-                                    <div>
-                                      <div className="font-bold text-foreground text-xs">{attach.name}</div>
-                                      <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
-                                        <Badge variant="outline" className="text-[9px] px-1 py-0">{attach.type}</Badge>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      onClick={() => setPreviewImage({ url: getImageUrl(attach.uuid), title: attach.name })}
-                                      className="h-7 gap-1 text-[11px]"
-                                    >
-                                      <ExternalLink className="h-3 w-3" />
-                                      Preview
-                                    </Button>
-                                    <a
-                                      href={`${getImageUrl(attach.uuid)}?download`}
-                                      download
-                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90 transition-colors h-7"
-                                    >
-                                      <Download className="h-3 w-3" />
-                                      Download
-                                    </a>
+                          {/* List of files or mobile number verification */}
+                          {v.type === "mobile_number" ? (
+                            <div className="flex items-center justify-between border rounded-xl p-3 bg-card hover:bg-muted/30 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                                  <Phone className="h-4 w-4" />
+                                </div>
+                                <div>
+                                  <div className="text-[10px] text-muted-foreground uppercase font-semibold">Verified Mobile Number</div>
+                                  <div className="font-mono font-bold text-foreground text-sm mt-0.5">
+                                    {v.mobile_number || user.user_contact || "No phone number recorded"}
                                   </div>
                                 </div>
-                              ))
-                            )}
-                          </div>
+                              </div>
+                              <Badge variant="outline" className="text-[10px] bg-emerald-500/10 text-emerald-600 border-emerald-500/20 px-2 py-0.5">
+                                SMS Verified
+                              </Badge>
+                            </div>
+                          ) : (
+                            <div className="space-y-3">
+                              {attachments.length === 0 ? (
+                                <div className="text-xs text-muted-foreground italic">No image file attachments.</div>
+                              ) : (
+                                attachments.map((attach, idx) => (
+                                  <div key={idx} className="flex items-center justify-between border rounded-xl p-3 bg-card hover:bg-muted/30 transition-colors">
+                                    <div className="flex items-center gap-3">
+                                      <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                                        <FileText className="h-4 w-4" />
+                                      </div>
+                                      <div>
+                                        <div className="font-bold text-foreground text-xs">{attach.name}</div>
+                                        <div className="text-[10px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                                          <Badge variant="outline" className="text-[9px] px-1 py-0">{attach.type}</Badge>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => setPreviewImage({ url: getImageUrl(attach.uuid), title: attach.name })}
+                                        className="h-7 gap-1 text-[11px]"
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                        Preview
+                                      </Button>
+                                      <a
+                                        href={`${getImageUrl(attach.uuid)}?download`}
+                                        download
+                                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-semibold hover:bg-primary/90 transition-colors h-7"
+                                      >
+                                        <Download className="h-3 w-3" />
+                                        Download
+                                      </a>
+                                    </div>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
 
                           {v.rejection_note && (
                             <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-900/50 rounded-lg text-red-800 dark:text-red-400 text-xs flex gap-2 items-start">
@@ -500,10 +521,7 @@ export function UserDetailModal({ user, isOpen, onClose, onReview }: Props) {
           </div>
 
           {/* Footer Bar */}
-          <DialogFooter className="p-4 border-t bg-muted/20 flex flex-row items-center justify-between gap-3 shrink-0">
-            <div className="text-xs text-muted-foreground">
-              Target User ID: <strong className="font-mono">#{user.user_id}</strong>
-            </div>
+          <DialogFooter className="p-4 border-t bg-muted/20 flex flex-row items-center justify-end gap-3 shrink-0">
             <Button variant="outline" size="sm" onClick={onClose}>Close Detail</Button>
           </DialogFooter>
         </DialogContent>

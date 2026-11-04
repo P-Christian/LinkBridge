@@ -4,7 +4,8 @@
 import React from "react";
 import Link from "next/link";
 import { BookmarkedJob } from "../types";
-import { MapPin, Briefcase, Clock, Building2, ChevronRight, Wifi, Users, Bookmark, BookmarkMinus } from "lucide-react";
+import { MapPin, Briefcase, Clock, Building2, ChevronRight, Wifi, Users, Bookmark, BookmarkMinus, UserCheck } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
 interface Props {
@@ -46,6 +47,16 @@ function getImageUrl(value: string | null | undefined): string {
     return value;
   }
   return `/api/client/assets/${value}`;
+}
+
+function formatExpirationCountdown(expiresAt?: string | null): { label: string; isUrgent: boolean } | null {
+  if (!expiresAt) return null;
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+  if (days <= 0) return { label: "Expired", isUrgent: true };
+  if (days === 1) return { label: "Expires tomorrow", isUrgent: true };
+  if (days <= 3) return { label: `${days}d left`, isUrgent: true };
+  return { label: `${days}d left`, isUrgent: false };
 }
 
 const JOB_TYPE_LABELS: Record<string, string> = {
@@ -127,7 +138,33 @@ export const BookmarkList: React.FC<Props> = ({ bookmarks, onRemoveBookmark }) =
             </div>
 
             {/* Meta pills */}
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              {job.is_referred && (
+                <>
+                  <Badge
+                    variant="outline"
+                    className="bg-primary/10 text-primary border-primary/25 text-[11px] font-semibold px-2 py-0.5 gap-1 rounded-full"
+                  >
+                    <UserCheck className="h-3 w-3" />
+                    {job.referrer_name ? `Referred by ${job.referrer_name}` : "Referred"}
+                  </Badge>
+                  {(() => {
+                    const countdown = formatExpirationCountdown(job.referral_expires_at);
+                    if (!countdown) return null;
+                    return (
+                      <span
+                        className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${
+                          countdown.isUrgent
+                            ? "bg-amber-500/10 text-amber-600 border-amber-500/20 dark:text-amber-400"
+                            : "bg-muted text-muted-foreground border-border/50"
+                        }`}
+                      >
+                        ⏳ {countdown.label}
+                      </span>
+                    );
+                  })()}
+                </>
+              )}
               {job.job_location && (
                 <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-full">
                   <MapPin className="h-3 w-3" />

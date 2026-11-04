@@ -54,11 +54,29 @@ export default function JobBrowseModule() {
   const userProfile = useUserProfile();
   const isGuest = !userProfile || userProfile.email === "guest@example.com";
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  const [referralClaimsMap, setReferralClaimsMap] = useState<Record<number, { referrer_name: string; expires_at: string | null }>>({});
 
   useEffect(() => {
     if (!isGuest) {
       fetchBookmarks();
       fetchApplications();
+
+      // Fetch active referral claims for recipient
+      fetch("/api/freelancer/referrals/check-claim")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.claims && Array.isArray(data.claims)) {
+            const map: Record<number, { referrer_name: string; expires_at: string | null }> = {};
+            for (const c of data.claims) {
+              map[c.job_id] = {
+                referrer_name: c.referrer_name,
+                expires_at: c.expires_at,
+              };
+            }
+            setReferralClaimsMap(map);
+          }
+        })
+        .catch((err) => console.error("Error loading referral claims:", err));
     }
   }, [fetchBookmarks, fetchApplications, isGuest]);
 
@@ -198,6 +216,7 @@ export default function JobBrowseModule() {
                       onViewDetail={openDetail}
                       isBookmarked={bookmarkedJobIds.includes(job.job_id)}
                       onToggleBookmark={handleToggleBookmark}
+                      referralInfo={referralClaimsMap[job.job_id] ?? null}
                     />
                   </motion.div>
                 ))}
@@ -294,6 +313,7 @@ export default function JobBrowseModule() {
         appliedJobIds={appliedJobIds}
         bookmarkedJobIds={bookmarkedJobIds}
         onToggleBookmark={handleToggleBookmark}
+        referralInfo={selectedJob ? (referralClaimsMap[selectedJob.job_id] ?? null) : null}
       />
 
       {/* Apply Modal */}

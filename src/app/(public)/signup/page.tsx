@@ -350,6 +350,8 @@ function SignupPageContent() {
   const searchParams = useSearchParams();
   const queryType = searchParams.get('type');
   const queryRole = searchParams.get('role');
+  const nextParam = searchParams.get('next');
+  const nextQuery = nextParam ? `&next=${encodeURIComponent(nextParam)}` : '';
   const inviteToken = searchParams.get('token');
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -784,13 +786,13 @@ function SignupPageContent() {
     if (userType === 'client') {
       setStep('client');
       setClientStep(1);
-      router.replace(`/signup?role=employer${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=employer${socialQuery}${nextQuery}`, { scroll: false });
     } else if (userType === 'school') {
       setStep('school');
-      router.replace(`/signup?role=school${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=school${socialQuery}${nextQuery}`, { scroll: false });
     } else {
       setStep('freelancer');
-      router.replace(`/signup?role=employee${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=employee${socialQuery}${nextQuery}`, { scroll: false });
     }
     window.scrollTo(0, 0);
   };
@@ -2695,7 +2697,17 @@ function SignupPageContent() {
     setVerifiedRole(data.role);
     setAttachmentUploadToken(data.attachmentToken);
     toast.success('Email verified!', { description: 'Welcome to VOS Sync.' });
-    await completeVerifiedRegistration(data.role, data.destination, data.attachmentToken);
+
+    // If nextParam exists and is a safe internal path, prioritize it over default role dashboard
+    let targetDestination = data.destination;
+    if (nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')) {
+      const lower = nextParam.toLowerCase();
+      if (!lower.startsWith('/signup') && !lower.startsWith('/login')) {
+        targetDestination = nextParam;
+      }
+    }
+
+    await completeVerifiedRegistration(data.role, targetDestination, data.attachmentToken);
   };
 
   const handleResendOtp = async () => {

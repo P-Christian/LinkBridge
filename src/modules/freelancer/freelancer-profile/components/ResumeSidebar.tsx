@@ -19,6 +19,7 @@ export function ResumeSidebar() {
         data, 
         pendingVisibility, 
         refresh, 
+        updateProfile,
         isAutofilling, 
         setIsAutofilling,
         setProfessionalSummaryDraft,
@@ -38,6 +39,7 @@ export function ResumeSidebar() {
     // Data states
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [resumeToDelete, setResumeToDelete] = useState<{ id: number, name: string } | null>(null);
+    const [updatingResumeId, setUpdatingResumeId] = useState<number | null>(null);
     
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -203,16 +205,31 @@ export function ResumeSidebar() {
     };
 
     const handleMakePrimary = async (resumeId: number) => {
+        const previousResumes = data.resumes || [];
+        const optimisticResumes = previousResumes.map(r => ({
+            ...r,
+            is_primary: r.id === resumeId
+        }));
+
+        // Instant optimistic update (0ms UI latency)
+        updateProfile({ resumes: optimisticResumes });
+        setUpdatingResumeId(resumeId);
+
         try {
             const res = await setPrimaryResumeAction(data.user_id, resumeId);
             if (res.success) {
                 toast.success("Primary resume updated");
-                refresh();
             } else {
+                // Roll back to previous state if backend operation fails
+                updateProfile({ resumes: previousResumes });
                 toast.error(res.error || "Failed to set primary resume");
             }
         } catch {
+            // Roll back on network or unexpected exception
+            updateProfile({ resumes: previousResumes });
             toast.error("An unexpected error occurred");
+        } finally {
+            setUpdatingResumeId(null);
         }
     };
 
@@ -324,6 +341,7 @@ export function ResumeSidebar() {
                                 onDelete={() => promptDelete(resume.id, resume.file_name || "Document")}
                                 onMakePrimary={() => handleMakePrimary(resume.id)}
                                 isPrimary={false}
+                                isUpdating={updatingResumeId === resume.id}
                             />
                         ))}
                     </div>
@@ -377,7 +395,7 @@ export function ResumeSidebar() {
     );
 }
 
-function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary }: { resume: VsJobSeekerResume, onDelete: () => void, onMakePrimary?: () => void, isPrimary: boolean }) {
+function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary, isUpdating }: { resume: VsJobSeekerResume, onDelete: () => void, onMakePrimary?: () => void, isPrimary: boolean, isUpdating?: boolean }) {
     const rawFileReference = String(resume.file_url || "");
     const fileId = rawFileReference.includes("/assets/")
         ? rawFileReference.split("/assets/").pop()?.split(/[?#]/u)[0]
@@ -400,7 +418,14 @@ function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary }: { resume: Vs
                 </div>
                 <div className="flex items-center gap-1 shrink-0 ml-2">
                     {!isPrimary && onMakePrimary && (
-                        <Button variant="ghost" size="sm" className="h-8 text-sm md:text-xs text-muted-foreground hover:text-primary max-md:min-h-11" onClick={onMakePrimary}>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 text-sm md:text-xs text-muted-foreground hover:text-primary max-md:min-h-11 flex items-center gap-1.5" 
+                            onClick={onMakePrimary}
+                            disabled={isUpdating}
+                        >
+                            {isUpdating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             Make Primary
                         </Button>
                     )}
