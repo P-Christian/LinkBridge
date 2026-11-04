@@ -286,7 +286,7 @@ function InterviewRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onReschedule(item)} className="gap-2 text-sm md:text-xs">
-                <RefreshCw className="h-3.5 w-3.5 text-amber-500" />
+                <RefreshCw className="h-3.5 w-3.5 text-sky-500" />
                 Reschedule
               </DropdownMenuItem>
               <DropdownMenuSeparator />
