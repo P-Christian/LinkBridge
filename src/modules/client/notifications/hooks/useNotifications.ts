@@ -2,8 +2,9 @@
 
 // src/modules/client/notifications/hooks/useNotifications.ts
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { useFetchResource } from "@/hooks/useFetchResource";
 import { Notification, NotificationPreference } from "../types";
 import {
   fetchNotifications,
@@ -17,73 +18,62 @@ import {
   updateNotificationPreferences,
 } from "../providers/NotificationsProvider";
 
-export function useNotifications() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
+// Shared empty lists, so "never read" and "read returned nothing" cannot hand
+// consumers a new array identity on every render.
+const NO_NOTIFICATIONS: Notification[] = [];
+const NO_PREFERENCES: NotificationPreference[] = [];
 
-  // Start loading as true to avoid synchronous setState inside mount effect
-  const [loading, setLoading] = useState(true);
-  const [prefsLoading, setPrefsLoading] = useState(false);
+type ListFilter = { unread_only?: boolean; starred_only?: boolean };
+
+export function useNotifications() {
   const [saving, setSaving] = useState(false);
 
-  const [prefsError, setPrefsError] = useState("");
+  // Filters live in a ref so `loadNotifications` keeps one stable identity:
+  // NotificationsModule's realtime subscription re-subscribes when it changes.
+  const filterRef = useRef<ListFilter>({});
 
-  // Lets the retry action on a failed-load toast call the latest loader.
-  const reloadRef = useRef<() => void>(() => {});
+  // ─── Notifications list ───────────────────────────────────────────────
 
-  // ─── Fetch notifications ──────────────────────────────────────────────
-
-  const loadNotifications = useCallback(
-    async (opts?: { unread_only?: boolean; starred_only?: boolean; quiet?: boolean }) => {
-      if (!opts?.quiet) {
-        setLoading(true);
-      }
-
-      try {
-        const data = await fetchNotifications(opts);
-        setNotifications(data);
-      } catch (err: unknown) {
-        toast.error(
-          err instanceof Error ? err.message : "Failed to load notifications.",
-          { action: { label: "Retry", onClick: () => reloadRef.current() } }
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
+  const fetchList = useCallback(
+    (signal: AbortSignal) => fetchNotifications(filterRef.current, signal),
     []
   );
 
-  useEffect(() => {
-    reloadRef.current = () => {
-      void loadNotifications();
-    };
-  }, [loadNotifications]);
+  const {
+    data: notificationData,
+    loading,
+    reload: reloadList,
+    refresh: refreshList,
+    setData,
+  } = useFetchResource<Notification[]>(fetchList, {
+    fallbackError: "Failed to load notifications.",
+    toast: true,
+    retryAction: true,
+  });
 
-  // Initial load on mount without synchronous setState in effect
-  useEffect(() => {
-    let isMounted = true;
-    void fetchNotifications().then(
-      (data) => {
-        if (isMounted) {
-          setNotifications(data);
-          setLoading(false);
-        }
-      },
-      (err: unknown) => {
-        if (isMounted) {
-          toast.error(
-            err instanceof Error ? err.message : "Failed to load notifications.",
-            { action: { label: "Retry", onClick: () => reloadRef.current() } }
-          );
-          setLoading(false);
-        }
+  const notifications = notificationData ?? NO_NOTIFICATIONS;
+
+  const setNotifications = useCallback(
+    (updater: (list: Notification[]) => Notification[]) => {
+      setData((previous) => updater(previous ?? NO_NOTIFICATIONS));
+    },
+    [setData]
+  );
+
+  const loadNotifications = useCallback(
+    (opts?: ListFilter & { quiet?: boolean }) => {
+      filterRef.current = {
+        unread_only: opts?.unread_only,
+        starred_only: opts?.starred_only,
+      };
+      if (opts?.quiet) {
+        refreshList();
+      } else {
+        reloadList();
       }
-    );
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    },
+    [refreshList, reloadList]
+  );
 
   // ─── Toggle / Mark single notification read status ────────────────────
 
@@ -92,8 +82,8 @@ export function useNotifications() {
       const nextRead = !currentReadStatus;
 
       // 1. Optimistic update
-      setNotifications((prev) =>
-        prev.map((n) =>
+      setNotifications((list) =>
+        list.map((n) =>
           n.notification_id === notificationId ? { ...n, is_read: nextRead } : n
         )
       );
@@ -103,8 +93,8 @@ export function useNotifications() {
         toast.success(nextRead ? "Marked as read" : "Marked as unread");
       } catch (err: unknown) {
         // Rollback
-        setNotifications((prev) =>
-          prev.map((n) =>
+        setNotifications((list) =>
+          list.map((n) =>
             n.notification_id === notificationId
               ? { ...n, is_read: currentReadStatus }
               : n
@@ -117,14 +107,14 @@ export function useNotifications() {
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   const markRead = useCallback(
     async (notificationId: number) => {
       // Optimistic update
-      setNotifications((prev) =>
-        prev.map((n) =>
+      setNotifications((list) =>
+        list.map((n) =>
           n.notification_id === notificationId ? { ...n, is_read: true } : n
         )
       );
@@ -133,24 +123,22 @@ export function useNotifications() {
         await updateNotificationRead(notificationId, true);
       } catch (err: unknown) {
         // Rollback
-        setNotifications((prev) =>
-          prev.map((n) =>
+        setNotifications((list) =>
+          list.map((n) =>
             n.notification_id === notificationId ? { ...n, is_read: false } : n
           )
         );
-        toast.error(
-          err instanceof Error ? err.message : "Failed to mark as read."
-        );
+        toast.error(err instanceof Error ? err.message : "Failed to mark as read.");
       }
     },
-    []
+    [setNotifications]
   );
 
   const markUnread = useCallback(
     async (notificationId: number) => {
       // Optimistic update
-      setNotifications((prev) =>
-        prev.map((n) =>
+      setNotifications((list) =>
+        list.map((n) =>
           n.notification_id === notificationId ? { ...n, is_read: false } : n
         )
       );
@@ -160,8 +148,8 @@ export function useNotifications() {
         toast.success("Marked as unread");
       } catch (err: unknown) {
         // Rollback
-        setNotifications((prev) =>
-          prev.map((n) =>
+        setNotifications((list) =>
+          list.map((n) =>
             n.notification_id === notificationId ? { ...n, is_read: true } : n
           )
         );
@@ -170,7 +158,7 @@ export function useNotifications() {
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   // ─── Toggle Starred Status ────────────────────────────────────────────
@@ -180,8 +168,8 @@ export function useNotifications() {
       const nextStarred = !currentStarredStatus;
 
       // 1. Optimistic update
-      setNotifications((prev) =>
-        prev.map((n) =>
+      setNotifications((list) =>
+        list.map((n) =>
           n.notification_id === notificationId
             ? { ...n, is_starred: nextStarred }
             : n
@@ -195,8 +183,8 @@ export function useNotifications() {
         );
       } catch (err: unknown) {
         // Rollback
-        setNotifications((prev) =>
-          prev.map((n) =>
+        setNotifications((list) =>
+          list.map((n) =>
             n.notification_id === notificationId
               ? { ...n, is_starred: currentStarredStatus }
               : n
@@ -207,7 +195,7 @@ export function useNotifications() {
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   // ─── Bulk status update (Read / Unread) ────────────────────────────────
@@ -217,12 +205,12 @@ export function useNotifications() {
       if (notificationIds.length === 0) return;
 
       const idSet = new Set(notificationIds);
-      let previousNotifications: Notification[] = [];
+      let previousNotifications: Notification[] = NO_NOTIFICATIONS;
 
       // 1. Optimistic update
-      setNotifications((prev) => {
-        previousNotifications = prev;
-        return prev.map((n) =>
+      setNotifications((list) => {
+        previousNotifications = list;
+        return list.map((n) =>
           idSet.has(n.notification_id) ? { ...n, is_read: isRead } : n
         );
       });
@@ -236,7 +224,7 @@ export function useNotifications() {
         );
       } catch (err: unknown) {
         // Rollback
-        setNotifications(previousNotifications);
+        setNotifications(() => previousNotifications);
         toast.error(
           err instanceof Error
             ? err.message
@@ -244,7 +232,7 @@ export function useNotifications() {
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   // ─── Bulk Starred Update ──────────────────────────────────────────────
@@ -254,12 +242,12 @@ export function useNotifications() {
       if (notificationIds.length === 0) return;
 
       const idSet = new Set(notificationIds);
-      let previousNotifications: Notification[] = [];
+      let previousNotifications: Notification[] = NO_NOTIFICATIONS;
 
       // 1. Optimistic update
-      setNotifications((prev) => {
-        previousNotifications = prev;
-        return prev.map((n) =>
+      setNotifications((list) => {
+        previousNotifications = list;
+        return list.map((n) =>
           idSet.has(n.notification_id) ? { ...n, is_starred: isStarred } : n
         );
       });
@@ -273,7 +261,7 @@ export function useNotifications() {
         );
       } catch (err: unknown) {
         // Rollback
-        setNotifications(previousNotifications);
+        setNotifications(() => previousNotifications);
         toast.error(
           err instanceof Error
             ? err.message
@@ -281,7 +269,7 @@ export function useNotifications() {
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   // ─── Bulk delete ──────────────────────────────────────────────────────
@@ -291,12 +279,12 @@ export function useNotifications() {
       if (notificationIds.length === 0) return;
 
       const idSet = new Set(notificationIds);
-      let previousNotifications: Notification[] = [];
+      let previousNotifications: Notification[] = NO_NOTIFICATIONS;
 
       // 1. Optimistic update
-      setNotifications((prev) => {
-        previousNotifications = prev;
-        return prev.filter((n) => !idSet.has(n.notification_id));
+      setNotifications((list) => {
+        previousNotifications = list;
+        return list.filter((n) => !idSet.has(n.notification_id));
       });
 
       try {
@@ -308,56 +296,59 @@ export function useNotifications() {
         );
       } catch (err: unknown) {
         // Rollback
-        setNotifications(previousNotifications);
+        setNotifications(() => previousNotifications);
         toast.error(
           err instanceof Error ? err.message : "Failed to delete notifications."
         );
       }
     },
-    []
+    [setNotifications]
   );
 
   // ─── Mark all read ────────────────────────────────────────────────────
 
   const markAllRead = useCallback(async () => {
-    const previous = notifications;
-    setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setSaving(true);
+    let previousNotifications: Notification[] = NO_NOTIFICATIONS;
+
+    setNotifications((list) => {
+      previousNotifications = list;
+      return list.map((n) => ({ ...n, is_read: true }));
+    });
 
     try {
       await markAllNotificationsRead();
       toast.success("All notifications marked as read");
     } catch (err: unknown) {
-      setNotifications(previous);
+      setNotifications(() => previousNotifications);
       toast.error(
         err instanceof Error ? err.message : "Failed to mark all as read."
       );
     } finally {
       setSaving(false);
     }
-  }, [notifications]);
+  }, [setNotifications]);
 
-  // ─── Fetch preferences ────────────────────────────────────────────────
+  // ─── Preferences ──────────────────────────────────────────────────────
 
-  const loadPreferences = useCallback(async () => {
-    setPrefsLoading(true);
-    setPrefsError("");
+  const fetchPreferences = useCallback(
+    (signal: AbortSignal) => fetchNotificationPreferences(signal),
+    []
+  );
 
-    try {
-      const data = await fetchNotificationPreferences();
-      setPreferences(data);
-    } catch (err: unknown) {
-      setPrefsError(
-        err instanceof Error
-          ? err.message
-          : "Failed to load notification preferences."
-      );
-    } finally {
-      setPrefsLoading(false);
-    }
-  }, []);
+  const {
+    data: preferenceData,
+    loading: prefsLoading,
+    error: prefsError,
+    reload: loadPreferences,
+    setData: setPreferencesState,
+    setError: setPrefsError,
+  } = useFetchResource<NotificationPreference[]>(fetchPreferences, {
+    enabled: false,
+    fallbackError: "Failed to load notification preferences.",
+  });
 
-  // ─── Update preferences ───────────────────────────────────────────────
+  const preferences = preferenceData ?? NO_PREFERENCES;
 
   const savePreferences = useCallback(
     async (updated: Partial<NotificationPreference>[]) => {
@@ -367,8 +358,8 @@ export function useNotifications() {
       try {
         await updateNotificationPreferences(updated);
         // Optimistically update local state
-        setPreferences((prev) =>
-          prev.map((pref) => {
+        setPreferencesState((prev) =>
+          (prev ?? NO_PREFERENCES).map((pref) => {
             const match = updated.find((u) => u.category === pref.category);
             return match ? { ...pref, ...match } : pref;
           })
@@ -385,7 +376,7 @@ export function useNotifications() {
         setSaving(false);
       }
     },
-    []
+    [setPrefsError, setPreferencesState]
   );
 
   // ─── Derived state ────────────────────────────────────────────────────

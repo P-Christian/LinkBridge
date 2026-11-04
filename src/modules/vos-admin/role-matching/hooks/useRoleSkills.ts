@@ -3,31 +3,52 @@
 // src/modules/vos-admin/role-matching/hooks/useRoleSkills.ts
 
 import { useState, useCallback, useEffect } from "react";
+import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { RoleSkillMapping, MasterSkill } from "../types";
 import { fetchRoleSkills, createRoleSkill, updateRoleSkill, deleteRoleSkill, fetchMasterSkills } from "../services/roleMatchingService";
+
+/** One toast per panel: a bulk add that fails item by item must not stack up. */
+const TOAST_ID = "role-skill-mappings";
 
 export function useRoleSkills(roleId?: number) {
   const [roleSkills, setRoleSkills] = useState<RoleSkillMapping[]>([]);
   const [masterSkills, setMasterSkills] = useState<MasterSkill[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
+  const abortRead = useRequestAbort();
 
   const loadSkills = useCallback(async (rId?: number) => {
     setLoading(true);
-    setError("");
+    // Clicking another role in the tree starts a new read; this one must then
+    // stay out of state, or mappings from the previous role render under the new
+    // selection and editRoleSkill/removeRoleSkill act on the wrong mapping id.
+    const signal = abortRead();
     try {
       const [skillsData, mastersData] = await Promise.all([
         fetchRoleSkills(rId ?? roleId),
-        fetchMasterSkills().catch(() => []),
+        fetchMasterSkills().then((m) => ({ ok: true, skills: m })).catch(() => ({ ok: false, skills: [] as MasterSkill[] })),
       ]);
-      setRoleSkills(skillsData);
-      setMasterSkills(mastersData);
+      if (signal.aborted) return;
+      setRoleSkills(skillsData.skills);
+      setMasterSkills(mastersData.skills);
+      if (!mastersData.ok) {
+        toast.warning("The master skill list could not be read, so the skill picker is empty.", { id: TOAST_ID });
+      }
+      // The GET seeds default mappings when the table is empty; a partially
+      // seeded list looks complete otherwise.
+      if (skillsData.warnings.length > 0) {
+        toast.warning(skillsData.warnings.join(" "), { id: TOAST_ID });
+      }
     } catch (err: unknown) {
-      setError((err as Error).message || "Failed to load role skills.");
+      if (signal.aborted) return;
+      toast.error((err as Error).message || "Failed to load role skills.", { id: TOAST_ID });
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, [roleId]);
+  }, [roleId, abortRead]);
 
   const addRoleSkill = useCallback(
     async (payload: Partial<RoleSkillMapping>) => {
@@ -52,7 +73,7 @@ export function useRoleSkills(roleId?: number) {
         });
         return true;
       } catch (err: unknown) {
-        setError((err as Error).message || "Failed to add role skill.");
+        toast.error((err as Error).message || "Failed to add role skill.", { id: TOAST_ID });
         return false;
       }
     },
@@ -66,7 +87,7 @@ export function useRoleSkills(roleId?: number) {
       setRoleSkills((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
       return true;
     } catch (err: unknown) {
-      setError((err as Error).message || "Failed to update role skill.");
+      toast.error((err as Error).message || "Failed to update role skill.", { id: TOAST_ID });
       return false;
     }
   }, []);
@@ -77,19 +98,15 @@ export function useRoleSkills(roleId?: number) {
       setRoleSkills((prev) => prev.filter((s) => s.id !== id));
       return true;
     } catch (err: unknown) {
-      setError((err as Error).message || "Failed to delete role skill.");
+      toast.error((err as Error).message || "Failed to delete role skill.", { id: TOAST_ID });
       return false;
     }
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    void (async () => {
-      await loadSkills(roleId);
-      if (!isMounted) return;
-    })();
-    return () => { isMounted = false; };
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadSkills(roleId);
   }, [loadSkills, roleId]);
 
-  return { roleSkills, masterSkills, loading, error, loadSkills, addRoleSkill, editRoleSkill, removeRoleSkill };
+  return { roleSkills, masterSkills, loading, loadSkills, addRoleSkill, editRoleSkill, removeRoleSkill };
 }

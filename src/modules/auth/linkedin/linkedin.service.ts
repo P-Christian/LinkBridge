@@ -1,6 +1,7 @@
 // src/modules/auth/linkedin/linkedin.service.ts
 import crypto from "crypto";
 import * as jose from "jose";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
 import {
   getGoogleAllowedOrigins,
   resolveRequestOrigin,
@@ -162,16 +163,14 @@ export function resolveCanonicalRedirectUri(
 
 export { resolveRequestOrigin };
 
-/** Derives 32-byte key for JWE encryption (A256GCM) */
+/** 32-byte key for JWE encryption (A256GCM), separate from the state-signing key */
 function getEncryptionKey(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return crypto.createHash("sha256").update(`${secret}:linkedin-oauth-encryption`).digest();
+  return deriveJwtPurposeSecret("linkedin-oauth-encryption");
 }
 
-/** Derives key for signing transaction cookie */
+/** Key for signing the OAuth transaction cookie; never the access-session key */
 function getSigningSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
-  return new TextEncoder().encode(secret);
+  return deriveJwtPurposeSecret("linkedin-oauth-state");
 }
 
 /** Creates a secure signed OAuth transaction token for cookies */

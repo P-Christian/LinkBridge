@@ -8,6 +8,7 @@ import {
   findStudentById,
 } from "@/modules/auth/student-invitation/invitation.repo";
 import { buildPreview } from "@/modules/auth/student-invitation/invitation.service";
+import { requireJwtSecret } from "@/modules/auth/registration/registration.session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -77,9 +78,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   try {
     const ipHashSecret =
-      process.env.REGISTRATION_OTP_HMAC_SECRET?.trim() ||
-      process.env.JWT_SECRET ||
-      "development_default_registration_otp_hmac_secret_key";
+      process.env.REGISTRATION_OTP_HMAC_SECRET?.trim() || requireJwtSecret();
 
     const ipHash = hashClientIp(getClientIp(request), ipHashSecret);
     if (exceedsRateLimit(ipHash, now)) {

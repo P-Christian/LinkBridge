@@ -70,26 +70,9 @@ export default function ConversationList({
         {/* Header */}
         <div className="px-4 pt-4 pb-3 border-b border-border/60">
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold text-foreground">
-                Messages
-              </span>
-              <span
-                className={cn(
-                  "h-5 min-w-5 px-1.5 flex items-center justify-center rounded-full bg-destructive/15 text-destructive text-[10px] font-bold transition-all duration-300 ease-out origin-center pointer-events-none",
-                  totalUnread > 0
-                    ? "scale-100 opacity-100 max-w-[60px]"
-                    : "scale-0 opacity-0 max-w-0 px-0 min-w-0 overflow-hidden border-0"
-                )}
-              >
-                <span
-                  key={totalUnread}
-                  className="inline-block animate-in zoom-in-50 fade-in duration-200 origin-center"
-                >
-                  {totalUnread}
-                </span>
-              </span>
-            </div>
+            <span className="text-sm font-semibold text-foreground">
+              Messages
+            </span>
             <div className="flex items-center gap-1">
               <Tooltip>
                 <TooltipTrigger asChild>

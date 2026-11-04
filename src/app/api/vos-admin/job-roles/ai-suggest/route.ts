@@ -4,7 +4,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { evaluateTaxonomyProposal, GovernanceResult } from "@/modules/vos-admin/role-matching/services/taxonomy/taxonomyGovernanceService";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const revalidate = 0;
 
@@ -185,13 +186,6 @@ function parseGeminiResponse(raw: string): {
   }
 }
 
-// ── User ID Helper ────────────────────────────────────────────────────────────
-
-async function getUserIdFromReq(req: NextRequest): Promise<number | undefined> {
-  const session = await authenticateRequest(req);
-  return session ? Number(session.userId) : undefined;
-}
-
 // ── Route Handlers ────────────────────────────────────────────────────────────
 
 export async function GET() {
@@ -205,6 +199,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const admin = await requireAdministrator(req);
+    if (!admin) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
     const body = await req.json();
     const roleName: string = (body.role_name ?? "").trim();
     const categoryName: string = (body.category_name ?? "General").trim();
@@ -250,7 +248,6 @@ export async function POST(req: NextRequest) {
 
     // Call Gemini AI
     const prompt = buildPrompt(roleName, categoryName, existingSkills, existingKeywords, previousSuggestions);
-    const userId = await getUserIdFromReq(req);
 
     let raw: string | null = null;
     try {
@@ -259,7 +256,7 @@ export async function POST(req: NextRequest) {
         feature: "ROLE_INTELLIGENCE",
         endpoint: "/api/vos-admin/job-roles/ai-suggest",
         timeoutMs: 15000,
-        userId,
+        userId: admin.adminId,
       });
     } catch (err: unknown) {
       const errorMsg = (err as Error)?.message || "AI service temporarily unavailable.";
@@ -282,20 +279,25 @@ export async function POST(req: NextRequest) {
     }
 
     // ── LAYER 2: Server-Side Deduplication & Master Taxonomy Matching ─────────
-    // Fetch master skills library to match against canonical entities
-    let masterSkillsList: { id: number; skill_name: string }[] = [];
-    try {
-      const masterRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills?limit=-1`, {
-        headers: getHeaders(),
-        cache: "no-store",
-      });
-      if (masterRes.ok) {
-        const mJson = await masterRes.json();
-        masterSkillsList = mJson.data ?? [];
-      }
-    } catch {
-      // non-fatal
+    // Fetch master skills library to match against canonical entities.
+    // This lookup is what marks a suggestion as an existing skill; skipped, every
+    // answer comes back `is_new_skill` with no master id, and approving one writes
+    // a duplicate row into the master taxonomy.
+    const masterRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills?limit=-1`, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+    if (!masterRes.ok) {
+      return NextResponse.json(
+        {
+          error:
+            "The master skill library could not be read, so no suggestions are shown. Try again.",
+        },
+        { status: 502 }
+      );
     }
+    const masterSkillsList: { id: number; skill_name: string }[] =
+      (await masterRes.json()).data ?? [];
 
     // Build normalized lookup sets of existing items & previous session suggestions
     const existingSkillTokens = new Set(
@@ -387,7 +389,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(finalResult);
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : "Internal server error";
+    const msg = safeErrorMessage(err, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

@@ -3,6 +3,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { JobPosting, JobFormData, JobStatus, JobType, ExperienceLevel } from "../types";
 
 const EMPTY_FORM: JobFormData = {
@@ -30,6 +31,7 @@ interface JobsResponse {
 interface JobResponse {
   job?: JobPosting;
   error?: string;
+  warnings?: string[];
 }
 
 export function useJobs() {
@@ -40,13 +42,16 @@ export function useJobs() {
   const [successMessage, setSuccessMessage] = useState("");
   const [filterStatus, setFilterStatus] = useState<JobStatus | "ALL">("ALL");
 
+  const abortRead = useRequestAbort();
+
   const fetchJobs = useCallback(async (status?: JobStatus | "ALL") => {
     setLoading(true);
     setError("");
 
+    const signal = abortRead();
     try {
       const query = status && status !== "ALL" ? `?status=${status}` : "";
-      const res = await fetch(`/api/client/jobs${query}`);
+      const res = await fetch(`/api/client/jobs${query}`, { signal });
       const json: JobsResponse & { error?: string } = await res.json();
 
       if (!res.ok) {
@@ -55,13 +60,16 @@ export function useJobs() {
 
       setJobs(json.jobs ?? []);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Failed to load jobs.";
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const normalizeJobPayload = (formData: JobFormData) => ({
     ...formData,
@@ -129,7 +137,11 @@ export function useJobs() {
       }
 
       setSuccessMessage("Job posting created successfully.");
-      toast.success("Job posting created successfully.");
+      if (json.warnings?.length) {
+        toast.warning(json.warnings.join(" "));
+      } else {
+        toast.success("Job posting created successfully.");
+      }
       return true;
     } catch (err: unknown) {
       // Rollback on network failure
@@ -204,7 +216,11 @@ export function useJobs() {
         }
 
         setSuccessMessage("Job posting updated successfully.");
-        toast.success("Job posting updated successfully.");
+        if (json.warnings?.length) {
+          toast.warning(json.warnings.join(" "));
+        } else {
+          toast.success("Job posting updated successfully.");
+        }
         return true;
       } catch (err: unknown) {
         // Rollback on network failure

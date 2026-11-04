@@ -4,6 +4,7 @@
 
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import {
   Briefcase,
   CheckCircle2,
@@ -35,6 +36,7 @@ import {
   ExperienceLevel,
 } from "../types";
 import { normalizeKeyword } from "../validators";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 
 interface RoleDetailSheetProps {
   role: StandardRole | null;
@@ -113,6 +115,7 @@ export function RoleDetailSheet({
     is_new?: boolean;
   }[]>([]);
   const [selectedAiItems, setSelectedAiItems] = useState<Set<string>>(new Set());
+  const abortAi = useRequestAbort();
   const [aiBulkSaving, setAiBulkSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -123,6 +126,10 @@ export function RoleDetailSheet({
   // Sync role state when role changes
   React.useEffect(() => {
     if (role) {
+      // This sheet is not keyed by role, so a generation started for the
+      // previous role would otherwise render into the new one — and its Apply
+      // button writes to `role.role_id`, which has already moved on.
+      abortAi();
       queueMicrotask(() => {
         setRoleNameInput(role.role_name);
         setExpLevelInput(role.experience_level || "MID");
@@ -130,9 +137,25 @@ export function RoleDetailSheet({
         setErrorMessage("");
         setSessionSkillsHistory([]);
         setSessionKeywordsHistory([]);
+        setAiItems([]);
+        setSelectedAiItems(new Set());
+        setAiModalOpen(false);
       });
     }
-  }, [role]);
+  }, [role, abortAi]);
+
+  // Radix unmounts the sheet content when it closes but keeps this component
+  // alive, so an open AI panel would reappear over whichever role opens next.
+  React.useEffect(() => {
+    if (open) return;
+    abortAi();
+    queueMicrotask(() => {
+      setAiModalOpen(false);
+      setAiItems([]);
+      setSelectedAiItems(new Set());
+      setAiError(null);
+    });
+  }, [open, abortAi]);
 
   // Filter skills and keywords for this specific role
   const roleSkills = useMemo(
@@ -154,14 +177,13 @@ export function RoleDetailSheet({
     }
     setRoleSaving(true);
     setErrorMessage("");
-    const ok = await onUpdateRole({
+    await onUpdateRole({
       role_id: role.role_id,
       role_name: roleNameInput.trim(),
       experience_level: expLevelInput,
       category_id: catIdInput,
     });
     setRoleSaving(false);
-    if (!ok) setErrorMessage("Failed to update role.");
   };
 
   // ── Add Single Skill ────────────────────────────────────────────────────────
@@ -188,6 +210,15 @@ export function RoleDetailSheet({
         if (createRes.ok) {
           const masterJson = await createRes.json();
           finalSkillId = masterJson.id;
+        } else {
+          // Without this the sheet answered a failed master-skill write with
+          // "select or enter a valid skill", as if the admin had typed nothing.
+          const errJson = await createRes.json().catch(() => null);
+          setErrorMessage(
+            typeof errJson?.error === "string" ? errJson.error : `"${customSkillName.trim()}" could not be added to the master skill list.`
+          );
+          setSkillSaving(false);
+          return;
         }
       }
 
@@ -214,11 +245,11 @@ export function RoleDetailSheet({
         setCustomSkillName("");
         setSkillWeight("0.90");
         setIsSkillRequired(true);
-      } else {
-        setErrorMessage("Failed to associate skill to role.");
       }
-    } catch {
-      setErrorMessage("Error saving skill.");
+      // A rejected save is toasted with the reason from the route; repeating it
+      // here would show the same failure twice.
+    } catch (err: unknown) {
+      setErrorMessage((err as Error).message || "The skill could not be saved.");
     } finally {
       setSkillSaving(false);
     }
@@ -254,8 +285,6 @@ export function RoleDetailSheet({
       setAliasNameInput("");
       setKeywordWeight("0.90");
       setIsKeywordPrimary(false);
-    } else {
-      setErrorMessage("Failed to add search keyword.");
     }
   };
 
@@ -265,11 +294,13 @@ export function RoleDetailSheet({
     setAiModalOpen(true);
     setAiLoading(true);
     setAiError(null);
-    if (forceRefresh) {
-      setAiItems([]);
-      setSelectedAiItems(new Set());
-    }
+    // Always cleared: Apply branches on the tab that is open now, so items left
+    // over from the other tab would be posted as the wrong kind of row.
+    setAiItems([]);
+    setSelectedAiItems(new Set());
 
+    // Only the newest generation may own this panel.
+    const signal = abortAi();
     try {
       const catObj = categories.find((c) => c.category_id === role.category_id);
       const prevSuggestions = forceRefresh
@@ -279,6 +310,7 @@ export function RoleDetailSheet({
       const res = await fetch("/api/vos-admin/job-roles/ai-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           role_name: role.role_name,
           category_name: catObj?.category_name || "",
@@ -292,11 +324,13 @@ export function RoleDetailSheet({
         }),
       });
 
+      if (signal.aborted) return;
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || `AI suggestion failed (${res.status})`);
       }
       const data = await res.json();
+      if (signal.aborted) return;
 
       if (type === "SKILLS") {
         const skillsList = (data.skills || []).map((s: {
@@ -351,9 +385,10 @@ export function RoleDetailSheet({
         setSessionKeywordsHistory((prev) => Array.from(new Set([...prev, ...incomingLabels])).slice(-25));
       }
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setAiError((err as Error).message || "Failed to generate AI suggestions.");
     } finally {
-      setAiLoading(false);
+      if (!signal.aborted) setAiLoading(false);
     }
   };
 
@@ -362,6 +397,7 @@ export function RoleDetailSheet({
     setAiBulkSaving(true);
     const selected = aiItems.filter((i) => selectedAiItems.has(i.label));
     const addedLabels = new Set(selected.map((i) => i.label));
+    const notSaved: string[] = [];
 
     if (aiType === "SKILLS") {
       // Remove newly mapped skills from session candidate history
@@ -379,40 +415,54 @@ export function RoleDetailSheet({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ create_master: true, skill_name: item.label }),
-          });
-          if (createRes.ok) {
+          }).catch(() => null);
+          if (createRes?.ok) {
             const masterJson = await createRes.json();
             skillId = masterJson.id;
           }
         }
 
-        if (skillId) {
-          await onAddSkill({
-            role_id: role.role_id,
-            skill_id: skillId,
-            skill_name: item.label,
-            importance_weight: item.weight,
-            is_required: Boolean(item.is_required),
-          });
-        }
+        const ok = skillId
+          ? await onAddSkill({
+              role_id: role.role_id,
+              skill_id: skillId,
+              skill_name: item.label,
+              importance_weight: item.weight,
+              is_required: Boolean(item.is_required),
+            })
+          : false;
+        if (!ok) notSaved.push(item.label);
       }
     } else {
       // Remove newly mapped keywords from session candidate history
       setSessionKeywordsHistory((prev) => prev.filter((name) => !addedLabels.has(name)));
 
       for (const item of selected) {
-        await onAddKeyword({
+        const ok = await onAddKeyword({
           role_id: role.role_id,
           alias_name: item.label,
           normalized_alias: normalizeKeyword(item.label),
           match_weight: item.weight,
           is_primary: false,
         });
+        if (!ok) notSaved.push(item.label);
       }
     }
 
     setAiBulkSaving(false);
+    abortAi();
     setAiModalOpen(false);
+    // Each row was posted on its own, so "Applied" is only true for the ones
+    // that landed; without this the panel closed as if all were saved.
+    if (notSaved.length > 0) {
+      toast.error(`${notSaved.length} selected suggestion(s) were not saved: ${notSaved.join(", ")}.`);
+    }
+  };
+
+  /** Closing the panel abandons whatever was being generated for the open tab. */
+  const closeAiModal = (next: boolean) => {
+    if (!next) abortAi();
+    setAiModalOpen(next);
   };
 
   return (
@@ -901,7 +951,7 @@ export function RoleDetailSheet({
 
       {/* ── SUB-MODAL: AI Suggest Additional Skills / Keywords ────────────── */}
       {aiModalOpen && (
-        <Dialog open={aiModalOpen} onOpenChange={setAiModalOpen}>
+        <Dialog open={aiModalOpen} onOpenChange={closeAiModal}>
           <DialogContent className="sm:max-w-xl rounded-2xl max-h-[85vh] flex flex-col p-6 gap-4">
             <DialogHeader className="flex flex-row items-center justify-between gap-2 border-b pb-3">
               <div>
@@ -1069,7 +1119,7 @@ export function RoleDetailSheet({
                 {selectedAiItems.size} of {aiItems.length} selected
               </span>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={() => setAiModalOpen(false)}>
+                <Button variant="outline" size="sm" onClick={() => closeAiModal(false)}>
                   Cancel
                 </Button>
                 <Button

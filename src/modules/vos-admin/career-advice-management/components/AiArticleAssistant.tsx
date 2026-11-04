@@ -6,6 +6,7 @@ import { Sparkles, Wand2, Check, ArrowRight, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { DEFAULT_CAREER_CATEGORIES } from "../services/article.helpers";
+import { sanitizeArticleHtml } from "@/lib/sanitize-html";
 import { useArticleAiAssistant } from "../hooks/useArticleAiAssistant";
 import { AiAssistResponsePayload } from "../types/article.types";
 
@@ -253,7 +254,7 @@ export function AiArticleAssistant({
               <p className="text-[11px] font-semibold text-muted-foreground">Proofread Output:</p>
               <div
                 className="max-h-36 overflow-y-auto rounded-md bg-muted/40 p-2 text-xs prose prose-sm dark:prose-invert"
-                dangerouslySetInnerHTML={{ __html: result.proofread_text }}
+                dangerouslySetInnerHTML={{ __html: sanitizeArticleHtml(result.proofread_text) }}
               />
               <Button
                 type="button"

@@ -1,19 +1,112 @@
+// src/app/api/shared/messaging/unread-count/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { DirectusError, directusItems } from "@/lib/server/directus";
+import { chunk, mapPool } from "@/lib/server/pool";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+const PAGE_SIZE = 1000;
+/** Guard so a pathological account cannot turn one badge poll into an unbounded walk. */
+const MAX_ROWS = 20_000;
+/** Ids per `_in=` clause, kept small enough that the request URL stays valid. */
+const IN_CHUNK = 200;
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
+interface ConversationRow {
+  conversation_id: number;
+  client_id?: number | string | null;
+  freelancer_id?: number | string | null;
+  archived_by_client?: boolean | null;
+  archived_by_freelancer?: boolean | null;
+}
+
+interface MessageRow {
+  message_id: number;
+  conversation_id: number;
+}
+
+/**
+ * Walk a filtered read page by page. A single un-paginated read is capped by
+ * Directus at its default of 100 rows, and the previous `limit=1000` guess
+ * silently dropped everything past the first window — a conversation whose
+ * oldest messages were cut never reached the unread calculation at all.
+ */
+async function readAllRows<T>(
+  collection: string,
+  filter: string,
+  fields: string,
+  sort: string
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE_SIZE) {
+    const page = await directusItems<T>(collection, {
+      query: `${filter}&fields=${fields}&sort[]=${sort}&limit=${PAGE_SIZE}&offset=${offset}`,
+    });
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
+  throw new Error(`Too many ${collection} rows to count safely (${MAX_ROWS}+).`);
+}
+
+async function countUnreadConversations(userId: number): Promise<number> {
+  const conversations = await readAllRows<ConversationRow>(
+    "vs_conversation",
+    `filter[_or][0][freelancer_id][_eq]=${userId}&filter[_or][1][client_id][_eq]=${userId}`,
+    "conversation_id,client_id,freelancer_id,archived_by_client,archived_by_freelancer",
+    "conversation_id"
+  );
+
+  // Directus can answer these ids as strings, which used to make both
+  // comparisons below false — archived threads kept contributing to the badge.
+  const activeConversations = conversations.filter((c) => {
+    if (Number(c.freelancer_id) === userId && c.archived_by_freelancer) return false;
+    if (Number(c.client_id) === userId && c.archived_by_client) return false;
+    return true;
+  });
+
+  const conversationIds = activeConversations
+    .map((c) => Number(c.conversation_id))
+    .filter((id) => Number.isInteger(id) && id > 0);
+  if (conversationIds.length === 0) return 0;
+
+  const messageChunks = await mapPool(
+    chunk(conversationIds, IN_CHUNK),
+    (ids) =>
+      readAllRows<MessageRow>(
+        "vs_message",
+        `filter[conversation_id][_in]=${ids.join(",")}&filter[is_deleted][_eq]=false&filter[sender_id][_neq]=${userId}`,
+        "message_id,conversation_id",
+        "message_id"
+      )
+  );
+  const messages = messageChunks.flat();
+  if (messages.length === 0) return 0;
+
+  const messageIds = messages.map((m) => Number(m.message_id)).filter((id) => Number.isInteger(id) && id > 0);
+
+  const receiptChunks = await mapPool(
+    chunk(messageIds, IN_CHUNK),
+    (ids) =>
+      readAllRows<{ message_id: number }>(
+        "vs_message_read",
+        `filter[message_id][_in]=${ids.join(",")}&filter[user_id][_eq]=${userId}`,
+        "message_id",
+        "message_id"
+      )
+  );
+  const readMessageIds = new Set(receiptChunks.flat().map((r) => Number(r.message_id)));
+
+  // One badge unit per conversation that still holds something this user has not
+  // opened, so a single thread with 40 new messages stays "1".
+  const unreadConversations = new Set<number>();
+  for (const msg of messages) {
+    if (!readMessageIds.has(Number(msg.message_id))) {
+      unreadConversations.add(Number(msg.conversation_id));
+    }
+  }
+
+  return unreadConversations.size;
 }
 
 export async function GET(req: NextRequest) {
@@ -22,67 +115,16 @@ export async function GET(req: NextRequest) {
     if (!session) return NextResponse.json({ unreadCount: 0 });
 
     const userId = Number(session.userId);
+    if (!Number.isInteger(userId) || userId <= 0) return NextResponse.json({ unreadCount: 0 });
 
-    // Fetch conversations where user is client or freelancer
-    const convUrl = `${DIRECTUS_BASE}/items/vs_conversation?filter[_or][0][freelancer_id][_eq]=${userId}&filter[_or][1][client_id][_eq]=${userId}&fields=conversation_id,client_id,freelancer_id,archived_by_client,archived_by_freelancer`;
-    const convRes = await fetch(convUrl, { headers: getHeaders(), cache: "no-store" });
-    if (!convRes.ok) return NextResponse.json({ unreadCount: 0 });
-
-    const convJson = await convRes.json();
-    const conversations = convJson.data || [];
-
-    // Filter out conversations that are archived by this user
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    const activeConversations = conversations.filter((c: any) => {
-      if (c.freelancer_id === userId && c.archived_by_freelancer) return false;
-      if (c.client_id === userId && c.archived_by_client) return false;
-      return true;
-    });
-
-    const conversationIds = activeConversations.map((c: any) => c.conversation_id);
-    if (conversationIds.length === 0) {
-      return NextResponse.json({ unreadCount: 0 });
-    }
-
-    // Fetch all active messages in these conversations not sent by this user
-    const msgUrl = `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_in]=${conversationIds.join(",")}&filter[is_deleted][_eq]=false&filter[sender_id][_neq]=${userId}&fields=message_id,conversation_id&limit=1000`;
-    const msgRes = await fetch(msgUrl, { headers: getHeaders(), cache: "no-store" });
-    if (!msgRes.ok) return NextResponse.json({ unreadCount: 0 });
-
-    const msgJson = await msgRes.json();
-    const messages = msgJson.data || [];
-    const messageIds = messages.map((m: any) => m.message_id);
-
-    if (messageIds.length === 0) {
-      return NextResponse.json({ unreadCount: 0 });
-    }
-
-    // Fetch read confirmations for these messages by this user
-    const readUrl = `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${messageIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id&limit=1000`;
-    const readRes = await fetch(readUrl, { headers: getHeaders(), cache: "no-store" });
-    if (!readRes.ok) {
-      // If read confirmation query fails, assume all active conversations with messages are unread
-      const distinctActiveConvs = new Set(messages.map((m: any) => m.conversation_id));
-      return NextResponse.json({ unreadCount: distinctActiveConvs.size });
-    }
-
-    const readJson = await readRes.json();
-    const readMessages = readJson.data || [];
-    const readMessageIds = new Set(readMessages.map((r: any) => r.message_id));
-
-    // Count how many distinct conversations have at least one unread message
-    const unreadConversationIds = new Set<number>();
-    for (const msg of messages) {
-      if (!readMessageIds.has(msg.message_id)) {
-        unreadConversationIds.add(Number(msg.conversation_id));
-      }
-    }
-    const unreadCount = unreadConversationIds.size;
-    /* eslint-enable @typescript-eslint/no-explicit-any */
-
-    return NextResponse.json({ unreadCount });
+    return NextResponse.json({ unreadCount: await countUnreadConversations(userId) });
   } catch (err) {
-    console.error("Error fetching unread count:", err);
-    return NextResponse.json({ unreadCount: 0 });
+    // Answering 0 here cleared a badge that still had messages waiting; the
+    // sidebar keeps the previous count when the request fails instead.
+    console.error("[GET /api/shared/messaging/unread-count]", err);
+    return NextResponse.json(
+      { error: "The unread count could not be calculated." },
+      { status: err instanceof DirectusError ? 502 : 500 }
+    );
   }
 }

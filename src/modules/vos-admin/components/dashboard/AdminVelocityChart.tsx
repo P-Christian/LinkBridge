@@ -34,6 +34,26 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
     );
   }
 
+  // The series only exists when the monthly counts could be read; an empty
+  // chart would look the same as "nobody registered this month".
+  if (data.length === 0) {
+    return (
+      <Card className="rounded-2xl border border-border/80 shadow-xs h-[360px]">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold text-foreground">
+            Platform Growth & Velocity
+          </CardTitle>
+          <CardDescription className="text-xs text-muted-foreground">
+            Monthly employer and institution registrations
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="h-[240px] flex items-center justify-center">
+          <p className="text-sm text-muted-foreground">Growth counts are unavailable right now.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="rounded-2xl border border-border/80 shadow-xs flex flex-col justify-between">
       <CardHeader className="min-h-[72px] pb-2">
@@ -43,7 +63,7 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
               Platform Growth & Velocity
             </CardTitle>
             <CardDescription className="text-xs text-muted-foreground">
-              Monthly expansion of partner companies, schools, and talent registrations
+              Monthly employer and institution registrations
             </CardDescription>
           </div>
           <div className="flex items-center gap-3 text-xs">
@@ -54,10 +74,6 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
             <span className="flex items-center gap-1.5 font-medium text-foreground">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
               Schools
-            </span>
-            <span className="flex items-center gap-1.5 font-medium text-foreground">
-              <span className="h-2.5 w-2.5 rounded-full bg-indigo-500" />
-              Users
             </span>
           </div>
         </div>
@@ -76,10 +92,6 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
                   <stop offset="5%" stopColor="#10b981" stopOpacity={0.35} />
                   <stop offset="95%" stopColor="#10b981" stopOpacity={0.0} />
                 </linearGradient>
-                <linearGradient id="adminColorUsers" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
-                </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--border)" opacity={0.6} />
               <XAxis
@@ -97,21 +109,19 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (active && payload && payload.length) {
+                    const companies = payload.find((p) => p.dataKey === 'companies')?.value;
+                    const schools = payload.find((p) => p.dataKey === 'schools')?.value;
                     return (
                       <div className="rounded-xl border border-border bg-popover/95 backdrop-blur-sm p-3 shadow-lg">
                         <p className="text-xs font-semibold text-popover-foreground mb-1.5">{label}</p>
                         <div className="space-y-1 text-xs">
                           <p className="flex items-center justify-between gap-4 text-blue-600 dark:text-blue-400">
                             <span>Companies:</span>
-                            <span className="font-bold">{payload[0]?.value ?? 0}</span>
+                            <span className="font-bold">{companies ?? '—'}</span>
                           </p>
                           <p className="flex items-center justify-between gap-4 text-emerald-600 dark:text-emerald-400">
                             <span>Institutions:</span>
-                            <span className="font-bold">{payload[1]?.value ?? 0}</span>
-                          </p>
-                          <p className="flex items-center justify-between gap-4 text-indigo-600 dark:text-indigo-400">
-                            <span>Active Users:</span>
-                            <span className="font-bold">{payload[2]?.value ?? 0}</span>
+                            <span className="font-bold">{schools ?? '—'}</span>
                           </p>
                         </div>
                       </div>
@@ -136,21 +146,12 @@ export function AdminVelocityChart({ data, isLoading = false }: AdminVelocityCha
                 fillOpacity={1}
                 fill="url(#adminColorSchools)"
               />
-              <Area
-                type="monotone"
-                dataKey="users"
-                stroke="#6366f1"
-                strokeWidth={2}
-                fillOpacity={1}
-                fill="url(#adminColorUsers)"
-              />
             </AreaChart>
           </ResponsiveContainer>
         </div>
 
         <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
-          <span>Reporting Window: <strong>Current Academic Year</strong></span>
-          <span className="font-semibold text-foreground">Verified ecosystem pipeline</span>
+          <span>Reporting window: <strong>last 6 months</strong></span>
         </div>
       </CardContent>
     </Card>

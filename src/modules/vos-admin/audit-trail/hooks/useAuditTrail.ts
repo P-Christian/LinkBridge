@@ -3,6 +3,7 @@
 
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
+import { useRequestAbort } from '@/hooks/useRequestAbort';
 import * as XLSX from 'xlsx';
 import { AuditRecord, AuditFilters, AuditKPIData, AuditCategoryConfig, DEFAULT_AUDIT_CONFIG } from '../types/audit.types';
 
@@ -10,16 +11,22 @@ export function useAuditTrail() {
   const [records, setRecords] = useState<AuditRecord[]>([]);
   const [total, setTotal] = useState(0);
   const [kpis, setKpis] = useState<AuditKPIData>({
-    todayEvents: 0,
-    failedEvents: 0,
-    deniedAccess: 0,
-    adminActions: 0,
+    todayEvents: null,
+    failedEvents: null,
+    deniedAccess: null,
+    adminActions: null,
   });
   const [config, setConfig] = useState<AuditCategoryConfig>(DEFAULT_AUDIT_CONFIG);
   const [loading, setLoading] = useState(false);
 
+  const abortRead = useRequestAbort();
+
   const fetchAuditLogs = useCallback(async (filters: AuditFilters) => {
     setLoading(true);
+    // Each filter change or page click starts a new read; only the newest one
+    // may write, or the table and KPI cards can show a superseded search while
+    // the controls read for the current one.
+    const signal = abortRead();
     try {
       const params = new URLSearchParams();
       params.append('page', String(filters.page));
@@ -36,8 +43,9 @@ export function useAuditTrail() {
       if (filters.date_from) params.append('date_from', filters.date_from);
       if (filters.date_to) params.append('date_to', filters.date_to);
 
-      const res = await fetch(`/api/vos-admin/audit-trail?${params.toString()}`);
+      const res = await fetch(`/api/vos-admin/audit-trail?${params.toString()}`, { signal });
       const json = await res.json();
+      if (signal.aborted) return;
       if (!res.ok) throw new Error(json.error || 'Failed to fetch audit logs');
 
       setRecords(json.records ?? []);
@@ -46,13 +54,24 @@ export function useAuditTrail() {
         setKpis(json.kpis);
       }
     } catch (err: unknown) {
+      if (signal.aborted) return;
       toast.error((err as Error).message);
       setRecords([]);
       setTotal(0);
+      // The cards count the same read that just failed, so they cannot keep
+      // showing the previous search's numbers.
+      setKpis({
+        todayEvents: null,
+        failedEvents: null,
+        deniedAccess: null,
+        adminActions: null,
+      });
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const fetchAuditConfig = useCallback(async () => {
     try {
@@ -60,9 +79,15 @@ export function useAuditTrail() {
       const json = await res.json();
       if (res.ok && json.config) {
         setConfig(json.config);
+        return;
       }
+      // Without this the panel keeps showing its built-in defaults, and an admin
+      // reads "everything off" as the stored configuration rather than as a
+      // failed request.
+      toast.error(json.error || 'Failed to load audit settings.');
     } catch (err: unknown) {
       console.warn("Failed to load audit config:", err);
+      toast.error("Failed to load audit settings.");
     }
   }, []);
 
@@ -76,6 +101,14 @@ export function useAuditTrail() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to save audit settings');
 
+      if (Array.isArray(json.warnings) && json.warnings.length > 0) {
+        // Some rows did not land, so the echoed config is not what the database
+        // holds. Re-read it instead of painting the panel with unsaved state.
+        toast.warning(json.warnings.join(' '));
+        await fetchAuditConfig();
+        return true;
+      }
+
       if (json.config) {
         setConfig(json.config);
       }
@@ -84,7 +117,7 @@ export function useAuditTrail() {
       toast.error((err as Error).message);
       return false;
     }
-  }, []);
+  }, [fetchAuditConfig]);
 
   const exportCSV = useCallback(async (filters: AuditFilters) => {
     try {
@@ -102,7 +135,13 @@ export function useAuditTrail() {
       });
 
       const res = await fetch(`/api/vos-admin/audit-trail?${params.toString()}`);
-      if (!res.ok) throw new Error('Failed to export audit data');
+      if (!res.ok) {
+        const body = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error || 'Failed to export audit data');
+      }
+      if (res.headers.get('X-Export-Truncated') === 'true') {
+        toast.warning('Row limit reached — narrow the date range or filters for a complete export.');
+      }
 
       // 1. Get the raw CSV text from the backend
       const blob = await res.blob();

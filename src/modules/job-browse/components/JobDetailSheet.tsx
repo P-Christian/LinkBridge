@@ -36,6 +36,7 @@ import {
 import { PublicJobPosting, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS } from "../types";
 import ReferModal from "../../freelancer/freelancer-referrals/components/ReferModal";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { safeUrl } from "@/lib/safe-url";
 
 interface Props {
   job: PublicJobPosting | null;
@@ -161,6 +162,12 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
   const companyUrl = job.company_code
     ? `/companies/${job.company_code}`
     : `/companies?search=${encodeURIComponent(job.company_name ?? "")}`;
+
+  // Employer-supplied socials must pass a scheme allowlist before reaching an href.
+  const facebookUrl = safeUrl(job.company_facebook);
+  const linkedinUrl = safeUrl(job.company_linkedin);
+  const instagramUrl = safeUrl(job.company_instagram);
+  const youtubeUrl = safeUrl(job.company_youtube);
 
   return (
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
@@ -408,27 +415,27 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
                 )}
 
                 {/* Socials */}
-                {(job.company_facebook || job.company_linkedin || job.company_instagram || job.company_x || job.company_youtube) && (
+                {(facebookUrl || linkedinUrl || instagramUrl || youtubeUrl) && (
                   <div className="space-y-2 pt-2">
                     <span className="text-sm md:text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Social Media</span>
                     <div className="flex flex-wrap gap-2">
-                      {job.company_facebook && (
-                        <a href={job.company_facebook} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                      {facebookUrl && (
+                        <a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                           <Facebook className="h-4 w-4" />
                         </a>
                       )}
-                      {job.company_linkedin && (
-                        <a href={job.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                      {linkedinUrl && (
+                        <a href={linkedinUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                           <Linkedin className="h-4 w-4" />
                         </a>
                       )}
-                      {job.company_instagram && (
-                        <a href={job.company_instagram} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                      {instagramUrl && (
+                        <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                           <Instagram className="h-4 w-4" />
                         </a>
                       )}
-                      {job.company_youtube && (
-                        <a href={job.company_youtube} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                      {youtubeUrl && (
+                        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                           <Youtube className="h-4 w-4" />
                         </a>
                       )}

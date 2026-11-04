@@ -1,7 +1,7 @@
 // src/modules/client/jobs/components/AutoCreateJobModal.tsx
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -35,15 +35,6 @@ interface AutoCreateJobModalProps {
   onDirectSaveDraft: (jobData: JobFormData) => Promise<void>;
 }
 
-const GENERATION_STEPS = [
-  "Analyzing your request",
-  "Reading company profile & location",
-  "Classifying category against taxonomy",
-  "Extracting technical skills & proficiencies",
-  "Structuring overview, duties & qualifications",
-  "Populating complete job specification",
-];
-
 export function AutoCreateJobModal({
   open,
   onOpenChange,
@@ -52,29 +43,9 @@ export function AutoCreateJobModal({
 }: AutoCreateJobModalProps) {
   const [prompt, setPrompt] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [generatedDraft, setGeneratedDraft] = useState<JobFormData | null>(null);
   const [isSavingDirectDraft, setIsSavingDirectDraft] = useState(false);
-
-  // Progressive step animation during generation
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isGenerating) {
-      queueMicrotask(() => {
-        setCurrentStepIndex(0);
-      });
-      interval = setInterval(() => {
-        setCurrentStepIndex((prev) => {
-          if (prev < GENERATION_STEPS.length - 1) return prev + 1;
-          return prev;
-        });
-      }, 1800);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [isGenerating]);
 
   const handleGenerate = async () => {
     const trimmed = prompt.trim();
@@ -136,7 +107,6 @@ export function AutoCreateJobModal({
     setError(null);
     setGeneratedDraft(null);
     setIsGenerating(false);
-    setCurrentStepIndex(0);
   };
 
   return (
@@ -212,35 +182,6 @@ export function AutoCreateJobModal({
               <p className="text-sm md:text-xs text-muted-foreground max-w-sm mx-auto">
                 Synthesizing role requirements, responsibilities, and skill tags.
               </p>
-            </div>
-
-            <div className="max-w-md mx-auto space-y-2.5 bg-muted/40 p-4 rounded-xl border border-border/80">
-              {GENERATION_STEPS.map((stepName, sIdx) => {
-                const isCompleted = sIdx < currentStepIndex;
-                const isCurrent = sIdx === currentStepIndex;
-
-                return (
-                  <div
-                    key={sIdx}
-                    className={`flex items-center gap-2.5 text-sm md:text-xs transition-colors duration-300 ${
-                      isCompleted
-                        ? "text-emerald-600 dark:text-emerald-400 font-medium"
-                        : isCurrent
-                        ? "text-foreground font-semibold"
-                        : "text-muted-foreground/60"
-                    }`}
-                  >
-                    {isCompleted ? (
-                      <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
-                    ) : isCurrent ? (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-emerald-500" />
-                    ) : (
-                      <div className="h-4 w-4 rounded-full border border-border/80 shrink-0" />
-                    )}
-                    <span>{stepName}</span>
-                  </div>
-                );
-              })}
             </div>
           </div>
         )}

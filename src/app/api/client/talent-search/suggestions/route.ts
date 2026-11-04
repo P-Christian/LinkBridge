@@ -1,7 +1,7 @@
 // src/app/api/client/talent-search/suggestions/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { cleanText, COMMON_SCHOOL_ALIASES, generateSchoolAcronym } from "@/modules/matching-engine";
 import {
@@ -323,6 +323,9 @@ export async function GET(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized.", suggestions: [] }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required.", suggestions: [] }, { status: 403 });
     }
 
     const { isVerified, verification_status } = await checkCompanyVerificationStatus(

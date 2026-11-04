@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
 import { legacyRegistrationRetiredResponse } from "@/modules/auth/registration";
 import bcrypt from "bcrypt";
 import { getPHTimeString } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -80,8 +82,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Skip OTP check if auth is disabled or verify normally
-    const authDisabled = process.env.NEXT_PUBLIC_AUTH_DISABLED === "true";
+    // Skip OTP check in local development only
+    const authDisabled = isDevAuthBypassEnabled();
 
     if (!authDisabled) {
       // Check if OTP is already verified
@@ -170,7 +172,7 @@ export async function POST(req: NextRequest) {
   } catch (error: unknown) {
     console.error("API Route OTP Verification Error:", error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Internal server error" },
+      { error: safeErrorMessage(error, "Internal server error") },
       { status: 500 }
     );
   }

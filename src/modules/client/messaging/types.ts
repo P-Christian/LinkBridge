@@ -86,6 +86,7 @@ export interface QuotedMessage {
   sender_name?: string | null;
   message_content?: string | null;
   message_type?: MessageType;
+  attachments?: MessageAttachment[];
 }
 
 export interface Message {

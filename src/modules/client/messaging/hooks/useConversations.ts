@@ -11,12 +11,18 @@ import {
   archiveConversation,
 } from "../providers/MessagingProvider";
 import { useRealtime } from "@/modules/shared/providers/RealtimeProvider";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 
 export function useConversations(activeConversationId?: number | null) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(false);
+  // True while the most recent list read failed. The panels need it because an
+  // empty list and an unreadable one look identical otherwise, and "No
+  // conversations yet" is a claim about the account, not about the outage.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   const { subscribe } = useRealtime();
+  const abortRead = useRequestAbort();
 
   const archivedFilterRef = useRef(false);
   const activeConversationIdRef = useRef<number | null>(activeConversationId ?? null);
@@ -49,9 +55,12 @@ export function useConversations(activeConversationId?: number | null) {
     const unsubscribe = subscribe("vs_messages", () => {
       fetchConversations({ archived: archivedFilterRef.current })
         .then((data) => {
-          if (data) setConversations(normalizeConversations(data));
+          setLoadFailed(false);
+          setConversations(normalizeConversations(data));
         })
-        .catch(() => {});
+        .catch(() => {
+          setLoadFailed(true);
+        });
     });
     return () => unsubscribe();
   }, [subscribe, normalizeConversations]);
@@ -64,20 +73,28 @@ export function useConversations(activeConversationId?: number | null) {
       if (!opts?.silent) {
         setLoading(true);
       }
+      // Toggling the archive tab fires a second read; whichever was started
+      // last owns the list, or the archived thread list can render under the
+      // active tab (and vice versa).
+      const signal = abortRead();
       try {
         const data = await fetchConversations({ archived: opts?.archived });
+        if (signal.aborted) return;
+        setLoadFailed(false);
         setConversations(normalizeConversations(data));
       } catch (err: unknown) {
+        if (signal.aborted) return;
+        setLoadFailed(true);
         const msg =
           err instanceof Error ? err.message : "Failed to load conversations.";
         if (!opts?.silent) toast.error(msg);
       } finally {
-        if (!opts?.silent) {
+        if (!opts?.silent && !signal.aborted) {
           setLoading(false);
         }
       }
     },
-    [normalizeConversations]
+    [normalizeConversations, abortRead]
   );
 
   // ─── Create or get conversation ────────────────────────────────────────
@@ -169,6 +186,7 @@ export function useConversations(activeConversationId?: number | null) {
   return {
     conversations,
     loading,
+    loadFailed,
     loadConversations,
     openOrCreateConversation,
     clearUnreadCount,

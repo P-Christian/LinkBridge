@@ -21,7 +21,6 @@ export interface PublicJobPosting {
   show_salary_range?: boolean;
 
   experience_level?: string;
-  status: string;
   created_at: string;
 }
 

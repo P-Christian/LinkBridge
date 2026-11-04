@@ -1,6 +1,7 @@
 // src/app/api/public/career-articles/[slug]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { formatAssetUrl } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,26 @@ function getHeaders(): Record<string, string> {
   if (DIRECTUS_TOKEN) headers["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
   return headers;
 }
+
+// Public allowlist: draft/internal columns (status, author_id, ai_generated, updated_at) never leave Directus.
+const PUBLIC_ARTICLE_FIELDS = [
+  "article_id",
+  "title",
+  "slug",
+  "category",
+  "excerpt",
+  "content",
+  "featured_image_id",
+  "featured_image_url",
+  "author_name",
+  "author_role",
+  "read_time_minutes",
+  "is_featured",
+  "seo_title",
+  "seo_description",
+  "created_at",
+  "published_at",
+].join(",");
 
 export async function GET(
   req: NextRequest,
@@ -26,6 +47,7 @@ export async function GET(
     const queryParams = new URLSearchParams();
     queryParams.append("filter[slug][_eq]", slug);
     queryParams.append("filter[status][_eq]", "PUBLISHED");
+    queryParams.append("fields", PUBLIC_ARTICLE_FIELDS);
     queryParams.append("limit", "1");
 
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_career_articles?${queryParams.toString()}`, {
@@ -45,17 +67,30 @@ export async function GET(
       return NextResponse.json({ error: "Article not found" }, { status: 404 });
     }
 
-    // Format content and cover images
+    // Cover image URL is rewritten for the browser; the response stays on the public allowlist.
     const formattedArticle = {
-      ...article,
+      article_id: article.article_id,
+      title: article.title,
+      slug: article.slug,
+      category: article.category,
+      excerpt: article.excerpt,
+      content: article.content,
+      featured_image_id: article.featured_image_id,
       featured_image_url: formatAssetUrl(article.featured_image_url) || article.featured_image_url,
+      author_name: article.author_name,
+      author_role: article.author_role,
+      read_time_minutes: article.read_time_minutes,
       is_featured: Boolean(article.is_featured === 1 || article.is_featured === true),
+      seo_title: article.seo_title,
+      seo_description: article.seo_description,
+      created_at: article.created_at,
+      published_at: article.published_at,
     };
 
     return NextResponse.json({ data: formattedArticle });
   } catch (err: unknown) {
     console.error("[api/public/career-articles/[slug] GET] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to load article";
+    const message = safeErrorMessage(err, "Failed to load article");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

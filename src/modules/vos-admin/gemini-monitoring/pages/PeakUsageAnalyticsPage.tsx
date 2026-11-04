@@ -3,6 +3,7 @@
 // src/modules/vos-admin/gemini-monitoring/pages/PeakUsageAnalyticsPage.tsx
 
 import React, { useEffect, useState, useCallback, useMemo } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -116,6 +117,7 @@ export function PeakUsageAnalyticsPage() {
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortAnalytics = useRequestAbort();
 
   const [selectedProvider, setSelectedProvider] = useState<string>("ALL");
   const [timeRange, setTimeRange] = useState<string>("1_DAY");
@@ -133,6 +135,9 @@ export function PeakUsageAnalyticsPage() {
     if (isManual) setRefreshing(true);
     setError(null);
 
+    // Filters and the 30s poll share one payload: only the newest read may draw
+    // the charts, or an old range lands over the one just selected.
+    const signal = abortAnalytics();
     try {
       const params = new URLSearchParams();
       if (selectedProvider && selectedProvider !== "ALL") params.set("provider", selectedProvider);
@@ -143,22 +148,33 @@ export function PeakUsageAnalyticsPage() {
       }
 
       const qs = params.toString() ? `?${params.toString()}` : "";
-      const res = await fetch(`/api/vos-admin/gemini-monitoring${qs}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const res = await fetch(`/api/vos-admin/gemini-monitoring${qs}`, { cache: "no-store", signal });
+      if (signal.aborted) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Telemetry read failed (${res.status}).`);
+      }
       const json: AnalyticsData = await res.json();
+      if (signal.aborted) return;
       setData(json);
     } catch (err) {
+      if (signal.aborted) return;
       setError((err as Error)?.message || "Failed to load peak usage analytics.");
     } finally {
-      setRefreshing(false);
+      if (!signal.aborted) setRefreshing(false);
     }
-  }, [selectedProvider, timeRange, dateFrom, dateTo]);
+  }, [selectedProvider, timeRange, dateFrom, dateTo, abortAnalytics]);
 
   useEffect(() => {
     queueMicrotask(() => {
       fetchAnalytics();
     });
-    const interval = setInterval(() => fetchAnalytics(true), 30000);
+    const interval = setInterval(() => {
+      // The peak-usage read aggregates the whole call log; a page left open in a
+      // background tab should not keep paying for it twice a minute.
+      if (document.hidden) return;
+      void fetchAnalytics(true);
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchAnalytics]);
 

@@ -1,6 +1,7 @@
 // src/modules/auth/google/google.service.ts
 import crypto from "crypto";
 import * as jose from "jose";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
  
 export class GoogleOAuthError extends Error {
   public readonly code: string;
@@ -242,22 +243,20 @@ export function resolveRequestOrigin(
       }
     });
     if (hostMatch) return hostMatch;
-    if (reqOrigin) return reqOrigin;
+    // An unmatched Host must never become the redirect base — fall through to the configured origin.
   }
 
   return fallbackOrigin || allowedOrigins[0] ;
 }
 
-/** Derives 32-byte key for JWE authenticated encryption (A256GCM) */
+/** 32-byte key for JWE authenticated encryption (A256GCM), separate from the state-signing key */
 function getEncryptionKey(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return crypto.createHash("sha256").update(`${secret}:google-oauth-encryption`).digest();
+  return deriveJwtPurposeSecret("google-oauth-encryption");
 }
 
-/** Derives key for signing transaction cookie */
+/** Key for signing the OAuth transaction cookie; never the access-session key */
 function getSigningSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return new TextEncoder().encode(secret);
+  return deriveJwtPurposeSecret("google-oauth-state");
 }
 
 /** Creates a secure signed OAuth transaction token for cookies */
@@ -510,6 +509,7 @@ export interface GooglePendingLinkPayload {
   userId: number | string;
   sub: string;
   email: string;
+  name?: string;
   exp: number;
 }
 
@@ -530,6 +530,7 @@ export async function sealPendingLinkToken(data: {
   userId: number | string;
   sub: string;
   email: string;
+  name?: string;
 }): Promise<string> {
   const key = getEncryptionKey();
   const jti = crypto.randomUUID();
@@ -539,6 +540,7 @@ export async function sealPendingLinkToken(data: {
     userId: data.userId,
     sub: data.sub,
     email: data.email.trim().toLowerCase(),
+    name: data.name,
     exp: Math.floor(Date.now() / 1000) + 10 * 60, // 10 minutes
   };
 

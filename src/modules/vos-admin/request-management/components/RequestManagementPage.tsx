@@ -17,6 +17,7 @@ import {
   type AwaitingSchoolGroup,
 } from "../dashboard/school-demand.selectors";
 import { SchoolDemandKpis, type SchoolDemandKpiFilter } from "./SchoolDemandKpis";
+import { KpiPending } from "@/components/shared/KpiValue";
 import { UnroutedSchoolRequestsSection } from "./UnroutedSchoolRequestsSection";
 import { SchoolDemandTable } from "./SchoolDemandTable";
 import { SchoolDemandDetailSheet } from "./SchoolDemandDetailSheet";
@@ -113,6 +114,10 @@ export function RequestManagementPage({ mode }: Props) {
   // Age comes from the newest rows; recomputed only when the rows change.
   const kpis = useMemo(() => deriveSchoolDemandKpis(schoolRequests, now), [schoolRequests, now]);
 
+  // The cards and the tab pills both render these counts, so neither may show a
+  // count until the first queue fetch has something to count.
+  const kpisPending = loading && schoolRequests.length === 0;
+
   // Radix reports the selected value as a plain string; only the two known
   // filter values are accepted so the state stays a `SchoolDemandKpiFilter`.
   const handleTabChange = useCallback((value: string) => {
@@ -196,7 +201,7 @@ export function RequestManagementPage({ mode }: Props) {
         <h2 id="school-demand-kpis-heading" className="sr-only">
           Unresolved demand summary
         </h2>
-        <SchoolDemandKpis kpis={kpis} onFilterSelect={handleFilterSelect} currentFilter={activeTab} />
+        <SchoolDemandKpis kpis={kpis} loading={kpisPending} onFilterSelect={handleFilterSelect} currentFilter={activeTab} />
       </section>
 
       <Tabs value={activeTab} onValueChange={handleTabChange} className="space-y-6">
@@ -213,7 +218,7 @@ export function RequestManagementPage({ mode }: Props) {
               className="inline-flex shrink-0 items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium tabular-nums text-primary"
               data-testid="unrouted-request-count"
             >
-              {kpis.unroutedCount}
+              {kpisPending ? <KpiPending /> : kpis.unroutedCount}
             </span>
           </TabsTrigger>
           <TabsTrigger
@@ -222,7 +227,7 @@ export function RequestManagementPage({ mode }: Props) {
           >
             Schools awaiting account
             <span className="inline-flex shrink-0 items-center rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium tabular-nums text-warning">
-              {kpis.awaitingSchoolCount}
+              {kpisPending ? <KpiPending /> : kpis.awaitingSchoolCount}
             </span>
           </TabsTrigger>
         </TabsList>

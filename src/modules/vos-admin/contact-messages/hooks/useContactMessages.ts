@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useTransition } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import type {
   ContactMessage,
   ContactMessageStatus,
@@ -34,21 +35,33 @@ export function useContactMessages() {
   const [updating, setUpdating] = useState<boolean>(false);
   const [, startTransition] = useTransition();
 
+  const abortList = useRequestAbort();
+  // Separate controller: paging the list must not cancel the message the admin
+  // just opened, and vice versa.
+  const abortDetail = useRequestAbort();
+  const abortUnread = useRequestAbort();
+
   const fetchUnreadCount = useCallback(async () => {
+    const signal = abortUnread();
     try {
-      const res = await fetch("/api/vos-admin/contact-messages/unread-count");
+      const res = await fetch("/api/vos-admin/contact-messages/unread-count", { signal });
       if (res.ok) {
         const data = await res.json();
+        if (signal.aborted) return;
         setUnreadCount(Number(data.unreadCount ?? 0));
       }
     } catch {
       // non-blocking
     }
-  }, []);
+  }, [abortUnread]);
 
   const fetchMessages = useCallback(async () => {
     setLoading(true);
     setError(null);
+    // The Refresh button, a retry and every filter or page change all read
+    // through here: only the newest read may write state, or page 1 can land
+    // after page 2 and the rows stop matching the pager that asked for them.
+    const signal = abortList();
     try {
       const query = new URLSearchParams();
       if (filters.status !== "all") query.set("status", filters.status);
@@ -56,116 +69,86 @@ export function useContactMessages() {
       query.set("page", String(filters.page));
       query.set("pageSize", String(filters.pageSize));
 
-      const res = await fetch(`/api/vos-admin/contact-messages?${query.toString()}`);
+      const res = await fetch(`/api/vos-admin/contact-messages?${query.toString()}`, { signal });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || `Failed to fetch messages (${res.status})`);
       }
 
       const data = await res.json();
+      if (signal.aborted) return;
       startTransition(() => {
         setMessages(data.items ?? []);
         setTotal(Number(data.total ?? 0));
       });
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const message = err instanceof Error ? err.message : "An error occurred while loading messages";
       setError(message);
     } finally {
-      setLoading(false);
-    }
-  }, [filters]);
-
-  useEffect(() => {
-    let ignore = false;
-    async function load() {
-      try {
-        const query = new URLSearchParams();
-        if (filters.status !== "all") query.set("status", filters.status);
-        if (filters.search.trim()) query.set("q", filters.search.trim());
-        query.set("page", String(filters.page));
-        query.set("pageSize", String(filters.pageSize));
-
-        const res = await fetch(`/api/vos-admin/contact-messages?${query.toString()}`);
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || `Failed to fetch messages (${res.status})`);
-        }
-
-        const data = await res.json();
-        if (!ignore) {
-          startTransition(() => {
-            setMessages(data.items ?? []);
-            setTotal(Number(data.total ?? 0));
-          });
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          const message = err instanceof Error ? err.message : "An error occurred while loading messages";
-          setError(message);
-        }
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
+      if (!signal.aborted) {
+        setLoading(false);
       }
     }
-    void load();
-    return () => {
-      ignore = true;
-    };
-  }, [filters]);
+  }, [filters, abortList, startTransition]);
 
   useEffect(() => {
-    let ignore = false;
-    async function loadUnread() {
-      try {
-        const res = await fetch("/api/vos-admin/contact-messages/unread-count");
-        if (res.ok) {
-          const data = await res.json();
-          if (!ignore) {
-            setUnreadCount(Number(data.unreadCount ?? 0));
-          }
-        }
-      } catch {
-        // non-blocking
-      }
-    }
-    void loadUnread();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchMessages();
+  }, [fetchMessages]);
+
+  useEffect(() => {
+    // The effect only kicks off the read; its setState happens after the await.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void fetchUnreadCount();
+  }, [fetchUnreadCount]);
 
   const selectMessage = useCallback(async (id: number | null) => {
     setSelectedId(id);
     if (!id) {
+      // Claim the token even here: a detail read still running would otherwise
+      // populate the panel the admin just closed.
+      abortDetail();
       setSelectedMessage(null);
       return;
     }
 
     setDetailLoading(true);
+    // Clicking another row starts a new detail read; a late response for the
+    // previous message must not replace the open body, because replying or
+    // changing status is done against whatever is shown here.
+    const signal = abortDetail();
     try {
-      const res = await fetch(`/api/vos-admin/contact-messages/${id}`);
+      const res = await fetch(`/api/vos-admin/contact-messages/${id}`, { signal });
       if (!res.ok) {
         throw new Error(`Failed to load message (${res.status})`);
       }
       const data = await res.json();
+      if (signal.aborted) return;
       const item: ContactMessage = data.item;
       setSelectedMessage(item);
 
-      // If it was 'new', it has now auto-advanced to 'read' on server
+      // Opening a 'new' message auto-advances it server-side; the route reports
+      // here when that write did not land, so the panel does not claim a status
+      // the row does not have.
+      if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+        toast.warning(String(data.warnings.join(" ")));
+      }
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? { ...m, status: item.status, reviewed_at: item.reviewed_at } : m))
       );
       fetchUnreadCount();
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Failed to load message details";
       toast.error(msg);
       setSelectedMessage(null);
     } finally {
-      setDetailLoading(false);
+      if (!signal.aborted) {
+        setDetailLoading(false);
+      }
     }
-  }, [fetchUnreadCount]);
+  }, [fetchUnreadCount, abortDetail]);
 
   const updateMessage = useCallback(
     async (

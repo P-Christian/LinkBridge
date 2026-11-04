@@ -89,6 +89,7 @@ export async function POST(req: NextRequest) {
       provider: "google",
       providerSubject: payload.sub,
       providerEmail: payload.email,
+      providerName: payload.name ?? null,
     });
 
     createAuditRecordRepo({

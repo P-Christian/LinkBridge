@@ -38,7 +38,7 @@ export async function fetchCompanyVerifications(
 
 export async function submitVerificationDecision(
   payload: VerificationDecisionPayload
-): Promise<{ success: boolean; message?: string }> {
+): Promise<{ success: boolean; message?: string; warnings?: string[] }> {
   const response = await fetch("/api/vos-admin/company-verification", {
     method: "POST",
     headers: {
@@ -62,5 +62,9 @@ export async function submitVerificationDecision(
     );
   }
 
-  return { success: true, message: result.message };
+  return {
+    success: true,
+    message: result.message,
+    ...(Array.isArray(result.warnings) ? { warnings: result.warnings as string[] } : {}),
+  };
 }

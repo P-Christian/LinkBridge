@@ -33,7 +33,7 @@ export async function createPlatformCompany(
 export async function updatePlatformCompany(
   param1: number | Partial<PlatformCompanyFormData>,
   param2?: Partial<PlatformCompanyFormData> | number
-): Promise<{ data: PlatformCompany }> {
+): Promise<{ data: PlatformCompany; warnings?: string[] }> {
   let payload: Partial<PlatformCompanyFormData>;
   let companyId: number | undefined;
 

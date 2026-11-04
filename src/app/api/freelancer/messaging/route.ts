@@ -3,24 +3,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { safeDecryptMessage } from "@/lib/message-encryption";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import {
+  DirectusError,
+  directusItems,
+  directusItemsWhereIn,
+} from "@/lib/server/directus";
+import {
+  lastMessageByConversation,
+  unreadCountByConversation,
+} from "@/lib/messaging/conversation-reads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
-  /\/$/,
-  ""
-);
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+const CONVERSATION_FIELDS =
+  "conversation_id,job_id,client_id,freelancer_id,conversation_type,status,last_message_at,created_at,updated_at,archived_by_client,archived_by_freelancer,archived_at";
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
-}
+type Row = Record<string, unknown>;
 
 function formatAvatarUrl(url?: string | null): string | null {
   if (!url || !url.trim()) return null;
@@ -67,22 +67,11 @@ export async function GET(req: NextRequest) {
       filter += `&filter[archived_by_freelancer][_eq]=false`;
     }
 
-    const convsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?${filter}&sort[]=-last_message_at&limit=100&fields=conversation_id,job_id,client_id,freelancer_id,conversation_type,status,last_message_at,created_at,updated_at,archived_by_client,archived_by_freelancer,archived_at`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-
-    if (!convsRes.ok) {
-      const text = await convsRes.text();
-      console.error("Directus conversations fetch error:", text);
-      return NextResponse.json(
-        { error: "Failed to fetch conversations." },
-        { status: convsRes.status }
-      );
-    }
-
-    const convsJson = await convsRes.json();
-    const conversations = convsJson.data ?? [];
+    const conversations = await directusItems<Row>("vs_conversation", {
+      // `limit=-1`: this is filtered to one account, and capping it at 100 made
+      // every older thread unreachable — the list simply had no bottom.
+      query: `${filter}&sort[]=-last_message_at&limit=-1&fields=${CONVERSATION_FIELDS}`,
+    });
 
     // Collect client user IDs and job IDs
     const clientIds: number[] = Array.from(
@@ -101,30 +90,24 @@ export async function GET(req: NextRequest) {
     );
 
     const [usersData, jobsData, companyUsersData] = await Promise.all([
-      clientIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${clientIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,profile_image_url&limit=${clientIds.length}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-      jobIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,job_title,company_id&limit=${jobIds.length}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-      clientIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_in]=${clientIds.join(",")}&fields=user_id,company_id&limit=${clientIds.length * 2}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
+      directusItemsWhereIn<Row>(
+        "vs_user",
+        "user_id",
+        clientIds,
+        "user_id,user_fname,user_lname,user_email,profile_image_url"
+      ),
+      directusItemsWhereIn<Row>(
+        "vs_job_posting",
+        "job_id",
+        jobIds,
+        "job_id,job_title,company_id"
+      ),
+      directusItemsWhereIn<Row>(
+        "vs_company_user",
+        "user_id",
+        clientIds,
+        "user_id,company_id"
+      ),
     ]);
 
     const userMap = new Map<number, Record<string, unknown>>(
@@ -158,34 +141,19 @@ export async function GET(req: NextRequest) {
       (c: Record<string, unknown>) => c.conversation_id as number
     );
 
-    const lastMessagesMap = new Map<number, Record<string, unknown>>();
-    const unreadMap = new Map<number, number>();
-
-    const [companiesData, lastMsgRes, unreadRes] = await Promise.all([
-      uniqueCompanyIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${uniqueCompanyIds.join(",")}&fields=company_id,company_name,company_logo&limit=${uniqueCompanyIds.length}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-      conversationIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_in]=${conversationIds.join(",")}&filter[is_deleted][_eq]=false&sort[]=-created_at&limit=200&fields=message_id,conversation_id,message_type,message_content,sender_id,created_at`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-      conversationIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_in]=${conversationIds.join(",")}&filter[is_deleted][_eq]=false&fields=message_id,conversation_id,sender_id&limit=1000`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
+    // Previews and unread badges come from the shared conversation reads, so a
+    // freelancer sees the same figures here that the employer side reports for
+    // the same thread — and so an unread message is never counted from a window
+    // of the oldest rows.
+    const [companiesData, lastMessagesMap, unreadMap] = await Promise.all([
+      directusItemsWhereIn<Row>(
+        "vs_company",
+        "company_id",
+        uniqueCompanyIds,
+        "company_id,company_name,company_logo"
+      ),
+      lastMessageByConversation(conversationIds),
+      unreadCountByConversation(userId, conversationIds),
     ]);
 
     const companyMap = new Map<
@@ -200,44 +168,6 @@ export async function GET(req: NextRequest) {
         },
       ])
     );
-
-    if (conversationIds.length > 0) {
-      for (const msg of lastMsgRes as Record<string, unknown>[]) {
-        const cid = msg.conversation_id as number;
-        if (!lastMessagesMap.has(cid)) {
-          lastMessagesMap.set(cid, msg);
-        }
-      }
-
-      const allMessageIds = (unreadRes as Record<string, unknown>[])
-        .filter((m) => (m.sender_id as number) !== userId)
-        .map((m) => m.message_id as number);
-
-      if (allMessageIds.length > 0) {
-        const readRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${allMessageIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id&limit=1000`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []);
-
-        const readIds = new Set(
-          (readRes as Record<string, unknown>[]).map(
-            (r) => r.message_id as number
-          )
-        );
-
-        for (const msg of unreadRes as Record<string, unknown>[]) {
-          if (
-            (msg.sender_id as number) !== userId &&
-            !readIds.has(msg.message_id as number)
-          ) {
-            const cid = msg.conversation_id as number;
-            unreadMap.set(cid, (unreadMap.get(cid) ?? 0) + 1);
-          }
-        }
-      }
-    }
 
     const enriched = conversations.map((conv: Record<string, unknown>) => {
       const cid = conv.conversation_id as number;
@@ -318,9 +248,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ conversations: enriched });
   } catch (err: unknown) {
     console.error("GET /api/freelancer/messaging error:", err);
+    // A thread list whose unread counts could not be read is not a list with
+    // nothing unread in it. 502 keeps the module on its error state instead of
+    // rendering every conversation as fully read.
+    const upstream = err instanceof DirectusError;
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
+      {
+        error: upstream
+          ? "Conversations could not be read. Please try again."
+          : safeErrorMessage(err, "Internal server error"),
+      },
+      { status: upstream ? 502 : 500 }
     );
   }
 }

@@ -40,12 +40,12 @@ const REPORT_REASONS: { code: MessageReportReasonCode; label: string; descriptio
   {
     code: "OFF_PLATFORM_PAYMENT",
     label: "Off-platform payment or communication",
-    description: "Soliciting payments or sensitive communications outside VoSync.",
+    description: "Soliciting payments or sensitive communications outside VOS Sync.",
   },
   {
     code: "OTHER",
     label: "Other issue",
-    description: "Any other behavior violating VoSync community guidelines.",
+    description: "Any other behavior violating VOS Sync community guidelines.",
   },
 ];
 
@@ -130,7 +130,7 @@ export default function ReportMessageModal({
               {messageId ? "Report message" : "Report conversation"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {reportedUserName ? `Reporting ${reportedUserName}` : "Help us keep VoSync safe"}
+              {reportedUserName ? `Reporting ${reportedUserName}` : "Help us keep VOS Sync safe"}
             </p>
           </div>
         </div>

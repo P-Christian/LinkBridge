@@ -171,12 +171,50 @@ export async function GET(req: NextRequest) {
         return res;
       }
 
+      // Enforce cross-account email uniqueness: if Facebook email belongs to another VOS Sync user
+      const conflictingAccount = await getUserByEmail(normalizedEmail);
+      if (
+        conflictingAccount &&
+        String(conflictingAccount.user_id) !== String(activeSession.userId)
+      ) {
+        createAuditRecordRepo({
+          event_type: "SECURITY_ALERT",
+          event_category: "AUTHENTICATION",
+          action: "IDENTITY_CONFLICT",
+          status: "DENIED",
+          actor_type: activeSession.roleId === 3 ? "ADMIN" : "USER",
+          actor_user_id: Number(activeSession.userId),
+          reason: `Facebook link blocked: Email (${normalizedEmail}) already belongs to user ${conflictingAccount.user_id}`,
+        });
+
+        if (transaction.popup) {
+          const res = NextResponse.redirect(
+            new URL(
+              `/auth/popup-callback?status=error&error=email_already_registered&provider=facebook&email=${encodeURIComponent(
+                normalizedEmail
+              )}&flow=link`,
+              requestOrigin
+            )
+          );
+          clearTxCookie(res);
+          return res;
+        }
+
+        settingsUrl.searchParams.set("conflict", "email_already_registered");
+        settingsUrl.searchParams.set("conflict_provider", "facebook");
+        settingsUrl.searchParams.set("email", normalizedEmail);
+        const res = NextResponse.redirect(settingsUrl);
+        clearTxCookie(res);
+        return res;
+      }
+
       // Atomically persist identity in vs_user_identity
       await linkUserIdentity({
         userId: activeSession.userId,
         provider: "facebook",
         providerSubject: facebookProfile.id,
         providerEmail: normalizedEmail,
+        providerName: facebookProfile.name ?? null,
       });
 
       createAuditRecordRepo({
@@ -354,19 +392,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. If not found by ID, fallback to email match
+    // 2. Facebook's payload carries no verified-email signal, so a provider
+    // email match must never claim an existing account (SEC-009). Linking is
+    // done from an authenticated session instead.
     if (!user) {
-      user = await getUserByEmail(normalizedEmail);
-      if (user) {
-        // Automatically associate vs_user_identity for future lookups
-        await linkUserIdentity({
-          userId: user.user_id,
-          provider: "facebook",
-          providerSubject: facebookProfile.id,
-          providerEmail: normalizedEmail,
-        }).catch((err) => {
-          console.warn("[Facebook Callback] Non-fatal identity link record error:", err);
+      const existingUser = await getUserByEmail(normalizedEmail);
+      if (existingUser) {
+        createAuditRecordRepo({
+          event_type: "USER_LOGIN_FAILED",
+          event_category: "AUTHENTICATION",
+          action: "LOGIN_REJECTED",
+          status: "DENIED",
+          actor_type: existingUser.role_id === 3 ? "ADMIN" : "USER",
+          actor_user_id: existingUser.user_id,
+          reason: `Facebook sign-up refused: email ${normalizedEmail} belongs to an account that is not connected to Facebook`,
         });
+
+        const errorUrl = new URL(`/login?error=facebook_not_connected&email=${encodeURIComponent(normalizedEmail)}`, requestOrigin);
+        const redirectTarget = transaction.popup
+          ? new URL(`/auth/popup-callback?status=error&error=facebook_not_connected&provider=facebook&flow=signup`, requestOrigin)
+          : errorUrl;
+        const res = NextResponse.redirect(redirectTarget);
+        clearTxCookie(res);
+        return res;
       }
     }
 

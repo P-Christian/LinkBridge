@@ -1027,9 +1027,6 @@ export default function CompanyProfileModule({
                 <CompanyDocuments
                   companyId={company?.company_id}
                   verificationStatus={displayStatus}
-                  organizationTypeId={company?.organization_type_id}
-                  registrationNo={company?.registration_no}
-                  companyTin={company?.company_tin}
                   onDocsChange={handleDocsChange}
                 />
               </CardContent>

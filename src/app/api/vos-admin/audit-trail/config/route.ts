@@ -1,7 +1,8 @@
 // src/app/api/vos-admin/audit-trail/config/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { fetchAuditConfigRepo, updateAuditConfigRepo, createAuditRecordRepo, AuditCategoryConfig } from "@/modules/vos-admin/audit-trail";
+import { fetchAuditConfigRepo, updateAuditConfigRepo, createAuditRecordStrictRepo, AuditCategoryConfig } from "@/modules/vos-admin/audit-trail";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
     const config = await fetchAuditConfigRepo();
     return NextResponse.json({ config });
   } catch (error: unknown) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Internal server error.")}, { status: 500 });
   }
 }
 
@@ -42,20 +43,31 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid config object" }, { status: 400 });
     }
 
-    const savedConfig = await updateAuditConfigRepo(newConfig, adminId);
+    const { config: savedConfig, warnings } = await updateAuditConfigRepo(newConfig, adminId);
 
-    createAuditRecordRepo({
-      event_type: "AUDIT_CONFIG_CHANGED",
-      event_category: "ADMIN",
-      action: "CONFIG_CHANGE",
-      status: "SUCCESS",
-      actor_type: "ADMIN",
-      actor_user_id: adminId,
-      reason: "Updated audit event customization settings",
+    // Strict + warned: the settings are already saved, and a swallowed insert
+    // would leave the change to what gets logged itself unlogged.
+    try {
+      await createAuditRecordStrictRepo({
+        event_type: "AUDIT_CONFIG_CHANGED",
+        event_category: "ADMIN",
+        action: "CONFIG_CHANGE",
+        status: "SUCCESS",
+        actor_type: "ADMIN",
+        actor_user_id: adminId,
+        reason: "Updated audit event customization settings",
+      });
+    } catch (auditErr) {
+      console.error("Audit settings change could not be logged:", auditErr);
+      warnings.push("The settings were saved but the change is not in the audit trail.");
+    }
+
+    return NextResponse.json({
+      config: savedConfig,
+      message: "Audit settings updated successfully",
+      ...(warnings.length > 0 ? { warnings } : {}),
     });
-
-    return NextResponse.json({ config: savedConfig, message: "Audit settings updated successfully" });
   } catch (error: unknown) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Internal server error.")}, { status: 500 });
   }
 }

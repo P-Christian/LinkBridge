@@ -41,7 +41,11 @@ export default async function PublicFreelancerProfilePage({
     }
   }
 
-  const profile = await getPublicFreelancerProfile(userId, callerRole);
+  const profile = await getPublicFreelancerProfile(
+    userId,
+    callerRole,
+    session ? Number(session.userId) : undefined
+  );
 
   if (!profile) {
     notFound();

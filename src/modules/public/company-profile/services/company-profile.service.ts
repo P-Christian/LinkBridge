@@ -25,13 +25,28 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+// Caller limits are untrusted: the admin token would otherwise allow limit=-1 or huge pages.
+const MAX_PAGE_LIMIT = 50;
+// Bounds the scans that aggregate in memory instead of paging in Directus.
+const DIRECTUS_SCAN_LIMIT = 2000;
+
+function clampLimit(value: number | undefined, fallback: number, max = MAX_PAGE_LIMIT): number {
+  const n = Math.floor(Number(value));
+  return Math.min(Math.max(Number.isFinite(n) && n > 0 ? n : fallback, 1), max);
+}
+
+function clampPage(value: number | undefined): number {
+  const n = Math.floor(Number(value));
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 export async function getTrustedCompanies(limit = 20): Promise<TrustedCompany[]> {
   try {
     const headers = getHeaders();
     
     // 1. Fetch active jobs to compute counts per company
     const jobsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&limit=-1&fields=company_id`,
+      `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&limit=${DIRECTUS_SCAN_LIMIT}&fields=company_id`,
       { headers, cache: "no-store" }
     );
     const jobsData = jobsRes.ok ? await jobsRes.json() : { data: [] };
@@ -50,7 +65,7 @@ export async function getTrustedCompanies(limit = 20): Promise<TrustedCompany[]>
     url.searchParams.append("filter[is_public][_eq]", "true");
     url.searchParams.append("filter[is_active][_eq]", "true");
     url.searchParams.append("fields", "company_id,company_code,company_name,company_logo,industry_id.industry_name,verification_status");
-    url.searchParams.append("limit", String(limit));
+    url.searchParams.append("limit", String(clampLimit(limit, 20)));
 
     const res = await fetch(url.toString(), { headers, cache: "no-store" });
     if (!res.ok) return [];
@@ -172,8 +187,8 @@ export async function getPublicCompanyJobs(
       url.searchParams.append("filter[experience_level][_eq]", filters.experience_level);
     }
 
-    const limit = pagination.limit || 5;
-    const page = pagination.page || 1;
+    const limit = clampLimit(pagination.limit, 5);
+    const page = clampPage(pagination.page);
     const offset = (page - 1) * limit;
 
     url.searchParams.append("limit", String(limit));
@@ -207,10 +222,14 @@ export async function getPublicCompanyJobs(
     }
 
     const formattedJobs = data.map((j: any) => {
+      // Employers that opted out of publishing their range must not leak it via the company jobs tab.
+      const salaryVisible = !(
+        j.show_salary_range === false || j.show_salary_range === 0 || j.show_salary_range === "0"
+      );
       let salaryText = "Salary not disclosed";
       if (j.salary_negotiable) {
         salaryText = "Negotiable";
-      } else {
+      } else if (salaryVisible) {
         const curr = j.currency || "PHP";
         if (j.salary_type === "Fixed Salary" && j.salary_min) {
           salaryText = `${curr} ${Number(j.salary_min).toLocaleString()} / mo`;
@@ -244,8 +263,8 @@ export async function getPublicCompanyJobs(
         posted: postedText,
         tags: (skillsMap[j.job_id] || []).slice(0, 3),
         description: j.job_description || "",
-        salary_min: j.salary_min ? Number(j.salary_min) : null,
-        salary_max: j.salary_max ? Number(j.salary_max) : null,
+        salary_min: salaryVisible && j.salary_min ? Number(j.salary_min) : null,
+        salary_max: salaryVisible && j.salary_max ? Number(j.salary_max) : null,
         salary_currency: j.currency || "PHP",
         experience_level: j.experience_level || "Any Experience",
         created_at: j.created_at || new Date().toISOString(),
@@ -268,7 +287,7 @@ export async function getBrowseCompanies(
     
     // Fetch active jobs maps
     const jobsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&limit=-1&fields=company_id`,
+      `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&limit=${DIRECTUS_SCAN_LIMIT}&fields=company_id`,
       { headers, cache: "no-store" }
     );
     const jobsData = jobsRes.ok ? await jobsRes.json() : { data: [] };
@@ -300,7 +319,7 @@ export async function getBrowseCompanies(
     }
 
     url.searchParams.append("fields", "company_id,company_code,company_name,company_legal_name,industry_id.industry_name,company_size_id.company_size_name,year_established,company_logo,company_cover,company_description,company_mission,company_vision,company_culture,company_benefits,company_tags,company_website,company_facebook,company_linkedin,company_instagram,company_x,company_youtube,company_contact,company_email,company_address,company_brgy,company_city,company_province,company_country,company_zipCode,verification_status,is_public,is_active");
-    url.searchParams.append("limit", "-1");
+    url.searchParams.append("limit", String(DIRECTUS_SCAN_LIMIT));
 
     const res = await fetch(url.toString(), { headers, cache: "no-store" });
     if (!res.ok) return { companies: [], total: 0 };
@@ -355,8 +374,8 @@ export async function getBrowseCompanies(
     }
 
     const total = companies.length;
-    const page = pagination.page || 1;
-    const limit = pagination.limit || 10;
+    const page = clampPage(pagination.page);
+    const limit = clampLimit(pagination.limit, 10);
     const offset = (page - 1) * limit;
     const paginatedCompanies = companies.slice(offset, offset + limit);
 
@@ -370,7 +389,7 @@ export async function getBrowseCompanies(
 export async function getIndustries(): Promise<{ industry_id: number; industry_name: string }[]> {
   try {
     const headers = getHeaders();
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_industry?filter[is_active][_eq]=true&limit=-1&sort[]=industry_name`, { headers, cache: "no-store" });
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_industry?filter[is_active][_eq]=true&limit=${DIRECTUS_SCAN_LIMIT}&sort[]=industry_name`, { headers, cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json();
     return json.data || [];
@@ -383,7 +402,7 @@ export async function getIndustries(): Promise<{ industry_id: number; industry_n
 export async function getCompanySizes(): Promise<{ company_size_id: number; company_size_name: string }[]> {
   try {
     const headers = getHeaders();
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_company_size?filter[is_active][_eq]=true&limit=-1`, { headers, cache: "no-store" });
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_company_size?filter[is_active][_eq]=true&limit=${DIRECTUS_SCAN_LIMIT}`, { headers, cache: "no-store" });
     if (!res.ok) return [];
     const json = await res.json();
     return json.data || [];
@@ -393,6 +412,13 @@ export async function getCompanySizes(): Promise<{ company_size_id: number; comp
   }
 }
 
+// Capped so an anonymous caller cannot export a company's whole review corpus.
+const REVIEWS_LIMIT = 50;
+
+// Only the columns ReviewsTab / AboutTab render; company_id, status and updated_at are not consumed.
+const REVIEW_PUBLIC_FIELDS =
+  "review_id,reviewer_user_id,employment_status,job_title,overall_rating,work_life_balance_rating,compensation_rating,management_rating,career_growth_rating,review_title,pros,cons,review_text,is_anonymous,created_at";
+
 export async function getPublicCompanyReviews(
   companyId: number,
   limit?: number
@@ -400,12 +426,13 @@ export async function getPublicCompanyReviews(
   try {
     const headers = getHeaders();
     const url = new URL(`${DIRECTUS_BASE}/items/vs_company_review`);
-    
+
+    const safeLimit = clampLimit(limit, REVIEWS_LIMIT, REVIEWS_LIMIT);
+
     url.searchParams.append("filter[company_id][_eq]", String(companyId));
     url.searchParams.append("filter[status][_eq]", "PUBLISHED");
-    if (limit) {
-      url.searchParams.append("limit", String(limit));
-    }
+    url.searchParams.append("fields", REVIEW_PUBLIC_FIELDS);
+    url.searchParams.append("limit", String(safeLimit));
     url.searchParams.append("sort[]", "-created_at");
 
     const res = await fetch(url.toString(), { headers, cache: "no-store" });
@@ -416,8 +443,7 @@ export async function getPublicCompanyReviews(
 
     return data.map((r) => ({
       review_id: Number(r.review_id),
-      company_id: Number(r.company_id),
-      reviewer_user_id: Number(r.reviewer_user_id),
+      reviewer_user_id: r.is_anonymous ? null : Number(r.reviewer_user_id),
       employment_status: r.employment_status as "CURRENT_EMPLOYEE" | "FORMER_EMPLOYEE",
       job_title: (r.job_title as string) || null,
       overall_rating: Number(r.overall_rating || 0),
@@ -429,10 +455,8 @@ export async function getPublicCompanyReviews(
       pros: (r.pros as string) || null,
       cons: (r.cons as string) || null,
       review_text: (r.review_text as string) || "",
-      status: r.status as "PUBLISHED" | "HIDDEN" | "REMOVED",
       is_anonymous: !!r.is_anonymous,
       created_at: (r.created_at as string) || "",
-      updated_at: (r.updated_at as string) || "",
     }));
   } catch (err) {
     console.error("Error fetching company reviews:", err);

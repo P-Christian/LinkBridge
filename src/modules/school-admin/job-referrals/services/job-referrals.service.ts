@@ -24,6 +24,7 @@ import {
   markdownToHtml,
   generateRecommendationPdfBuffer,
 } from './job-referrals.helpers';
+import { escapeHtml, safeHttpUrl } from '@/lib/mail/templates/escape-html';
 
 export async function getActiveJobsService(): Promise<VsJobPosting[]> {
   return await fetchActiveJobsRepo();
@@ -218,6 +219,8 @@ export async function createBatchReferralsService(
             }
           }
 
+          const claimHref = safeHttpUrl(url) ?? '#';
+
           const htmlBody = `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
               <div style="text-align: center; margin-bottom: 24px;">
@@ -226,13 +229,13 @@ export async function createBatchReferralsService(
               </div>
 
               <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-                <h2 style="color: #0f172a; margin: 0 0 10px; font-size: 18px;">Congratulations, ${student.first_name}!</h2>
+                <h2 style="color: #0f172a; margin: 0 0 10px; font-size: 18px;">Congratulations, ${escapeHtml(student.first_name)}!</h2>
                 <p style="color: #334155; margin: 0; font-size: 14px; line-height: 1.5;">
-                  <strong>${schoolName}</strong> has officially endorsed and referred your verified freelancer profile for an active opportunity:
+                  <strong>${escapeHtml(schoolName)}</strong> has officially endorsed and referred your verified freelancer profile for an active opportunity:
                 </p>
                 <div style="margin-top: 14px; padding: 14px; background: #ffffff; border-radius: 6px; border: 1px solid #cbd5e1;">
-                  <p style="margin: 0; font-weight: bold; font-size: 16px; color: #1e293b;">${jobTitle}</p>
-                  <p style="margin: 4px 0 0; font-size: 13px; color: #64748b;">${companyName}</p>
+                  <p style="margin: 0; font-weight: bold; font-size: 16px; color: #1e293b;">${escapeHtml(jobTitle)}</p>
+                  <p style="margin: 4px 0 0; font-size: 13px; color: #64748b;">${escapeHtml(companyName)}</p>
                 </div>
               </div>
 
@@ -258,7 +261,7 @@ export async function createBatchReferralsService(
               ` : ''}
 
               <div style="text-align: center; margin: 32px 0;">
-                <a href="${url}" style="background-color: #4f46e5; color: #ffffff; padding: 14px 36px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);">
+                <a href="${claimHref}" style="background-color: #4f46e5; color: #ffffff; padding: 14px 36px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);">
                   View Opportunity & Claim Referral
                 </a>
               </div>
@@ -266,9 +269,9 @@ export async function createBatchReferralsService(
               <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
 
               <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
-                This endorsement was officially issued by ${schoolName} on VOS Sync.<br/>
+                This endorsement was officially issued by ${escapeHtml(schoolName)} on VOS Sync.<br/>
                 This referral link is unique to you and valid for ${expires_in_days} days.<br/>
-                <span style="color: #4f46e5; word-break: break-all; margin-top: 6px; display: inline-block;">${url}</span>
+                <span style="color: #4f46e5; word-break: break-all; margin-top: 6px; display: inline-block;">${escapeHtml(url)}</span>
               </p>
             </div>
           `;

@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
-import { FolderTree, Plus, Loader2, Check, ShieldAlert, Pencil, Trash2, Sparkles } from "lucide-react";
+import { FolderTree, Plus, Loader2, Check, Pencil, Trash2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -12,7 +12,7 @@ import { slugifyCode, validateCategoryInput } from "../validators";
 import { JobCategory } from "../types";
 
 export function JobCategoryManager() {
-  const { categories, loading, error, addCategory, editCategory, removeCategory } = useJobCategories();
+  const { categories, loading, addCategory, editCategory, removeCategory } = useJobCategories();
   const [openModal, setOpenModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<JobCategory | null>(null);
 
@@ -118,13 +118,6 @@ export function JobCategoryManager() {
           Add Job Category
         </Button>
       </div>
-
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-xs">

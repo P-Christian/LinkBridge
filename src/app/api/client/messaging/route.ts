@@ -1,27 +1,37 @@
 // src/app/api/client/messaging/route.ts
 
-import { NextRequest, NextResponse } from "next/server";
-import { checkRestriction, checkCompanyVerificationStatus } from "@/lib/status-validator";
+import { checkRestrictionState, checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { safeDecryptMessage } from "@/lib/message-encryption";
-import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { getPHTimeString } from "@/lib/utils";
+import {
+  DirectusError,
+  directusItem,
+  directusItems,
+  directusItemsWhereIn,
+  directusRequest,
+  directusSettled,
+} from "@/lib/server/directus";
+import { HttpError, badRequest, forbidden, json, readBody, toId, withRoute } from "@/lib/server/route";
+import {
+  lastMessageByConversation,
+  unreadCountByConversation,
+} from "@/lib/messaging/conversation-reads";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
-  /\/$/,
-  ""
-);
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+const CONVERSATION_FIELDS =
+  "conversation_id,job_id,client_id,freelancer_id,conversation_type,status,last_message_at,created_at,updated_at,archived_by_client,archived_by_freelancer,archived_at";
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
-}
+/** `vs_conversation.conversation_type` is a MySQL enum; anything else is a 400. */
+type ConversationTypeValue = "JOB_APPLICATION" | "DIRECT_MESSAGE" | "SUPPORT";
+const CONVERSATION_TYPES: readonly ConversationTypeValue[] = [
+  "JOB_APPLICATION",
+  "DIRECT_MESSAGE",
+  "SUPPORT",
+];
+
+type Row = Record<string, unknown>;
 
 function formatAvatarUrl(url?: string | null): string | null {
   if (!url || !url.trim()) return null;
@@ -43,254 +53,155 @@ function formatAvatarUrl(url?: string | null): string | null {
   return fileId ? `/api/client/assets/${fileId}` : null;
 }
 
-// ─── GET — List conversations for the authenticated client ─────────────────
-
-export async function GET(req: NextRequest) {
-  try {
-    const session = await authenticateRequest(req);
-    if (!session || !isClientSession(session)) {
-      return NextResponse.json(
-        { error: session ? "Forbidden: Client access required." : "Unauthorized." },
-        { status: session ? 403 : 401 }
-      );
-    }
-
-    const userId = Number(session.userId);
-
-    const { searchParams } = new URL(req.url);
-    const includeArchived = searchParams.get("archived") === "true";
-
-    // Mutually exclusive archive mode: archived-only vs active-only
-    let filter = `filter[client_id][_eq]=${userId}&filter[status][_neq]=BLOCKED`;
-    if (includeArchived) {
-      filter += `&filter[archived_by_client][_eq]=true`;
-    } else {
-      filter += `&filter[archived_by_client][_eq]=false`;
-    }
-
-    // Fetch conversations with user join for freelancer name
-    const convsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?${filter}&sort[]=-last_message_at&limit=100&fields=conversation_id,job_id,client_id,freelancer_id,conversation_type,status,last_message_at,created_at,updated_at,archived_by_client,archived_by_freelancer,archived_at`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-
-    if (!convsRes.ok) {
-      const text = await convsRes.text();
-      console.error("Directus conversations fetch error:", text);
-      return NextResponse.json(
-        { error: "Failed to fetch conversations." },
-        { status: convsRes.status }
-      );
-    }
-
-    const convsJson = await convsRes.json();
-    const conversations = convsJson.data ?? [];
-
-    // Collect freelancer user IDs and job IDs for enrichment
-    const freelancerIds: number[] = Array.from(
-      new Set(
-        conversations
-          .map((c: Record<string, unknown>) => c.freelancer_id)
-          .filter((id: unknown): id is number => typeof id === "number")
-      )
-    );
-    const jobIds: number[] = Array.from(
-      new Set(
-        conversations
-          .map((c: Record<string, unknown>) => c.job_id)
-          .filter((id: unknown): id is number => typeof id === "number")
-      )
-    );
-
-    // Fetch freelancer user info in parallel
-    const [usersData, jobsData] = await Promise.all([
-      freelancerIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${freelancerIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,profile_image_url&limit=${freelancerIds.length}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-      jobIds.length > 0
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_in]=${jobIds.join(",")}&fields=job_id,job_title&limit=${jobIds.length}`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-            .then((r) => r.json())
-            .then((j) => j.data ?? [])
-        : Promise.resolve([]),
-    ]);
-
-    // Build lookup maps
-    const userMap = new Map<number, Record<string, unknown>>(
-      usersData.map((u: Record<string, unknown>) => [u.user_id as number, u])
-    );
-    const jobMap = new Map<number, Record<string, unknown>>(
-      jobsData.map((j: Record<string, unknown>) => [j.job_id as number, j])
-    );
-
-    // Fetch last messages and unread counts
-    const conversationIds = conversations.map(
-      (c: Record<string, unknown>) => c.conversation_id as number
-    );
-
-    const lastMessagesMap = new Map<number, Record<string, unknown>>();
-    const unreadMap = new Map<number, number>();
-
-    if (conversationIds.length > 0) {
-      // Get last message per conversation
-      const [lastMsgRes, unreadRes] = await Promise.all([
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_in]=${conversationIds.join(",")}&filter[is_deleted][_eq]=false&sort[]=-created_at&limit=200&fields=message_id,conversation_id,message_type,message_content,sender_id,created_at`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []),
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_in]=${conversationIds.join(",")}&filter[is_deleted][_eq]=false&fields=message_id,conversation_id,sender_id&limit=1000`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []),
-      ]);
-
-      // Build last message map (first result per conversation since sorted desc)
-      for (const msg of lastMsgRes as Record<string, unknown>[]) {
-        const cid = msg.conversation_id as number;
-        if (!lastMessagesMap.has(cid)) {
-          lastMessagesMap.set(cid, msg);
-        }
-      }
-
-      // Build unread map — check vs_message_read for messages not sent by client
-      const allMessageIds = (unreadRes as Record<string, unknown>[])
-        .filter((m) => (m.sender_id as number) !== userId)
-        .map((m) => m.message_id as number);
-
-      if (allMessageIds.length > 0) {
-        const readRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message_read?filter[message_id][_in]=${allMessageIds.join(",")}&filter[user_id][_eq]=${userId}&fields=message_id&limit=1000`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data ?? []);
-
-        const readIds = new Set(
-          (readRes as Record<string, unknown>[]).map(
-            (r) => r.message_id as number
-          )
-        );
-
-        // Count unread per conversation
-        for (const msg of unreadRes as Record<string, unknown>[]) {
-          if (
-            (msg.sender_id as number) !== userId &&
-            !readIds.has(msg.message_id as number)
-          ) {
-            const cid = msg.conversation_id as number;
-            unreadMap.set(cid, (unreadMap.get(cid) ?? 0) + 1);
-          }
-        }
-      }
-    }
-
-    // Enrich conversations
-    const enriched = conversations.map((conv: Record<string, unknown>) => {
-      const cid = conv.conversation_id as number;
-      const freelancer = userMap.get(conv.freelancer_id as number);
-      const job = jobMap.get(conv.job_id as number);
-      const lastMsg = lastMessagesMap.get(cid);
-
-      const otherPartyName =
-        freelancer
-          ? `${freelancer.user_fname ?? ""} ${freelancer.user_lname ?? ""}`.trim()
-          : "Unknown";
-      const otherPartyFirstName =
-        (typeof freelancer?.user_fname === "string"
-          ? freelancer.user_fname.trim()
-          : "") ||
-        otherPartyName.split(" ")[0] ||
-        "Freelancer";
-
-      let lastMessagePreview = "";
-      if (lastMsg) {
-        const isOwn = (lastMsg.sender_id as number) === userId;
-        const senderPrefix = isOwn ? "You" : otherPartyFirstName;
-
-        if (lastMsg.message_type === "SYSTEM") {
-          const rawContent = (lastMsg.message_content as string) ?? "";
-          const lower = rawContent.toLowerCase();
-          if (lower.includes("hired you") || lower.includes("client hired")) {
-            lastMessagePreview = `You hired ${otherPartyName}`;
-          } else if (lower.includes("application submitted")) {
-            lastMessagePreview = `${otherPartyName} applied`;
-          } else if (lower.includes("status changed") || lower.includes("application updated")) {
-            lastMessagePreview = `Application updated for ${otherPartyName}`;
-          } else if (lower.includes("interview scheduled")) {
-            lastMessagePreview = `Interview scheduled with ${otherPartyName}`;
-          } else if (lower.includes("interview rescheduled") || lower.includes("interview updated")) {
-            lastMessagePreview = `Interview rescheduled with ${otherPartyName}`;
-          } else {
-            lastMessagePreview = rawContent;
-          }
-        } else if (lastMsg.message_type === "TEXT") {
-          const rawContent = (lastMsg.message_content as string) ?? "";
-          const content = safeDecryptMessage(rawContent) ?? "";
-          const fullText = `${senderPrefix}: ${content}`;
-          lastMessagePreview =
-            fullText.length > 60 ? fullText.slice(0, 60) + "…" : fullText;
-        } else if (lastMsg.message_type === "IMAGE") {
-          lastMessagePreview = `${senderPrefix}: 📷 Image`;
-        } else if (lastMsg.message_type === "FILE") {
-          lastMessagePreview = `${senderPrefix}: 📎 File`;
-        }
-      }
-
-      return {
-        ...conv,
-        other_party_name: otherPartyName,
-        other_party_avatar: formatAvatarUrl(freelancer?.profile_image_url as string),
-        other_party_email: (freelancer?.user_email as string) ?? null,
-        job_title: (job?.job_title as string) ?? null,
-        unread_count: unreadMap.get(cid) ?? 0,
-        last_message_preview: lastMessagePreview,
-        last_message_at:
-          lastMsg?.created_at ?? conv.last_message_at ?? conv.created_at,
-      };
-    });
-
-    return NextResponse.json({ conversations: enriched });
-  } catch (err: unknown) {
-    console.error("GET /api/client/messaging error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
-    );
-  }
+function uniqueIds(rows: Row[], key: string): number[] {
+  return Array.from(
+    new Set(rows.map((row) => row[key]).filter((value): value is number => typeof value === "number"))
+  );
 }
 
-async function enrichOneConversation(conv: Record<string, unknown>) {
+function previewFrom(lastMsg: Row, otherPartyFirstName: string, otherPartyName: string): string {
+  const rawContent = (lastMsg.message_content as string) ?? "";
+
+  if (lastMsg.message_type === "SYSTEM") {
+    const lower = rawContent.toLowerCase();
+    if (lower.includes("hired you") || lower.includes("client hired")) {
+      return `You hired ${otherPartyName}`;
+    }
+    if (lower.includes("application submitted")) {
+      return `${otherPartyName} applied`;
+    }
+    if (lower.includes("status changed") || lower.includes("application updated")) {
+      return `Application updated for ${otherPartyName}`;
+    }
+    if (lower.includes("interview scheduled")) {
+      return `Interview scheduled with ${otherPartyName}`;
+    }
+    if (lower.includes("interview rescheduled") || lower.includes("interview updated")) {
+      return `Interview rescheduled with ${otherPartyName}`;
+    }
+    return rawContent;
+  }
+
+  if (lastMsg.message_type === "TEXT") {
+    const content = safeDecryptMessage(rawContent) ?? "";
+    const fullText = `${otherPartyFirstName}: ${content}`;
+    return fullText.length > 60 ? `${fullText.slice(0, 60)}…` : fullText;
+  }
+  if (lastMsg.message_type === "IMAGE") return `${otherPartyFirstName}: 📷 Image`;
+  if (lastMsg.message_type === "FILE") return `${otherPartyFirstName}: 📎 File`;
+  return "";
+}
+
+// ─── GET — List conversations for the authenticated client ─────────────────
+
+export const GET = withRoute(async ({ req, session }) => {
+  const userId = Number(session.userId);
+
+  const includeArchived = new URL(req.url).searchParams.get("archived") === "true";
+
+  // Mutually exclusive archive mode: archived-only vs active-only
+  let filter = `filter[client_id][_eq]=${userId}&filter[status][_neq]=BLOCKED`;
+  filter += includeArchived
+    ? `&filter[archived_by_client][_eq]=true`
+    : `&filter[archived_by_client][_eq]=false`;
+
+  let conversations: Row[];
+  try {
+    conversations = await directusItems<Row>("vs_conversation", {
+      // `limit=-1`: this is filtered to one account, and capping it at 100 made
+      // every older thread unreachable — the list simply had no bottom.
+      query: `${filter}&sort[]=-last_message_at&limit=-1&fields=${CONVERSATION_FIELDS}`,
+    });
+  } catch (err: unknown) {
+    if (err instanceof DirectusError) {
+      throw new HttpError(err.status, "Failed to fetch conversations.");
+    }
+    throw err;
+  }
+
+  // Collect freelancer user IDs and job IDs for enrichment
+  const freelancerIds = uniqueIds(conversations, "freelancer_id");
+  const jobIds = uniqueIds(conversations, "job_id");
+
+  // Fetch freelancer user info and job titles in parallel
+  const [usersData, jobsData] = await Promise.all([
+    directusItemsWhereIn<Row>(
+      "vs_user",
+      "user_id",
+      freelancerIds,
+      "user_id,user_fname,user_lname,user_email,profile_image_url"
+    ),
+    directusItemsWhereIn<Row>(
+      "vs_job_posting",
+      "job_id",
+      jobIds,
+      "job_id,job_title"
+    ),
+  ]);
+
+  // Build lookup maps
+  const userMap = new Map<number, Row>(usersData.map((u) => [u.user_id as number, u]));
+  const jobMap = new Map<number, Row>(jobsData.map((j) => [j.job_id as number, j]));
+
+  const conversationIds = conversations.map((c) => c.conversation_id as number);
+
+  // Preview and unread badges come from the shared conversation reads, so the
+  // two portals report the same figures for the same account. A failed unread
+  // read fails the whole list rather than answering 0 for every thread, which
+  // is how a waiting message used to go unseen.
+  const [lastMessagesMap, unreadMap] = await Promise.all([
+    lastMessageByConversation(conversationIds),
+    unreadCountByConversation(userId, conversationIds),
+  ]);
+
+  // Enrich conversations
+  const enriched = conversations.map((conv) => {
+    const cid = conv.conversation_id as number;
+    const freelancer = userMap.get(conv.freelancer_id as number);
+    const job = jobMap.get(conv.job_id as number);
+    const lastMsg = lastMessagesMap.get(cid);
+
+    const otherPartyName = freelancer
+      ? `${freelancer.user_fname ?? ""} ${freelancer.user_lname ?? ""}`.trim()
+      : "Unknown";
+    const otherPartyFirstName =
+      (typeof freelancer?.user_fname === "string" ? freelancer.user_fname.trim() : "") ||
+      otherPartyName.split(" ")[0] ||
+      "Freelancer";
+
+    let lastMessagePreview = "";
+    if (lastMsg) {
+      const isOwn = (lastMsg.sender_id as number) === userId;
+      const senderPrefix = isOwn ? "You" : otherPartyFirstName;
+      lastMessagePreview = previewFrom(lastMsg, senderPrefix, otherPartyName);
+    }
+
+    return {
+      ...conv,
+      other_party_name: otherPartyName,
+      other_party_avatar: formatAvatarUrl(freelancer?.profile_image_url as string),
+      other_party_email: (freelancer?.user_email as string) ?? null,
+      job_title: (job?.job_title as string) ?? null,
+      unread_count: unreadMap.get(cid) ?? 0,
+      last_message_preview: lastMessagePreview,
+      last_message_at: lastMsg?.created_at ?? conv.last_message_at ?? conv.created_at,
+    };
+  });
+
+  return { conversations: enriched };
+}, { auth: "client" });
+
+async function enrichOneConversation(conv: Row, viewerId: number) {
   const fid = Number(conv.freelancer_id);
   const jid = conv.job_id ? Number(conv.job_id) : null;
 
-  const [userRes, jobRes] = await Promise.all([
-    fid
-      ? fetch(
-          `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_eq]=${fid}&fields=user_id,user_fname,user_lname,user_email,profile_image_url&limit=1`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data?.[0] ?? null)
-      : Promise.resolve(null),
-    jid
-      ? fetch(
-          `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_eq]=${jid}&fields=job_id,job_title&limit=1`,
-          { headers: getHeaders(), cache: "no-store" }
-        )
-          .then((r) => r.json())
-          .then((j) => j.data?.[0] ?? null)
-      : Promise.resolve(null),
+  const [userRes, jobRes, unreadMap] = await Promise.all([
+    fid ? directusItem<Row>("vs_user", fid) : Promise.resolve<Row | null>(null),
+    jid ? directusItem<Row>("vs_job_posting", jid) : Promise.resolve<Row | null>(null),
+    // `unread_count` is not a column on vs_conversation, and this used to answer
+    // a literal 0. The hook replaces the list row with this payload, so opening
+    // a thread with unread messages cleared its badge before anything was read.
+    unreadCountByConversation(viewerId, [Number(conv.conversation_id)]),
   ]);
 
   const otherPartyName = userRes
@@ -303,128 +214,155 @@ async function enrichOneConversation(conv: Record<string, unknown>) {
     other_party_avatar: formatAvatarUrl(userRes?.profile_image_url as string),
     other_party_email: (userRes?.user_email as string) ?? null,
     job_title: (jobRes?.job_title as string) ?? null,
-    unread_count: (conv.unread_count as number) ?? 0,
+    unread_count: unreadMap.get(Number(conv.conversation_id)) ?? 0,
   };
 }
 
 // ─── POST — Create a new conversation ─────────────────────────────────────
 
-export async function POST(req: NextRequest) {
-  try {
-    const session = await authenticateRequest(req);
-    if (!session || !isClientSession(session)) {
-      return NextResponse.json(
-        { error: session ? "Forbidden: Client access required." : "Unauthorized." },
-        { status: session ? 403 : 401 }
+export const POST = withRoute(async ({ req, session }) => {
+  const userId = Number(session.userId);
+
+  // Validate SEND_MESSAGES Restriction
+  const restriction = await checkRestrictionState(userId, "SEND_MESSAGES");
+  if (restriction.restricted) {
+    if (restriction.reason === "unavailable") {
+      throw new HttpError(
+        503,
+        "Your account status could not be verified, so the conversation was not created. Please try again."
       );
     }
+    throw new HttpError(403, "Your messaging privileges are temporarily suspended.");
+  }
 
-    const userId = Number(session.userId);
-
-    // Validate SEND_MESSAGES Restriction
-    const isRestricted = await checkRestriction(userId, "SEND_MESSAGES");
-    if (isRestricted) {
-      return NextResponse.json(
-        { error: "Your messaging privileges are temporarily suspended." },
-        { status: 403 }
+  // BUSINESS RULE: Only VERIFIED companies can send candidate messages
+  const { isVerified, verification_status, companyId, readFailed } =
+    await checkCompanyVerificationStatus(userId);
+  if (!isVerified) {
+    if (readFailed) {
+      throw new HttpError(
+        503,
+        "Your company verification status could not be read, so the conversation was not created. Please try again."
       );
     }
-
-    // BUSINESS RULE: Only VERIFIED companies can send candidate messages
-    const { isVerified, verification_status } = await checkCompanyVerificationStatus(userId);
-    if (!isVerified) {
-      return NextResponse.json(
-        {
-          error: `Restricted: Your company verification status is currently ${verification_status}. Sending candidate messages is restricted until your company is verified by an admin.`,
-          verification_status,
-        },
-        { status: 403 }
-      );
-    }
-
-    const body = await req.json().catch(() => null);
-
-    if (!body?.freelancer_id) {
-      return NextResponse.json(
-        { error: "freelancer_id is required." },
-        { status: 400 }
-      );
-    }
-
-    const { freelancer_id, job_id, conversation_type } = body;
-
-    // Check if a conversation already exists between client and freelancer (for same job)
-    let existingFilter = `filter[client_id][_eq]=${userId}&filter[freelancer_id][_eq]=${freelancer_id}&filter[status][_neq]=BLOCKED`;
-    if (job_id) {
-      existingFilter += `&filter[job_id][_eq]=${job_id}`;
-    }
-
-    const existingRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation?${existingFilter}&limit=1&fields=conversation_id,job_id,client_id,freelancer_id,conversation_type,status,last_message_at,created_at,updated_at,archived_by_client,archived_by_freelancer,archived_at`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-
-    if (existingRes.ok) {
-      const existingJson = await existingRes.json();
-      const existing = existingJson.data?.[0];
-      if (existing) {
-        // If archived by client, un-archive it
-        if (existing.archived_by_client) {
-          await fetch(
-            `${DIRECTUS_BASE}/items/vs_conversation/${existing.conversation_id}`,
-            {
-              method: "PATCH",
-              headers: getHeaders(),
-              body: JSON.stringify({ archived_by_client: false }),
-            }
-          );
-          existing.archived_by_client = false;
-        }
-        const enrichedExisting = await enrichOneConversation(existing);
-        return NextResponse.json({ conversation: enrichedExisting, created: false });
-      }
-    }
-
-    // Create new conversation
-    const nowISO = new Date().toISOString().slice(0, 19).replace("T", " ");
-    const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_conversation`, {
-      method: "POST",
-      headers: getHeaders(),
-      body: JSON.stringify({
-        client_id: userId,
-        freelancer_id,
-        job_id: job_id ?? null,
-        conversation_type: conversation_type ?? "JOB_APPLICATION",
-        status: "ACTIVE",
-        archived_by_client: false,
-        archived_by_freelancer: false,
-        last_message_at: nowISO,
-      }),
-    });
-
-    const createJson = await createRes.json();
-
-    if (!createRes.ok) {
-      return NextResponse.json(
-        {
-          error:
-            createJson.errors?.[0]?.message ??
-            "Failed to create conversation.",
-        },
-        { status: createRes.status }
-      );
-    }
-
-    const enrichedNew = await enrichOneConversation(createJson.data);
-    return NextResponse.json(
-      { conversation: enrichedNew, created: true },
-      { status: 201 }
-    );
-  } catch (err: unknown) {
-    console.error("POST /api/client/messaging error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
+    throw new HttpError(
+      403,
+      `Restricted: Your company verification status is currently ${verification_status}. Sending candidate messages is restricted until your company is verified by an admin.`,
+      { verification_status }
     );
   }
-}
+
+  const body = await readBody(req);
+
+  // Both ids are interpolated into Directus filter URLs below and written into
+  // the new row, so they must be positive integers rather than whatever string
+  // the caller sent.
+  const freelancer_id = toId(body.freelancer_id);
+  if (freelancer_id === null) {
+    throw badRequest("freelancer_id must be a positive integer.");
+  }
+
+  const rawJobId = body.job_id;
+  const job_id = toId(rawJobId);
+  if (job_id === null && rawJobId !== undefined && rawJobId !== null && rawJobId !== "") {
+    throw badRequest("job_id must be a positive integer.");
+  }
+
+  const rawType = body.conversation_type;
+  if (
+    rawType !== undefined &&
+    rawType !== null &&
+    !CONVERSATION_TYPES.includes(rawType as ConversationTypeValue)
+  ) {
+    throw badRequest("conversation_type must be JOB_APPLICATION, DIRECT_MESSAGE or SUPPORT.");
+  }
+
+  // Check if a conversation already exists between client and freelancer (for same job).
+  let existingFilter = `filter[client_id][_eq]=${userId}&filter[freelancer_id][_eq]=${freelancer_id}&filter[status][_neq]=BLOCKED`;
+  if (job_id) existingFilter += `&filter[job_id][_eq]=${job_id}`;
+
+  const existingRes = await directusSettled<{ data?: Row[] }>(
+    `/items/vs_conversation?${existingFilter}&limit=1&fields=${CONVERSATION_FIELDS}`
+  );
+  // An unreadable lookup used to fall through and create a second thread for
+  // the same application. Both would then collect messages, and whichever the
+  // list happened to show decided which half of the conversation either party
+  // could see — so the read has to fail the request instead.
+  if (!existingRes.ok) {
+    throw new HttpError(502, "Existing conversation could not be checked. Please try again.");
+  }
+  const existing = existingRes.data?.data?.[0] ?? null;
+
+  if (existing) {
+    // If archived by client, un-archive it
+    if (existing.archived_by_client) {
+      const unarchive = await directusSettled(
+        `/items/vs_conversation/${existing.conversation_id}`,
+        { method: "PATCH", body: { archived_by_client: false } }
+      );
+      // Reporting the thread as reopened while the row is still archived sends
+      // both sides' messages into a thread neither list shows.
+      if (!unarchive.ok) {
+        throw new HttpError(502, "Conversation could not be reopened. Please try again.");
+      }
+      existing.archived_by_client = false;
+    }
+    return { conversation: await enrichOneConversation(existing, userId), created: false };
+  }
+
+  // A job-scoped thread has to be about one of this company's own postings and
+  // about a real application. Without this, any verified client could open a
+  // thread pinned to another company's job_id, and the ApplicationCard in the
+  // chat would render that job's details to both parties.
+  if (job_id !== null) {
+    if (companyId === null) {
+      throw forbidden("No company is linked to this account.");
+    }
+
+    const jobRes = await directusSettled<{
+      data?: { company_id?: number | { company_id?: number } };
+    }>(`/items/vs_job_posting/${job_id}`, { query: "fields=job_id,company_id" });
+    if (!jobRes.ok) {
+      throw new HttpError(
+        jobRes.status === 404 ? 404 : 502,
+        jobRes.status === 404 ? "Job not found." : "Failed to verify the job."
+      );
+    }
+    const rawJobCompany = jobRes.data?.data?.company_id;
+    const jobCompanyId =
+      typeof rawJobCompany === "object" && rawJobCompany !== null
+        ? rawJobCompany.company_id
+        : rawJobCompany;
+    if (Number(jobCompanyId) !== companyId) {
+      throw forbidden("This job does not belong to your company.");
+    }
+
+    const applications = await directusItems<Row>("vs_job_application", {
+      query: `filter[job_id][_eq]=${job_id}&filter[user_id][_eq]=${freelancer_id}&limit=1`,
+    });
+    if (applications.length === 0) {
+      throw forbidden("This freelancer has not applied to this job.");
+    }
+  }
+
+  // Create new conversation
+  const nowPH = getPHTimeString();
+  const created = await directusRequest<{ data?: Row }>("/items/vs_conversation", {
+    method: "POST",
+    body: {
+      client_id: userId,
+      freelancer_id,
+      job_id: job_id ?? null,
+      conversation_type: (rawType as ConversationTypeValue) ?? "JOB_APPLICATION",
+      status: "ACTIVE",
+      archived_by_client: false,
+      archived_by_freelancer: false,
+      last_message_at: nowPH,
+    },
+  });
+
+  return json(
+    { conversation: await enrichOneConversation(created.data ?? {}, userId), created: true },
+    201
+  );
+}, { auth: "client" });

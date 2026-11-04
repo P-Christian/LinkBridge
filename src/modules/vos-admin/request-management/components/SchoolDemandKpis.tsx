@@ -11,6 +11,7 @@
 import * as React from "react";
 import { Building2, CalendarClock, Inbox, Users } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { KpiPending, KpiValue } from "@/components/shared/KpiValue";
 import type { SchoolDemandKpis as SchoolDemandKpiValues } from "../dashboard/school-demand.selectors";
 
 /** The two view filters whose card mapping is unambiguous. */
@@ -20,6 +21,7 @@ export interface SchoolDemandKpisProps {
   kpis: SchoolDemandKpiValues;
   onFilterSelect?: (filter: SchoolDemandKpiFilter) => void;
   currentFilter?: SchoolDemandKpiFilter | null;
+  loading?: boolean;
 }
 
 interface KpiCardSpec {
@@ -63,6 +65,7 @@ export function SchoolDemandKpis({
   kpis,
   onFilterSelect,
   currentFilter,
+  loading,
 }: SchoolDemandKpisProps): React.ReactElement {
   const interactive = typeof onFilterSelect === "function";
   const ageDays = validAgeDays(kpis);
@@ -87,7 +90,7 @@ export function SchoolDemandKpis({
     {
       id: "unrouted",
       title: "Unrouted requests",
-      value: kpis.unroutedCount,
+      value: <KpiValue value={kpis.unroutedCount} loading={loading} />,
       Icon: Inbox,
       tone: "text-primary",
       tileTone: "bg-primary/10",
@@ -97,7 +100,7 @@ export function SchoolDemandKpis({
     {
       id: "awaiting-school",
       title: "Schools awaiting account",
-      value: kpis.awaitingSchoolCount,
+      value: <KpiValue value={kpis.awaitingSchoolCount} loading={loading} />,
       Icon: Building2,
       tone: "text-warning",
       tileTone: "bg-warning/10",
@@ -107,7 +110,7 @@ export function SchoolDemandKpis({
     {
       id: "distinct-requesters",
       title: "Distinct requesters",
-      value: kpis.distinctRequesterCount,
+      value: <KpiValue value={kpis.distinctRequesterCount} loading={loading} />,
       Icon: Users,
       tone: "text-info",
       tileTone: "bg-info/10",
@@ -115,7 +118,9 @@ export function SchoolDemandKpis({
     {
       id: "oldest-unresolved",
       title: "Oldest unresolved",
-      value: ageAvailable ? (
+      value: loading ? (
+        <KpiPending />
+      ) : ageAvailable ? (
         <>
           <span className="tabular-nums">{ageDays}</span>
           <span className="text-sm font-medium text-muted-foreground"> days</span>
@@ -127,9 +132,11 @@ export function SchoolDemandKpis({
       tone: "text-muted-foreground",
       tileTone: "bg-muted",
       tooltip: ageAvailable ? `Oldest unresolved request: created ${ageStamp}` : undefined,
-      srContext: ageAvailable
-        ? `Oldest unresolved request created ${ageStamp}`
-        : "No unresolved requests",
+      srContext: loading
+        ? undefined
+        : ageAvailable
+          ? `Oldest unresolved request created ${ageStamp}`
+          : "No unresolved requests",
     },
   ];
 

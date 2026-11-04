@@ -2,6 +2,7 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   Applicant,
   ApplicantFilterStatus,
@@ -58,6 +59,11 @@ export function useApplicants() {
   // Fetch applicant list
   // --------------------------------
 
+  const abortRead = useRequestAbort();
+  // Separate controller: the list read and a candidate-detail read must not
+  // cancel each other.
+  const abortDetail = useRequestAbort();
+
   const fetchApplicants = useCallback(
     async (
       status?: ApplicantFilterStatus,
@@ -66,6 +72,7 @@ export function useApplicants() {
       setLoading(true);
       setError("");
 
+      const signal = abortRead();
       try {
         const params = new URLSearchParams();
 
@@ -82,7 +89,8 @@ export function useApplicants() {
         const res = await fetch(
           `/api/client/applicants${
             query ? `?${query}` : ""
-          }`
+          }`,
+          { signal }
         );
 
         const json = await res.json();
@@ -100,14 +108,17 @@ export function useApplicants() {
         // the filter is pure during render and still tracks the server clock.
         setFetchedAt(Date.now());
       } catch (err: unknown) {
+        if (signal.aborted) return;
         const msg = err instanceof Error ? err.message : "Failed to load applicants.";
         setError(msg);
         toast.error(msg);
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     },
-    []
+    [abortRead]
   );
 
   // --------------------------------
@@ -293,6 +304,10 @@ export function useApplicants() {
           );
         }
 
+        (Array.isArray(json.warnings) ? (json.warnings as string[]) : []).forEach((w) =>
+          toast.warning(w)
+        );
+
         return { ok: true, gated: false };
       } catch (err: unknown) {
         setApplicants(rollbackList);
@@ -320,13 +335,18 @@ export function useApplicants() {
         setDetailLoading(true);
         setDetailError("");
 
+        const signal = abortDetail();
+
         try {
           const res = await fetch(
-            `/api/client/applicants/${applicationId}`
+            `/api/client/applicants/${applicationId}`,
+            { signal }
           );
 
           const json =
             await res.json();
+
+          if (signal.aborted) return;
 
           if (!res.ok) {
             throw new Error(
@@ -348,6 +368,7 @@ export function useApplicants() {
             setDetail(null);
           }
         } catch (err: unknown) {
+          if (signal.aborted) return;
           setDetailError(
             err instanceof Error
               ? err.message
@@ -356,10 +377,12 @@ export function useApplicants() {
 
           setDetail(null);
         } finally {
-          setDetailLoading(false);
+          if (!signal.aborted) {
+            setDetailLoading(false);
+          }
         }
       },
-      []
+      [abortDetail]
     );
 
   // --------------------------------
@@ -367,10 +390,13 @@ export function useApplicants() {
   // --------------------------------
 
   const clearDetail = useCallback(() => {
+    // Cancel any read still in flight, otherwise it repopulates the detail the
+    // user just closed.
+    abortDetail();
     setDetail(null);
     setDetailError("");
     setDetailLoading(false);
-  }, []);
+  }, [abortDetail]);
 
   // --------------------------------
   // Search + filters

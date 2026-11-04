@@ -31,6 +31,7 @@ import {
 import { SlideUp, HoverScale, StaggerContainer, StaggerChild } from "@/components/shared/MotionContainer";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
+import type { PlatformCompany } from "@/modules/vos-admin/platform-company/types/platformCompany.types";
 
 // ==========================================
 // CONSTANTS
@@ -121,9 +122,14 @@ function FieldError({ id, message }: { id: string; message?: string }) {
 // COMPONENT
 // ==========================================
 
-export default function Contact() {
+export interface ContactProps {
+  initialCompany?: PlatformCompany | null;
+}
+
+export default function Contact({ initialCompany = null }: ContactProps) {
   const session = useAuthSession();
-  const { company } = usePrimaryPlatformCompany();
+  const { company: clientCompany } = usePrimaryPlatformCompany();
+  const company = initialCompany ?? clientCompany;
 
   const email = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
   // No fake fallback: if the platform company has no contact number, the Mobile card is hidden.
@@ -136,7 +142,7 @@ export default function Contact() {
     company?.company_province,
   ].filter(Boolean);
   const officeAddress = addressParts.join(", ") || "Gonzales Street, Bonuan Boquig, Dagupan City, Philippines";
-  const officeRegion = company?.company_province || company?.company_country || "Pangasinan";
+   
   const mapUrl = company?.map_embed_url || "https://www.google.com/maps/place/Vertex+Technologies+Corporation/@16.0811488,120.3628013,806m/data=!3m1!1e3!4m6!3m5!1s0x3391690070819183:0xa97974ead9f524e!8m2!3d16.082358!4d120.360837!16s%2Fg%2F11ms89t5n8?hl=en&entry=ttu";
 
   const [formData, setFormData] = React.useState<ContactFormData>(EMPTY_FORM);
@@ -255,7 +261,7 @@ export default function Contact() {
   const supportHoursValue = `${supportDays}, ${supportTime}`;
 
   const contactCards: ContactCard[] = [
-    { icon: MapPin, label: "Office", value: officeAddress, desc: officeRegion, href: mapUrl },
+    { icon: MapPin, label: "Office", value: officeAddress, desc: "Visit Us" , href: mapUrl },
     { icon: Mail, label: "Email us", value: email, desc: "We reply within 24 hours.", href: `mailto:${email}` },
     ...(mobile
       ? [{ icon: Smartphone, label: "Mobile", value: formatPhone(mobile), desc: "Mobile hotline", href: toTelHref(mobile) }]

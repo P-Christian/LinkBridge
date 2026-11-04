@@ -4,20 +4,20 @@ import * as jose from 'jose';
 import { fetchSchoolByUserIdRepo } from '@/modules/school-admin/services/school-admin.repo';
 import { generateLetterSchema } from '@/modules/school-admin/job-referrals/types/job-referrals.schema';
 import { callGeminiMonitored } from '@/lib/gemini/geminiMonitoring';
+import { getJwtVerificationSecret } from '@/modules/auth/registration/registration.session';
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const COOKIE_NAME = 'vos_sync_access_token';
-const JWT_SECRET = process.env.JWT_SECRET || 'default_super_secret_key_for_development';
 
 async function getAuthSession(req: NextRequest) {
   const token = req.cookies.get(COOKIE_NAME)?.value || req.headers.get('authorization')?.replace('Bearer ', '');
   if (!token) return null;
 
   try {
-    const secret = new TextEncoder().encode(JWT_SECRET);
-    const { payload } = await jose.jwtVerify(token, secret);
+    const { payload } = await jose.jwtVerify(token, getJwtVerificationSecret());
     const userId = Number(payload.user_id || payload.sub);
     if (!userId) return null;
 
@@ -52,7 +52,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { job, students, tone = 'professional', schoolName = session.schoolName, adminName = session.adminName } = parsed.data;
+    const { job, students, tone = 'professional' } = parsed.data;
+    const schoolName = session.schoolName;
+    const adminName = session.adminName;
     const isSingle = students.length === 1;
     const mode = isSingle ? 'tailored' : 'unified';
 
@@ -197,7 +199,7 @@ Academic & Industry Partnerships
       suggestedSubject,
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Failed to generate recommendation letter';
+    const msg = safeErrorMessage(error, "Failed to generate recommendation letter");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

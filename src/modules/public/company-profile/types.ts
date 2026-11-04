@@ -92,8 +92,8 @@ export interface CompanyProfileFeatures {
 
 export interface CompanyReview {
   review_id: number;
-  company_id: number;
-  reviewer_user_id: number;
+  /** Null for anonymous submissions so the reviewer cannot be de-anonymised. */
+  reviewer_user_id: number | null;
   employment_status: "CURRENT_EMPLOYEE" | "FORMER_EMPLOYEE";
   job_title: string | null;
   overall_rating: number;
@@ -105,10 +105,8 @@ export interface CompanyReview {
   pros: string | null;
   cons: string | null;
   review_text: string;
-  status: "PUBLISHED" | "HIDDEN" | "REMOVED";
   is_anonymous: boolean;
   created_at: string;
-  updated_at: string;
 }
 
 export interface CompanyReviewReport {

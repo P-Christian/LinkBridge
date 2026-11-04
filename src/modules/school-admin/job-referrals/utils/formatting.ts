@@ -1,5 +1,7 @@
 // src/modules/school-admin/job-referrals/utils/formatting.ts
 
+import { escapeHtml } from '@/lib/mail/templates/escape-html';
+
 export function maskEmail(email: string): string {
   if (!email || !email.includes('@')) return email;
   const [user, domain] = email.split('@');
@@ -46,7 +48,9 @@ export function stripHtmlTags(html: string | null | undefined): string {
 
 export function markdownToHtml(md: string): string {
   if (!md) return '';
-  return md
+  // Escape before the substitutions: the only tags that reach the email body are
+  // the ones this function itself emits.
+  return escapeHtml(md)
     // Bold
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     // Italic

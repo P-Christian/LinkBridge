@@ -1,9 +1,11 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import * as jose from "jose";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
+import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
 
 async function verifySchoolAdminRole() {
-    if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
+    if (isDevAuthBypassEnabled()) {
         return { isAdmin: true, user: { name: "Local Admin", email: "admin@localhost", avatar: "" } };
     }
     const cookieStore = await cookies();
@@ -11,9 +13,7 @@ async function verifySchoolAdminRole() {
     if (!token) return { isAdmin: false, user: null };
     
     try {
-        const JWT_SECRET = process.env.JWT_SECRET ;
-        const secret = new TextEncoder().encode(JWT_SECRET);
-        const { payload } = await jose.jwtVerify(token, secret);
+        const { payload } = await jose.jwtVerify(token, getJwtVerificationSecret());
         
         // Ensure role_name is SCHOOL_ADMIN for School Admin
         if (typeof payload.role_name !== 'string' || payload.role_name.toUpperCase() !== "SCHOOL_ADMIN") {

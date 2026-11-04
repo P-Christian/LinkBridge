@@ -172,8 +172,8 @@ export function Header() {
     } catch (err) {
       console.error("Logout error:", err)
     } finally {
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
+      // PRIV-017: no client-side cookie expire here - /api/auth/logout already
+      // cleared the HttpOnly auth cookie, and JS cannot overwrite it.
       window.location.href = "/login"
     }
   }

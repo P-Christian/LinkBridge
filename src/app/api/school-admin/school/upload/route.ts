@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
@@ -76,7 +77,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(data.data);
   } catch (error: unknown) {
     console.error("School upload API route error:", error);
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }

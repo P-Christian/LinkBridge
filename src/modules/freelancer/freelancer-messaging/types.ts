@@ -59,12 +59,14 @@ export interface MessageReactionGroup {
   reacted_by_me: boolean;
 }
 
+
 export interface QuotedMessage {
   message_id: number;
   sender_id: number;
   sender_name?: string | null;
   message_content?: string | null;
   message_type?: MessageType;
+  attachments?: MessageAttachment[];
 }
 
 export interface Message {

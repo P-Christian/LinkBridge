@@ -675,7 +675,7 @@ export default function InterviewBigCalendar({
                         }
                       }}
                       title={`Schedule interview on ${format(day, "MMM d, yyyy")}`}
-                      className="opacity-0 group-hover:opacity-100 max-md:opacity-100 max-md:size-10 max-md:hidden transition-opacity p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      className="opacity-0 group-hover:opacity-100 max-md:opacity-100 max-md:size-10 transition-opacity p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </button>

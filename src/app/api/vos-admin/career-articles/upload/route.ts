@@ -1,8 +1,14 @@
 // src/app/api/vos-admin/career-articles/upload/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import {
+  CAREER_ARTICLE_ASSET_UPLOAD_POLICY,
+  getUploadedFile,
+  validateUploadedFile,
+} from "@/lib/file-upload";
 import { CareerArticleService } from "@/modules/vos-admin/career-advice-management/services/article.service";
 import { AssetRole } from "@/modules/vos-admin/career-advice-management/types/article.types";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
@@ -12,19 +18,24 @@ const TARGET_FOLDER_ID = "bc80f14e-57f8-4178-aa5c-b0a55999250c";
 
 export async function POST(req: NextRequest) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!(await requireAdministrator(req))) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
     const articleIdStr = formData.get("article_id") as string | null;
     const assetRole = (formData.get("asset_role") as string) || "INLINE_BODY";
     const caption = formData.get("caption") as string | null;
 
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    let file: File;
+    try {
+      file = getUploadedFile(formData);
+      await validateUploadedFile(file, CAREER_ARTICLE_ASSET_UPLOAD_POLICY);
+    } catch (error: unknown) {
+      return NextResponse.json(
+        { error: error instanceof Error ? error.message : "Invalid file." },
+        { status: 400 }
+      );
     }
 
     // Forward upload to Directus /files with specified folder
@@ -84,7 +95,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     console.error("[api/career-articles/upload POST] Error:", err);
-    const message = err instanceof Error ? err.message : "Failed to process upload";
+    const message = safeErrorMessage(err, "Failed to process upload");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

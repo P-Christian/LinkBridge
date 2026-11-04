@@ -288,11 +288,10 @@ function ReorderableStageItem({
       transition={{
         layout: { type: "spring", stiffness: 450, damping: 32 },
       }}
-      className={`group relative rounded-xl transition-colors select-none ${
-        isDeleting
-          ? "overflow-visible pointer-events-none border-transparent bg-transparent shadow-none"
-          : "border border-border/80 bg-card hover:border-primary/40 hover:shadow-xs"
-      }`}
+      className={`group relative rounded-xl transition-colors select-none ${isDeleting
+        ? "overflow-visible pointer-events-none border-transparent bg-transparent shadow-none"
+        : "border border-border/80 bg-card hover:border-primary/40 hover:shadow-xs"
+        }`}
     >
       {isDeleting ? (
         <div className="relative w-full overflow-visible pointer-events-none">
@@ -376,6 +375,7 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
     clearMessages,
     createPipeline,
     setDefaultPipeline,
+    deletePipeline,
     addStage,
     updateStage,
     deleteStage,
@@ -394,6 +394,22 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
 
   const [newPipelineModalOpen, setNewPipelineModalOpen] = useState(false);
   const [newPipelineName, setNewPipelineName] = useState("");
+
+  const [deletePipelineModalOpen, setDeletePipelineModalOpen] = useState(false);
+  const [deletingPipeline, setDeletingPipeline] = useState(false);
+
+  const handleConfirmDeletePipeline = async () => {
+    if (!selectedPipeline || deletingPipeline) return;
+    setDeletingPipeline(true);
+    try {
+      const ok = await deletePipeline(selectedPipeline.id);
+      if (ok) {
+        setDeletePipelineModalOpen(false);
+      }
+    } finally {
+      setDeletingPipeline(false);
+    }
+  };
 
   // Deletion crack & split animation state
   const [deletingStageId, setDeletingStageId] = useState<number | null>(null);
@@ -570,15 +586,21 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
               <Layers className="h-3.5 w-3.5 text-primary" />
               <span>New Template</span>
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              onClick={handleOpenAddStage}
-              className="h-9 text-xs px-4 gap-1.5 rounded-full font-semibold bg-gradient-to-r from-primary to-info hover:brightness-110 shadow-sm shadow-primary/25 text-primary-foreground"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>Add Stage</span>
-            </Button>
+            {pipelines.length > 1 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={saving || deletingPipeline}
+                onClick={() => setDeletePipelineModalOpen(true)}
+                className="h-8 text-xs gap-1.5 rounded-full border-destructive/20 text-destructive hover:bg-destructive/10 hover:border-destructive/40 transition-colors"
+                title="Delete this template"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Template
+              </Button>
+            )}
+
           </div>
         </div>
       ) : (
@@ -665,18 +687,30 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
               </div>
 
               {!Boolean(selectedPipeline.is_default) && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={saving}
-                  onClick={() => setDefaultPipeline(selectedPipeline.id)}
-                  className="h-8 text-xs gap-1.5 rounded-full border-primary/20 hover:bg-primary/10 hover:text-primary transition-colors"
-                  title="Make this template the default for all future jobs"
-                >
-                  <Star className="h-3.5 w-3.5 text-primary" />
-                  Make Default
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={saving || deletingPipeline}
+                    onClick={() => setDefaultPipeline(selectedPipeline.id)}
+                    className="h-8 text-xs gap-1.5 rounded-full border-primary/20 hover:bg-primary/10 hover:text-primary transition-colors"
+                    title="Make this template the default for all future jobs"
+                  >
+                    <Star className="h-3.5 w-3.5 text-primary" />
+                    Make Default
+                  </Button>
+                  
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleOpenAddStage}
+                    className="h-9 text-xs px-4 gap-1.5 rounded-full font-semibold bg-gradient-to-r from-primary to-info hover:brightness-110 shadow-sm shadow-primary/25 text-primary-foreground"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add Stage</span>
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -805,6 +839,49 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Pipeline Template Confirmation Modal */}
+      <Dialog open={deletePipelineModalOpen} onOpenChange={setDeletePipelineModalOpen}>
+        <DialogContent className="max-w-sm max-md:max-w-[calc(100vw-2rem)]">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold text-destructive flex items-center gap-2">
+              <Trash2 className="h-4 w-4" />
+              Delete Pipeline Template
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-3 py-2 text-xs text-muted-foreground">
+            <p>
+              Are you sure you want to delete <strong className="text-foreground">{selectedPipeline ? `"${selectedPipeline.name}"` : "this template"}</strong>?
+            </p>
+            <p>
+              This template will be removed from your company templates. Existing jobs that previously copied this template will not be affected.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletingPipeline}
+              onClick={() => setDeletePipelineModalOpen(false)}
+              className="h-8 text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deletingPipeline}
+              onClick={handleConfirmDeletePipeline}
+              className="h-8 text-xs gap-1.5"
+            >
+              <Trash2 className="h-3 w-3" />
+              {deletingPipeline ? "Deleting..." : "Delete Template"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

@@ -418,7 +418,7 @@ html.theme-switching * {
 /* ============================================================
    SONNER TOAST THEMING (LIGHT & DARK)
    Enforces solid, non-transparent surfaces with proper HSL
-   tokens and glowing elevation shadows matching the VoSync design system.
+   tokens and glowing elevation shadows matching the VOS Sync design system.
 ============================================================ */
 [data-sonner-toaster] {
   --normal-bg: hsl(var(--card)) !important;

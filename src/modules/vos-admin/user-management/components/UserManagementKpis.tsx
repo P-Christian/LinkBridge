@@ -4,17 +4,20 @@ import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Users, Clock, CheckCircle2, XCircle } from "lucide-react";
 import { UserManagementKPIs } from "../types/user.types";
+import { KpiValue } from "@/components/shared/KpiValue";
 
 interface UserManagementKpisProps {
   kpis: UserManagementKPIs;
   onFilterSelect?: (status: string) => void;
   currentFilter?: string;
+  loading?: boolean;
 }
 
 export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
   kpis,
   onFilterSelect,
   currentFilter,
+  loading,
 }) => {
   const cards = [
     {
@@ -70,7 +73,9 @@ export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {card.title}
                 </p>
-                <h3 className="text-2xl font-bold mt-1 text-foreground">{card.value}</h3>
+                <h3 className="text-2xl font-bold mt-1 text-foreground">
+                  <KpiValue value={card.value} loading={loading} />
+                </h3>
               </div>
               <div className={`p-3 rounded-xl ${card.bgColor} ${card.color}`}>
                 <Icon className="h-6 w-6" />

@@ -1,6 +1,7 @@
 // src/app/api/freelancer/referrals/check-claim/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -17,11 +18,11 @@ function getHeaders(): Record<string, string> {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ claimed: false });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const { searchParams } = new URL(req.url);
     const jobId = searchParams.get("job_id");
@@ -66,7 +67,7 @@ export async function GET(req: NextRequest) {
       referrer_name: referrerName
     });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "An error occurred";
+    const errorMsg = safeErrorMessage(err, "An error occurred");
     return NextResponse.json({ claimed: false, error: errorMsg }, { status: 500 });
   }
 }

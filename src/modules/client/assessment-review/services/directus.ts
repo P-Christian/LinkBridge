@@ -61,15 +61,36 @@ export async function directusGetOne(
   id: number | string,
   fields: string,
 ): Promise<Record<string, unknown> | null> {
+  const result = await directusGetOneSettled(collection, id, fields);
+  return result.ok ? result.row : null;
+}
+
+export type SingleItemRead =
+  | { ok: true; row: Record<string, unknown> | null }
+  | { ok: false; status: number };
+
+/**
+ * Single-item read that keeps "this row does not exist" apart from "we could
+ * not look". `directusGetOne` collapses both to null, which is what an
+ * after-write re-read wants; an authorization check cannot use it, because the
+ * difference decides a 404 versus a 502.
+ */
+export async function directusGetOneSettled(
+  collection: string,
+  id: number | string,
+  fields: string,
+): Promise<SingleItemRead> {
   const response = await fetch(
     `${DIRECTUS_BASE}/items/${collection}/${encodeURIComponent(String(id))}?fields=${encodeURIComponent(fields)}`,
     { headers: directusHeaders(), cache: "no-store" },
   );
-  if (!response.ok) return null;
+  if (!response.ok) return { ok: false, status: response.status };
   const json = (await parseJson(response)) as { data?: unknown } | null;
   const data = json?.data;
-  if (typeof data !== "object" || data === null || Array.isArray(data)) return null;
-  return data as Record<string, unknown>;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return { ok: true, row: null };
+  }
+  return { ok: true, row: data as Record<string, unknown> };
 }
 
 export async function directusPost(

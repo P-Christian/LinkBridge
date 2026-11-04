@@ -150,19 +150,71 @@ export async function getReferralByToken(token: string) {
   return referral;
 }
 
-export async function claimReferralRecord(referralId: number, candidateUserId: number, jobId: number, consentVersion: string) {
-  // Check self referral
-  const refRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id.job_title`, {
-    headers: getHeaders(),
-    cache: "no-store"
-  });
-  let refData: { referrer_user_id?: number; job_id?: { job_title?: string } } | null = null;
-  if (refRes.ok) {
-    refData = (await refRes.json()).data;
-    if (refData && refData.referrer_user_id === candidateUserId) {
-      throw new Error("Self-referral is not allowed.");
+const CLAIMABLE_REFERRAL_STATUSES = ["CREATED", "SENT", "OPENED"];
+
+/**
+ * Claims the referral behind an opaque token. SEC-036: the invitation row is
+ * re-read server-side and every assertion (self-referral, status, expiry,
+ * invitee binding) is made against that row, and the job is taken from it too,
+ * so a caller can no longer claim a sequential referral id for any job.
+ */
+export async function claimReferralRecord(
+  referralId: number,
+  candidateUserId: number,
+  consentVersion: string,
+  candidateEmail?: string | null
+) {
+  const refRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id,job_id.job_id,job_id.job_title,status,expires_at,recipient_email_hash`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!refRes.ok) {
+    throw new Error("Referral invitation not found or no longer valid.");
+  }
+  const refData: {
+    referrer_user_id?: number | null;
+    job_id?: number | { job_id?: number; job_title?: string } | null;
+    status?: string | null;
+    expires_at?: string | null;
+    recipient_email_hash?: string | null;
+  } | null = (await refRes.json()).data;
+  if (!refData) {
+    throw new Error("Referral invitation not found or no longer valid.");
+  }
+
+  if (Number(refData.referrer_user_id) === candidateUserId) {
+    throw new Error("Self-referral is not allowed.");
+  }
+
+  const referralStatus = String(refData.status ?? "").toUpperCase();
+  if (!CLAIMABLE_REFERRAL_STATUSES.includes(referralStatus)) {
+    throw new Error("This referral invitation is no longer open for claiming.");
+  }
+
+  const expiresAtMs = refData.expires_at ? Date.parse(refData.expires_at) : NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error("This referral invitation has expired.");
+  }
+
+  if (refData.recipient_email_hash) {
+    const normalizedEmail = String(candidateEmail ?? "").trim().toLowerCase();
+    const candidateHash = normalizedEmail
+      ? crypto.createHash("sha256").update(normalizedEmail).digest("hex")
+      : "";
+    if (candidateHash !== refData.recipient_email_hash) {
+      throw new Error("This referral invitation was addressed to a different email address.");
     }
   }
+
+  const relatedJob = refData.job_id;
+  const jobId = Number(
+    relatedJob && typeof relatedJob === "object" ? relatedJob.job_id : relatedJob
+  );
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+    throw new Error("This referral invitation is not linked to a job posting.");
+  }
+  const referralJobTitle =
+    relatedJob && typeof relatedJob === "object" ? relatedJob.job_title ?? "" : "";
 
   // Create claim
   const claimPayload = {
@@ -216,7 +268,7 @@ export async function claimReferralRecord(referralId: number, candidateUserId: n
         entity_id: referralId,
         category: "Referral Updates",
         title: "Referral Invitation Accepted!",
-        message: `${candidateName} has accepted your referral invite for the position ${refData.job_id?.job_title || "Opportunity"}.`,
+        message: `${candidateName} has accepted your referral invite for the position ${referralJobTitle || "Opportunity"}.`,
         action_url: "/vos-sync/freelancer/referrals",
       });
     } catch (err) {

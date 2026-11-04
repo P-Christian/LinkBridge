@@ -3,6 +3,7 @@ import { createReferralRecord } from "@/modules/freelancer/freelancer-referrals/
 import { sendMail } from "@/lib/mail";
 import { createNotification } from "@/lib/notifications";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -19,15 +20,15 @@ function getHeaders(): Record<string, string> {
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => ({}));
     const { job_id, recipient_email } = body;
@@ -110,7 +111,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ success: true, ...result });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "Failed to create referral.";
+    const errorMsg = safeErrorMessage(err, "Failed to create referral.");
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }
@@ -118,15 +119,15 @@ export async function POST(req: NextRequest) {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const res = await fetch(
       `${DIRECTUS_BASE}/items/vs_job_referral?filter[referrer_user_id][_eq]=${userId}&sort[]=-created_at&fields=*,job_id.job_id,job_id.job_title&limit=200`,
@@ -140,7 +141,7 @@ export async function GET(req: NextRequest) {
     const json = await res.json();
     return NextResponse.json({ referrals: json.data || [] });
   } catch (err: unknown) {
-    const errorMsg = err instanceof Error ? err.message : "An error occurred";
+    const errorMsg = safeErrorMessage(err, "An error occurred");
     return NextResponse.json({ error: errorMsg }, { status: 500 });
   }
 }

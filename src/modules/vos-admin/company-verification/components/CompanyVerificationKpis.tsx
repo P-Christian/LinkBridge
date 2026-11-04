@@ -5,11 +5,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Building2, Clock, CheckCircle2, XCircle, FileWarning, FileQuestion } from "lucide-react";
 import { CompanyVerificationKPIs } from "../types";
 import { motion, Variants } from "framer-motion";
+import { KpiValue } from "@/components/shared/KpiValue";
 
 interface CompanyVerificationKpisProps {
   kpis: CompanyVerificationKPIs;
   onFilterSelect?: (status: string) => void;
   currentFilter?: string;
+  loading?: boolean;
 }
 
 const containerVariants: Variants = {
@@ -35,6 +37,7 @@ export const CompanyVerificationKpis: React.FC<CompanyVerificationKpisProps> = (
   kpis,
   onFilterSelect,
   currentFilter,
+  loading,
 }) => {
   const cards = [
     {
@@ -127,13 +130,13 @@ export const CompanyVerificationKpis: React.FC<CompanyVerificationKpisProps> = (
                     {card.title}
                   </p>
                   <motion.h3
-                    key={card.value}
+                    key={loading ? "pending" : card.value}
                     initial={{ scale: 0.9, opacity: 0.6 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ type: "spring", stiffness: 450, damping: 26 }}
                     className="text-2xl font-bold mt-1 text-foreground"
                   >
-                    {card.value}
+                    <KpiValue value={card.value} loading={loading} />
                   </motion.h3>
                 </div>
                 <div

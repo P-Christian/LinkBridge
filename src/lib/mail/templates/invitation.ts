@@ -1,16 +1,7 @@
 // src/lib/mail/templates/invitation.ts
 import { InvitationTemplateData } from "../types";
 import { getBaseUrl } from "./base-url";
-
-function escapeHtml(str?: string | null): string {
-  if (!str) return "";
-  return String(str)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
+import { escapeHtml } from "./escape-html";
 
 export function invitationTemplate(data: InvitationTemplateData) {
   const {

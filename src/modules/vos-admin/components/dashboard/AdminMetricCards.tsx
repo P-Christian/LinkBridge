@@ -52,9 +52,12 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
     },
     {
       title: 'Total Platform Users',
-      value: kpis.totalUsers,
-      subtitle: `${kpis.activeUsers} active accounts`,
-      badgeText: '+12% this month',
+      value: kpis.totalUsers ?? '—',
+      subtitle:
+        kpis.activeUsers === null ? 'Active account count unavailable' : `${kpis.activeUsers} active accounts`,
+      // No growth badge: the overview has no previous-period count to compare
+      // against, so any percentage here would be invented.
+      badgeText: null,
       badgeStatus: 'success',
       icon: Users,
       iconColor: 'text-blue-600 dark:text-blue-400',
@@ -66,7 +69,7 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       title: 'Verified Institutions',
       value: kpis.totalVerifiedSchools,
       subtitle: `${kpis.totalVerifiedCompanies} partner employers`,
-      badgeText: 'Active Network',
+      badgeText: null,
       badgeStatus: 'success',
       icon: GraduationCap,
       iconColor: 'text-emerald-600 dark:text-emerald-400',
@@ -76,10 +79,14 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
     },
     {
       title: 'AI Engine Health',
-      value: `${kpis.geminiSuccessRate}%`,
-      subtitle: `${kpis.geminiAvgLatencyMs}ms avg latency`,
+      value: kpis.geminiSuccessRate === null ? '—' : `${kpis.geminiSuccessRate}%`,
+      subtitle:
+        kpis.geminiAvgLatencyMs === null
+          ? 'No recent AI requests'
+          : `${kpis.geminiAvgLatencyMs}ms avg latency`,
       badgeText: kpis.geminiHealthStatus,
-      badgeStatus: kpis.geminiHealthStatus === 'HEALTHY' ? 'success' : 'warning',
+      badgeStatus:
+        kpis.geminiHealthStatus === 'HEALTHY' ? 'success' : kpis.geminiHealthStatus === 'NO_DATA' ? 'muted' : 'warning',
       icon: Cpu,
       iconColor: 'text-purple-600 dark:text-purple-400',
       iconBgColor: 'bg-purple-500/10 border-purple-500/20',
@@ -113,22 +120,24 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
               <h3 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 {card.value}
               </h3>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                  card.badgeStatus === 'success'
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : card.badgeStatus === 'warning'
-                    ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                    : 'bg-muted text-muted-foreground'
-                }`}
-              >
-                {card.badgeStatus === 'success' ? (
-                  <CheckCircle2 className="h-3 w-3" />
-                ) : (
-                  <AlertCircle className="h-3 w-3" />
-                )}
-                {card.badgeText}
-              </span>
+              {card.badgeText ? (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                    card.badgeStatus === 'success'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : card.badgeStatus === 'warning'
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'bg-muted text-muted-foreground'
+                  }`}
+                >
+                  {card.badgeStatus === 'success' ? (
+                    <CheckCircle2 className="h-3 w-3" />
+                  ) : card.badgeStatus === 'warning' ? (
+                    <AlertCircle className="h-3 w-3" />
+                  ) : null}
+                  {card.badgeText}
+                </span>
+              ) : null}
             </div>
 
             <p className="mt-1 text-xs text-muted-foreground truncate">{card.subtitle}</p>

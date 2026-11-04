@@ -118,7 +118,9 @@ export function AuditTrailPage() {
       </motion.div>
 
       {/* KPI Cards */}
-      <AuditKPICards kpis={kpis} loading={loading} />
+      {/* `loading` is true on every filter change too, and the previous counts
+          are still on hand, so only a first read with nothing to show blanks them. */}
+      <AuditKPICards kpis={kpis} loading={loading && records.length === 0} />
 
       {/* Main Content Card */}
       <motion.div variants={itemVariants}>

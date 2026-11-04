@@ -2,8 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSchoolSuccessMetrics } from '@/modules/school-admin/success-metrics/services/success-metrics.service';
 import { SuccessMetricsFilterSchema } from '@/modules/school-admin/success-metrics/types/success-metrics.schema';
-import { authenticateRequest, hasRole } from '@/lib/authenticated-session';
+import { authenticateRequest, hasRole, isAdministratorSession } from '@/lib/authenticated-session';
 import { fetchSchoolByUserIdRepo } from '@/modules/school-admin/services/school-admin.repo';
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -11,12 +12,12 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: NextRequest) {
   try {
     const session = await authenticateRequest(request);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const isSchoolAdmin = session ? hasRole(session, [3, 4], ["ADMIN", "ADMINISTRATOR", "SCHOOL_ADMIN", "SCH_ADMIN"]) : false;
-    if (session && !isSchoolAdmin && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isSchoolAdmin) {
       return NextResponse.json({ error: "Forbidden: school admin role required." }, { status: 403 });
     }
 
@@ -45,8 +46,9 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // If caller is school admin (not platform super admin), ensure they can only query their own school
-    if (session && session.roleId === 4 && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    // Only a platform administrator may query another school; every other caller is bound to its own school,
+    // regardless of whether hasRole matched on role id or role name above.
+    if (!isAdministratorSession(session)) {
       const schoolAdminData = await fetchSchoolByUserIdRepo(Number(session.userId));
       if (!schoolAdminData || String(schoolAdminData.school_id) !== String(parseResult.data.school_id)) {
         return NextResponse.json({ error: "Forbidden: unauthorized school access." }, { status: 403 });
@@ -60,7 +62,7 @@ export async function GET(request: NextRequest) {
       data: metricsData,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error calculating metrics';
+    const message = safeErrorMessage(error, "Internal server error calculating metrics");
     console.error('[API /api/school-admin/success-metrics] Error:', error);
     return NextResponse.json(
       {

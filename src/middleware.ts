@@ -1,8 +1,9 @@
 // src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import * as jose from "jose";
-import { canAuthenticate } from "@/lib/status-validator";
+import { canAuthenticate, isSessionEpochStale, isSessionRevoked } from "@/lib/status-validator";
 import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
 
 const COOKIE_NAME = "vos_sync_access_token";
 const PROTECTED_PREFIXES = ["/dashboard", "/scm", "/fm", "/hrm", "/bia", "/arf", "/cafeteria", "/vos-sync", "/main-dashboard"];
@@ -16,17 +17,8 @@ function isProtectedPath(pathname: string) {
     return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-function parseDbTimestamp(ts: string | null | undefined): number {
-    if (!ts) return 0;
-    if (ts.includes("Z") || ts.includes("+")) return new Date(ts).getTime();
-    const normalized = ts.replace(" ", "T");
-    const withTz = normalized.includes("T") ? `${normalized}+08:00` : normalized;
-    const parsed = new Date(withTz).getTime();
-    return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export async function middleware(req: NextRequest) {
-    if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
+    if (isDevAuthBypassEnabled()) {
         return NextResponse.next();
     }
 
@@ -165,38 +157,24 @@ export async function middleware(req: NextRequest) {
 
                         const sid = typeof payload.sid === "string" ? payload.sid : null;
                         if (sid) {
-                            const sessionRes = await fetch(`${DIRECTUS_BASE}/items/vs_user_sessions/${sid}?fields=session_id,revoked_at,expires_at`, {
-                                headers,
-                                cache: "no-store",
-                            });
-                            if (sessionRes.ok) {
-                                const sessionJson = await sessionRes.json();
-                                const sessionData = sessionJson?.data;
-                                if (!sessionData || sessionData.revoked_at) {
-                                    return redirectToLogin(req);
-                                }
-                                const expiresAtMs = sessionData.expires_at ? parseDbTimestamp(sessionData.expires_at) : 0;
-                                if (expiresAtMs > 0 && Date.now() > expiresAtMs) {
-                                    return redirectToLogin(req);
-                                }
-                            } else if (sessionRes.status === 404) {
+                            if (await isSessionRevoked(sid)) {
                                 return redirectToLogin(req);
                             }
-                        } else {
-                            const sessionEpoch = parseDbTimestamp(dbUser.session_epoch);
-                            const tokenIat = payload.iat ? payload.iat * 1000 : 0;
-                            if (sessionEpoch > 0 && tokenIat > 0 && sessionEpoch > tokenIat) {
-                                return redirectToLogin(req);
-                            }
+                        } else if (isSessionEpochStale(dbUser.session_epoch, payload.iat)) {
+                            return redirectToLogin(req);
                         }
+                    } else {
+                        return redirectToLogin(req);
                     }
                 } else if (statusRes.status === 404) {
                     return redirectToLogin(req);
                 } else {
-                    console.warn(`[Middleware] Directus returned status ${statusRes.status} for user #${userId}`);
+                    console.error(`[Middleware] Directus returned status ${statusRes.status} for user #${userId}; failing closed.`);
+                    return redirectToLogin(req);
                 }
             } catch (err) {
-                console.error("[Middleware] Account status check failed:", err);
+                console.error("[Middleware] Account status check failed; failing closed:", err);
+                return redirectToLogin(req);
             }
         }
 

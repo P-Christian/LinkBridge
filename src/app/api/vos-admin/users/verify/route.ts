@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { reviewIdentityDocument } from "@/modules/vos-admin/user-management";
-import { createAuditRecordRepo } from "@/modules/vos-admin/audit-trail";
+import { createAuditRecordStrictRepo } from "@/modules/vos-admin/audit-trail";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export async function POST(req: NextRequest) {
   try {
@@ -41,20 +42,28 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    createAuditRecordRepo({
-      event_type: status === 'approved' ? "IDENTITY_VERIFICATION_APPROVED" : "IDENTITY_VERIFICATION_REJECTED",
-      event_category: "USER",
-      action: status === 'approved' ? "VERIFY" : "REJECT",
-      status: "SUCCESS",
-      actor_type: "ADMIN",
-      actor_user_id: adminId,
-      resource_type: "vs_identity_verifications",
-      resource_id: String(verificationId),
-      reason: rejectionNote || `Identity document ${status} by admin #${adminId}`,
-    });
+    // The review is already committed, so a failed log is reported as a warning
+    // rather than an error that would invite a second review.
+    const warnings: string[] = [];
+    try {
+      await createAuditRecordStrictRepo({
+        event_type: status === 'approved' ? "IDENTITY_VERIFICATION_APPROVED" : "IDENTITY_VERIFICATION_REJECTED",
+        event_category: "USER",
+        action: status === 'approved' ? "VERIFY" : "REJECT",
+        status: "SUCCESS",
+        actor_type: "ADMIN",
+        actor_user_id: adminId,
+        resource_type: "vs_identity_verifications",
+        resource_id: String(verificationId),
+        reason: rejectionNote || `Identity document ${status} by admin #${adminId}`,
+      });
+    } catch (auditErr) {
+      console.error("Identity review could not be logged:", auditErr);
+      warnings.push("The review was applied but is not in the audit trail.");
+    }
 
-    return NextResponse.json({ verification });
+    return NextResponse.json({ verification, warnings });
   } catch (error: unknown) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(error, "Internal server error.")}, { status: 500 });
   }
 }

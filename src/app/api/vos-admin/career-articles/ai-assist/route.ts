@@ -1,15 +1,16 @@
 // src/app/api/vos-admin/career-articles/ai-assist/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { AiArticleActionSchema } from "@/modules/vos-admin/career-advice-management/types/article.schema";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session || !isAdministratorSession(session)) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -20,7 +21,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { action, topic, category, target_audience, raw_text, title, content } = parsed.data;
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     let systemInstruction = "";
     let prompt = "";
@@ -114,7 +115,7 @@ Return strict JSON:
     return NextResponse.json({ success: true, data: resultJson });
   } catch (err: unknown) {
     console.error("[api/career-articles/ai-assist POST] Error:", err);
-    const message = err instanceof Error ? err.message : "AI assist failed";
+    const message = safeErrorMessage(err, "AI assist failed");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

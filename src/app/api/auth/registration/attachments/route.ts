@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import * as jose from "jose";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import {
   REGISTRATION_ID_DOCUMENT_UPLOAD_POLICY,
@@ -7,7 +6,7 @@ import {
   safeFileName,
   validateUploadedFile,
 } from "@/lib/file-upload";
-import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
+import { verifyRegistrationAttachmentToken } from "@/modules/auth/registration/registration.attachment.token";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,16 +41,12 @@ async function resolveAttachmentSession(request: NextRequest): Promise<Attachmen
 
   const token = request.headers.get("x-registration-attachment-token")?.trim();
   if (!token) return null;
-  try {
-    const { payload } = await jose.jwtVerify(token, getJwtVerificationSecret());
-    if (payload.purpose !== "registration-attachments") return null;
-    const userId = normalizedUserId(payload.sub);
-    const roleName = String(payload.role ?? "").trim().toUpperCase();
-    if (userId === null || !roleName) return null;
-    return { userId, roleName };
-  } catch {
-    return null;
-  }
+  const payload = await verifyRegistrationAttachmentToken(token);
+  if (!payload) return null;
+  const userId = normalizedUserId(payload.sub);
+  const roleName = String(payload.role ?? "").trim().toUpperCase();
+  if (userId === null || !roleName) return null;
+  return { userId, roleName };
 }
 
 function directusConfig(): { baseUrl: string; token: string } | null {

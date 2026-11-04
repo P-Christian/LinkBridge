@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { legacyRegistrationRetiredResponse } from "@/modules/auth/registration";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -117,7 +118,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ fileId });
   } catch (error: unknown) {
     const msg =
-      error instanceof Error ? error.message : "Internal server error";
+      safeErrorMessage(error, "Internal server error");
     console.error("[upload-gov-id] Error:", error);
     return NextResponse.json({ error: msg }, { status: 500 });
   }

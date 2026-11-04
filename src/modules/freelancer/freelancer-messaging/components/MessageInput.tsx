@@ -2,7 +2,7 @@
 
 // src/modules/freelancer/freelancer-messaging/components/MessageInput.tsx
 
-import React, { useRef, useState, KeyboardEvent, useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState, KeyboardEvent } from "react";
 import { Send, Paperclip, X, FileText, ImageIcon, Loader2, Reply } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -16,12 +16,18 @@ interface PendingFile {
 
 interface Props {
   disabled?: boolean;
-  sending?: boolean;
   uploading?: boolean;
   replyingTo?: Message | null;
   onCancelReply?: () => void;
   onSend: (content: string, files: File[]) => Promise<boolean>;
 }
+
+// Keep in sync with the upload endpoint and the client-portal composer.
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const ALLOWED_EXT = /\.(pdf|docx?|xlsx?|txt|zip)$/i;
+
+const TOAST_ID = "freelancer-attachment";
 
 function getFileIcon(mimeType: string) {
   if (mimeType.startsWith("image/")) return ImageIcon;
@@ -36,7 +42,6 @@ function formatFileSize(bytes: number): string {
 
 export default function MessageInput({
   disabled,
-  sending,
   uploading,
   replyingTo,
   onCancelReply,
@@ -46,50 +51,67 @@ export default function MessageInput({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef<PendingFile[]>([]);
 
-  const isBusy = sending || uploading || disabled;
+  const isBusy = !!(uploading || disabled);
   const canSend = (content.trim().length > 0 || pendingFiles.length > 0) && !isBusy;
 
   useEffect(() => {
+    pendingRef.current = pendingFiles;
+  });
+
+  // Read the list back through a ref: this cleanup is registered on mount, when
+  // pendingFiles was still empty, so closing the thread used to revoke nothing
+  // and leak an object URL per image preview.
+  useEffect(() => {
     return () => {
-      pendingFiles.forEach((pf) => {
-        if (pf.preview) URL.revokeObjectURL(pf.preview);
-      });
+      pendingRef.current.forEach((pf) => pf.preview && URL.revokeObjectURL(pf.preview));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addFiles = useCallback((incoming: File[]) => {
+    if (incoming.length === 0) return;
+
+    const problems = new Set<string>();
+    const accepted: PendingFile[] = [];
+    const room = MAX_FILES - pendingRef.current.length;
+
+    for (const file of incoming) {
+      const isImage = file.type.startsWith("image/");
+      // The accept= hint is only a filter in the picker; drag, paste or a forced
+      // file list get through it, and the upload endpoint rejects them later.
+      if (!isImage && !ALLOWED_EXT.test(file.name)) {
+        problems.add(`${file.name} isn't a supported file type`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        problems.add(`${file.name} is larger than ${MAX_FILE_SIZE / 1024 / 1024} MB`);
+        continue;
+      }
+      if (accepted.length >= room) {
+        problems.add(`You can attach up to ${MAX_FILES} files per message`);
+        break;
+      }
+      accepted.push({ file, preview: isImage ? URL.createObjectURL(file) : undefined });
+    }
+
+    if (accepted.length > 0) setPendingFiles((prev) => [...prev, ...accepted]);
+    if (problems.size > 0) {
+      toast.error(Array.from(problems).join(". "), { id: TOAST_ID });
+    }
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const rawFiles = Array.from(e.target.files ?? []);
-    const MAX_FILE_SIZE = 25 * 1024 * 1024;
-    const validFiles: File[] = [];
-
-    for (const f of rawFiles) {
-      if (f.size > MAX_FILE_SIZE) {
-        toast.error(`${f.name} exceeds the 25MB file size limit.`);
-      } else {
-        validFiles.push(f);
-      }
-    }
-
-    const newPending: PendingFile[] = validFiles.map((file) => {
-      const pf: PendingFile = { file };
-      if (file.type.startsWith("image/")) {
-        pf.preview = URL.createObjectURL(file);
-      }
-      return pf;
-    });
-    setPendingFiles((prev) => [...prev, ...newPending]);
+    addFiles(Array.from(e.target.files ?? []));
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeFile = (index: number) => {
     if (isBusy) return;
     setPendingFiles((prev) => {
-      const next = [...prev];
-      if (next[index].preview) URL.revokeObjectURL(next[index].preview!);
-      next.splice(index, 1);
-      return next;
+      const target = prev[index];
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((_, i) => i !== index);
     });
   };
 
@@ -106,10 +128,11 @@ export default function MessageInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    // Enter also commits an in-progress IME candidate; without this guard the
+    // half-typed word was sent as a message.
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void handleSend();
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -130,7 +153,10 @@ export default function MessageInput({
               Replying:
             </span>
             <span className="truncate text-[11px] text-muted-foreground">
-              {replyingTo.message_content || "Attachment"}
+              {replyingTo.message_content ||
+                (replyingTo.attachments?.[0]?.file_name
+                  ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
+                  : "Attachment")}
             </span>
           </div>
           {onCancelReply && (
@@ -237,7 +263,7 @@ export default function MessageInput({
               : "bg-muted text-muted-foreground/40 cursor-not-allowed"
           )}
         >
-          {sending || uploading ? (
+          {uploading ? (
             <Loader2 className="h-4 w-4 animate-spin text-primary-foreground" />
           ) : (
             <Send className="h-4 w-4 text-primary-foreground ml-0.5" />

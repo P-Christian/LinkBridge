@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { PlatformCompany, PlatformCompanyFormData } from "../types/platformCompany.types";
 import {
   fetchPlatformCompanies,
@@ -23,45 +24,34 @@ export function usePlatformCompany() {
     setSuccessMessage(null);
   }, []);
 
+  const abortRead = useRequestAbort();
+
   const loadCompanies = useCallback(async () => {
     setLoading(true);
     clearMessages();
+    // Saving or setting a primary company reloads the list while the mount read
+    // may still be running; only the newest read may write.
+    const signal = abortRead();
     try {
       const res = await fetchPlatformCompanies();
+      if (signal.aborted) return;
       setCompanies(res.data ?? []);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const e = err as Error;
       setError(e.message || "Failed to load platform companies");
       toast.error(e.message || "Failed to load platform companies");
     } finally {
-      setLoading(false);
-    }
-  }, [clearMessages]);
-
-  useEffect(() => {
-    let ignore = false;
-    async function load() {
-      try {
-        const res = await fetchPlatformCompanies();
-        if (!ignore) {
-          setCompanies(res.data ?? []);
-        }
-      } catch (err: unknown) {
-        if (!ignore) {
-          const e = err as Error;
-          setError(e.message || "Failed to load platform companies");
-        }
-      } finally {
-        if (!ignore) {
-          setLoading(false);
-        }
+      if (!signal.aborted) {
+        setLoading(false);
       }
     }
-    void load();
-    return () => {
-      ignore = true;
-    };
-  }, []);
+  }, [clearMessages, abortRead]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadCompanies();
+  }, [loadCompanies]);
 
   const openCreateModal = useCallback(() => {
     clearMessages();
@@ -89,10 +79,15 @@ export function usePlatformCompany() {
       clearMessages();
       try {
         const idToUpdate = targetCompanyId ?? formData.company_id ?? editingCompany?.company_id ?? companies[0]?.company_id;
-        await updatePlatformCompany(formData, idToUpdate);
+        const saved = await updatePlatformCompany(formData, idToUpdate);
         const msg = `Updated "${formData.company_name}" successfully.`;
         setSuccessMessage(msg);
         toast.success(msg);
+        // The company row saved, but a value row beside it may not have. Without
+        // this the admin is told only that everything saved.
+        if (saved.warnings?.length) {
+          toast.warning(saved.warnings.join(" "));
+        }
         setIsModalOpen(false);
         setEditingCompany(null);
         await loadCompanies();

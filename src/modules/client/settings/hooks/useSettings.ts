@@ -4,6 +4,7 @@
 
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { UserProfile, SecurityPayload, TeamMember } from "../types";
 import {
   fetchUserProfile,
@@ -21,19 +22,27 @@ export function useSettings() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Two independent reads, so two independent tokens: one shared controller
+  // would cancel the profile read whenever the team read starts.
+  const abortProfile = useRequestAbort();
+  const abortTeam = useRequestAbort();
+
   const loadProfile = useCallback(async () => {
     setLoading(true);
+    const signal = abortProfile();
     try {
-      const data = await fetchUserProfile();
+      const data = await fetchUserProfile(signal);
+      if (signal.aborted) return;
       setUser(data);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       toast.error(
         err instanceof Error ? err.message : "An error occurred."
       );
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [abortProfile]);
 
   const saveProfile = useCallback(async (data: Partial<UserProfile>) => {
     setSaving(true);
@@ -74,17 +83,22 @@ export function useSettings() {
 
   const loadTeam = useCallback(async () => {
     setTeamLoading(true);
+    // Role changes patch this list locally, so a read that started before one
+    // of them lands must not restore the pre-change roster.
+    const signal = abortTeam();
     try {
-      const members = await fetchTeamMembers();
+      const members = await fetchTeamMembers(signal);
+      if (signal.aborted) return;
       setTeam(members);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       toast.error(
         err instanceof Error ? err.message : "Failed to load team members."
       );
     } finally {
-      setTeamLoading(false);
+      if (!signal.aborted) setTeamLoading(false);
     }
-  }, []);
+  }, [abortTeam]);
 
   const modifyTeamRole = useCallback(
     async (

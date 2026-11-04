@@ -41,6 +41,28 @@ export const FREELANCER_IDENTITY_IMAGE_UPLOAD_POLICY: FileUploadPolicy = {
   imageOnly: true,
 };
 
+export const FREELANCER_AVATAR_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "profile photo",
+  maxBytes: 5 * 1024 * 1024,
+  mimeTypes: ["image/jpeg", "image/png", "image/webp"],
+  extensions: ["jpg", "jpeg", "png", "webp"],
+  imageOnly: true,
+};
+
+export const FREELANCER_PROFILE_MEDIA_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "profile media",
+  maxBytes: 10 * 1024 * 1024,
+  mimeTypes: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ],
+  extensions: ["jpg", "jpeg", "png", "webp", "pdf", "doc", "docx"],
+};
+
 export const FREELANCER_ADDRESS_UPLOAD_POLICY: FileUploadPolicy = {
   label: "proof-of-address document",
   maxBytes: 10 * 1024 * 1024,
@@ -53,6 +75,68 @@ export const ASSESSMENT_PROOF_UPLOAD_POLICY: FileUploadPolicy = {
   maxBytes: 10 * 1024 * 1024,
   mimeTypes: ["application/pdf", "image/jpeg", "image/png", "image/webp"],
   extensions: ["pdf", "jpg", "jpeg", "png", "webp"],
+};
+
+export const SCHOOL_DOCUMENT_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "school document",
+  maxBytes: 10 * 1024 * 1024,
+  mimeTypes: [
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+  ],
+  extensions: ["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"],
+};
+
+export const CAREER_ARTICLE_ASSET_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "article asset",
+  maxBytes: 10 * 1024 * 1024,
+  mimeTypes: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "application/pdf",
+  ],
+  extensions: ["jpg", "jpeg", "png", "webp", "gif", "pdf"],
+};
+
+// Chat attachments keep the type set the messaging UI has always offered;
+// each one now has to match its real file signature too.
+export const MESSAGING_ATTACHMENT_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "attachment",
+  maxBytes: 25 * 1024 * 1024,
+  mimeTypes: [
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "application/pdf",
+    "application/msword",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "text/plain",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/zip",
+    "application/x-zip-compressed",
+  ],
+  extensions: [
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+    "gif",
+    "pdf",
+    "doc",
+    "docx",
+    "txt",
+    "xls",
+    "xlsx",
+    "zip",
+  ],
 };
 
 // Signup keeps these files in browser memory until email verification has
@@ -107,13 +191,22 @@ async function hasExpectedSignature(file: File, extension: string): Promise<bool
         new TextDecoder().decode(bytes.slice(0, 4)) === "RIFF" &&
         new TextDecoder().decode(bytes.slice(8, 12)) === "WEBP"
       );
+    case "gif":
+      return new TextDecoder().decode(bytes.slice(0, 4)) === "GIF8";
     case "docx":
-      // DOCX is an OOXML ZIP package. The ZIP marker is the useful cheap
+    case "xlsx":
+    case "zip":
+      // DOCX/XLSX are OOXML ZIP packages. The ZIP marker is the useful cheap
       // server-side check; full archive validation belongs to virus scanning.
       return startsWithBytes(bytes, [0x50, 0x4b, 0x03, 0x04]) || startsWithBytes(bytes, [0x50, 0x4b, 0x05, 0x06]);
     case "doc":
-      // Legacy binary Word files use the OLE compound-file marker.
+    case "xls":
+      // Legacy binary Word/Excel files use the OLE compound-file marker.
       return startsWithBytes(bytes, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]);
+    case "txt":
+      // Plain text has no signature; the extension and MIME checks above are
+      // the whole guarantee, and the asset proxy forces it to download.
+      return true;
     default:
       return false;
   }

@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,9 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
   ""
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/** The known category set is ~15; this bounds the writes one PUT can trigger. */
+const MAX_PREFERENCES_PER_REQUEST = 50;
 
 function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -28,18 +32,18 @@ function getHeaders(): Record<string, string> {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&fields=preference_id,user_id,category,email_enabled,in_app_enabled,updated_at&limit=100`,
+      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&fields=preference_id,user_id,category,email_enabled,in_app_enabled,updated_at&sort[]=-updated_at&sort[]=-preference_id&limit=100`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -58,7 +62,10 @@ export async function GET(req: NextRequest) {
     const existingMap = new Map<string, { preference_id?: number; email_enabled: boolean; in_app_enabled: boolean; updated_at?: string | null }>();
     rawPrefs.forEach((p) => {
       const cat = String(p.category ?? "");
-      if (cat) {
+      // Newest row wins (see the sort above): duplicate rows were written by an
+      // earlier PUT that could not read the existing ones, and last-wins made the
+      // panel show whichever row Directus happened to return second.
+      if (cat && !existingMap.has(cat)) {
         existingMap.set(cat, {
           preference_id: Number(p.preference_id),
           email_enabled: p.email_enabled === 1 || p.email_enabled === true,
@@ -126,7 +133,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/notifications/preferences error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -143,18 +150,21 @@ interface PreferenceInput {
 export async function PUT(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => null);
-    const incoming: PreferenceInput[] = body?.preferences ?? [];
+    const rawIncoming: PreferenceInput[] = body?.preferences ?? [];
+    const incoming = Array.isArray(rawIncoming)
+      ? rawIncoming.slice(0, MAX_PREFERENCES_PER_REQUEST)
+      : [];
 
     if (!Array.isArray(incoming) || incoming.length === 0) {
       return NextResponse.json(
@@ -168,6 +178,22 @@ export async function PUT(req: NextRequest) {
       `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&fields=preference_id,category&limit=100`,
       { headers: getHeaders(), cache: "no-store" }
     );
+
+    // A failed lookup looks like "no preferences yet", and every category would
+    // then be POSTed again instead of PATCHed — vs_notification_preference has no
+    // unique key, so one outage minted a duplicate row per category that the GET
+    // reads back with limit=100 and no sort.
+    if (!existRes.ok) {
+      const err = await existRes.json().catch(() => ({}));
+      return NextResponse.json(
+        {
+          error:
+            err.errors?.[0]?.message ??
+            "The existing preferences could not be read, so nothing was saved.",
+        },
+        { status: existRes.status }
+      );
+    }
 
     const existJson = await existRes.json();
     const existing: { preference_id: number; category: string }[] =
@@ -218,9 +244,11 @@ export async function PUT(req: NextRequest) {
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length > 0) {
       console.error("Some preferences failed to save:", failed);
+      // 500, not 207: fetch treats 207 as a successful response, so a client
+      // that only checks res.ok reported a partial save as "saved".
       return NextResponse.json(
         { error: "Some preferences could not be saved. Please try again." },
-        { status: 207 }
+        { status: 500 }
       );
     }
 
@@ -228,7 +256,7 @@ export async function PUT(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PUT /api/client/notifications/preferences error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

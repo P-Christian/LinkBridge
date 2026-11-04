@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { AccountStatusUser, AccountStatus, StatusTransitionPayload, AppealDecisionPayload } from "../types/account-status.types";
+import { AccountStatusUser, AccountStatus, AccountStatusOrUnknown, StatusTransitionPayload, AppealDecisionPayload, UNKNOWN_ACCOUNT_STATUS } from "../types/account-status.types";
 import { ShieldAlert, History, MessageSquare, Shield, Check, X, Clock } from "lucide-react";
 import { toast } from "sonner";
 
@@ -40,7 +40,7 @@ export function AccountStatusDetailModal({
   const [activeTab, setActiveTab] = useState<"control" | "history" | "appeals">("control");
 
   // Form State
-  const [targetStatus, setTargetStatus] = useState<AccountStatus>("ACTIVE");
+  const [targetStatus, setTargetStatus] = useState<AccountStatus | "">("");
   const [reasonCode, setReasonCode] = useState("");
   const [publicReason, setPublicReason] = useState("");
   const [internalNote, setInternalNote] = useState("");
@@ -58,7 +58,10 @@ export function AccountStatusDetailModal({
     const details = await onFetchDetail(userId);
     if (details) {
       setUser(details);
-      setTargetStatus(details.status);
+      // An unreadable status leaves the picker empty on purpose: defaulting it
+      // to ACTIVE would let a save turn an unknown account into a good-standing
+      // one without anyone choosing that.
+      setTargetStatus(details.status === UNKNOWN_ACCOUNT_STATUS ? "" : details.status);
       // Pre-populate active restrictions if limited
       if (details.status === "LIMITED" && details.restrictions) {
         setSelectedRestrictions(details.restrictions.map(r => r.code));
@@ -97,6 +100,10 @@ export function AccountStatusDetailModal({
   const handleStatusSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!targetStatus) {
+      toast.error("Choose the status to apply.");
+      return;
+    }
     if (!reasonCode || !publicReason) {
       toast.error("Please provide a reason code and a user-facing explanation.");
       return;
@@ -152,7 +159,7 @@ export function AccountStatusDetailModal({
     setSubmitting(false);
   };
 
-  const getStatusColor = (status: AccountStatus) => {
+  const getStatusColor = (status: AccountStatusOrUnknown) => {
     switch (status) {
       case "ACTIVE": return "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300";
       case "LIMITED": return "bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300";

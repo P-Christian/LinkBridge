@@ -1,7 +1,7 @@
 // src/app/api/client/talent-search/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import {
   runMatchingEngine,
@@ -18,20 +18,77 @@ import {
 import { expandQueryWithGemini, shouldExpandWithGemini } from "@/lib/gemini/queryUnderstanding";
 import { rerankCandidatesWithGemini } from "@/lib/gemini/aiReranker";
 import { orderEducation } from "@/modules/client/education/order-education";
+import { DirectusError, directusItems, directusItemsWhereIn } from "@/lib/server/directus";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+/**
+ * Row ceiling for every Directus read in this route. The profile corpus and the
+ * taxonomy tables are scanned whole — truncating them would silently change
+ * which candidates are findable — so this sits far above current data volume and
+ * only exists to stop an unbounded `limit=-1` read from exhausting memory.
+ */
+const MAX_SCAN_ROWS = 10_000;
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
+interface TalentProfileRow {
+  profile_id: number;
+  user_id: number;
+  profile_headline?: string;
+  professional_summary?: string;
+}
+
+/** Rows attached to every candidate profile by the bulk reads below. */
+interface BulkUserRow {
+  user_id: number;
+  user_fname: string;
+  user_lname: string;
+  user_email: string;
+  user_city?: string;
+  user_province?: string;
+  profile_image_url?: string;
+}
+
+interface BulkSkillRow {
+  user_id: number;
+  skill_id?: { skill_name?: string };
+}
+
+interface BulkWorkRow {
+  user_id: number;
+  company_name: string;
+  job_title: string;
+  job_description?: string;
+  start_date?: string;
+  end_date?: string;
+  is_current_role?: boolean;
+  employment_type?: string;
+  location?: string;
+}
+
+interface BulkCertRow {
+  user_id: number;
+  certificate_name: string;
+  issuing_organization?: string;
+}
+
+interface BulkSocialRow {
+  user_id: number;
+  platform_name: string;
+  profile_url: string;
+}
+
+interface JobPostingRow {
+  job_id: number;
+  job_title?: string;
+  job_location?: string;
+  experience_level?: string;
+}
+
+/** Query text, AI payloads and candidate names stay out of production logs. */
+function debugLog(...args: unknown[]): void {
+  if (process.env.NODE_ENV !== "production") console.log(...args);
 }
 
 function maskEmail(email?: string | null): string {
@@ -49,6 +106,15 @@ function maskEmail(email?: string | null): string {
  */
 function getListParam(searchParams: URLSearchParams, name: string): string[] {
   return searchParams.getAll(name).map((value) => value.trim()).filter(Boolean);
+}
+
+/**
+ * Paging params arrive as free text, and `Math.max(1, Number("abc"))` is NaN —
+ * which sliced the result to nothing and returned `page: null`.
+ */
+function getIntParam(searchParams: URLSearchParams, name: string, fallback: number): number {
+  const value = Number(searchParams.get(name));
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
 }
 
 /**
@@ -238,6 +304,9 @@ export async function GET(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     const userId = Number(session.userId);
     const { isVerified, verification_status, companyId } = await checkCompanyVerificationStatus(userId);
@@ -258,52 +327,52 @@ export async function GET(req: NextRequest) {
     const locations = getListParam(searchParams, "location");
     const schoolFilters = getListParam(searchParams, "school_id");
     const experienceLevel = searchParams.get("experience_level") || "";
-    const page = Math.max(1, Number(searchParams.get("page") || "1"));
-    const limit = Math.min(50, Math.max(1, Number(searchParams.get("limit") || "20")));
-    const jobIdForMatch = searchParams.get("job_id") || "";
+    const page = getIntParam(searchParams, "page", 1);
+    const limit = Math.min(50, getIntParam(searchParams, "limit", 20));
+    // Interpolated raw into the job reads below. A percent-encoded `&filter[…]`
+    // inside this value came back from `searchParams` already decoded, so the
+    // caller could append their own filter segments — including replacing the
+    // `company_id` scope that keeps one employer out of another's postings.
+    const requestedJobId = toId(searchParams.get("job_id")) ?? 0;
 
     // ────────────────────────────────────────────
     // 1. Fetch profiles + DB Taxonomy aliases in parallel
     // ────────────────────────────────────────────
-    const profilesUrl =
-      `${DIRECTUS_BASE}/items/vs_job_seeker_profile?` +
-      `filter[profile_visibility][_eq]=Public` +
-      `&fields=profile_id,user_id,profile_headline,professional_summary,profile_visibility` +
-      `&limit=-1`;
-
-    const aliasesUrl =
-      `${DIRECTUS_BASE}/items/vs_role_title_alias?` +
-      `fields=alias_id,alias_name,normalized_alias,match_weight,role_id.role_id,role_id.role_name,role_id.category_id.category_id,role_id.category_id.category_code,role_id.category_id.category_name` +
-      `&limit=-1`;
-
-    const roleSkillsUrl =
-      `${DIRECTUS_BASE}/items/vs_role_skill_mapping?` +
-      `fields=role_id.role_id,skill_id.id,skill_id.skill_name,importance_weight,is_required` +
-      `&limit=-1`;
-
-    const [profilesRes, aliasesRes, roleSkillsRes] = await Promise.all([
-      fetch(profilesUrl, { headers: getHeaders(), cache: "no-store" }),
-      fetch(aliasesUrl, { headers: getHeaders(), cache: "no-store" }).catch(() => null),
-      fetch(roleSkillsUrl, { headers: getHeaders(), cache: "no-store" }).catch(() => null),
+    // Taxonomy rows feed the matcher. Reading them as `[]` when Directus was
+    // unreachable made every role, alias and skill requirement vanish, and the
+    // recruiter was told the market had no matching talent.
+    const [profiles, dbAliases, dbRoleSkills] = await Promise.all([
+      directusItems<TalentProfileRow>("vs_job_seeker_profile", {
+        query:
+          `filter[profile_visibility][_in]=Public,Recruiters Only` +
+          `&fields=profile_id,user_id,profile_headline,professional_summary,profile_visibility` +
+          `&limit=${MAX_SCAN_ROWS}`,
+      }),
+      directusItems<RoleTaxonomyAliasRow>("vs_role_title_alias", {
+        query:
+          `fields=alias_id,alias_name,normalized_alias,match_weight,role_id.role_id,role_id.role_name,role_id.category_id.category_id,role_id.category_id.category_code,role_id.category_id.category_name` +
+          `&limit=${MAX_SCAN_ROWS}`,
+      }),
+      directusItems<RoleSkillMappingRow>("vs_role_skill_mapping", {
+        query:
+          `fields=role_id.role_id,skill_id.id,skill_id.skill_name,importance_weight,is_required` +
+          `&limit=${MAX_SCAN_ROWS}`,
+      }),
     ]);
 
-    if (!profilesRes.ok) {
-      return NextResponse.json({ error: "Failed to load talent profiles." }, { status: 502 });
-    }
-
-    const profilesJson = await profilesRes.json();
-    const profiles: Array<{
-      profile_id: number;
-      user_id: number;
-      profile_headline?: string;
-      professional_summary?: string;
-    }> = profilesJson.data ?? [];
-
-    const dbAliases: RoleTaxonomyAliasRow[] =
-      aliasesRes && aliasesRes.ok ? (await aliasesRes.json()).data ?? [] : [];
-
-    const dbRoleSkills: RoleSkillMappingRow[] =
-      roleSkillsRes && roleSkillsRes.ok ? (await roleSkillsRes.json()).data ?? [] : [];
+    // The scan ceiling is a memory guard, not a licence to search a partial
+    // index. If a read came back full, talent beyond the first MAX_SCAN_ROWS is
+    // invisible to this run, and a "no matches" list would be read as the market
+    // being empty rather than as a truncated scan.
+    const scanTruncated =
+      profiles.length >= MAX_SCAN_ROWS ||
+      dbAliases.length >= MAX_SCAN_ROWS ||
+      dbRoleSkills.length >= MAX_SCAN_ROWS;
+    const scanWarnings = scanTruncated
+      ? [
+          `This search could only read the first ${MAX_SCAN_ROWS} profile and taxonomy rows, so results may be incomplete.`,
+        ]
+      : [];
 
     // ────────────────────────────────────────────
     // Gemini Layer A: Query Understanding (runs BEFORE taxonomy + retrieval)
@@ -316,11 +385,11 @@ export async function GET(req: NextRequest) {
     const isSchoolSearch = isSchoolQuery(keyword);
 
     if (keyword && !isSchoolSearch && shouldExpandWithGemini(keyword)) {
-      console.log(`[talent-search] 🤖 Gemini Layer A: expanding query "${keyword}"`);
+      debugLog(`[talent-search] 🤖 Gemini Layer A: expanding query "${keyword}"`);
       geminiQueryIntent = await expandQueryWithGemini(keyword, { userId: userId ?? undefined, companyId: companyId ?? undefined }).catch(() => null);
 
       if (geminiQueryIntent) {
-        console.log(`[talent-search] 🤖 Gemini Layer A result:`, JSON.stringify(geminiQueryIntent));
+        debugLog(`[talent-search] 🤖 Gemini Layer A result:`, JSON.stringify(geminiQueryIntent));
       } else {
         console.log(`[talent-search] ⚠️  Gemini Layer A: failed or no API key — using raw keyword`);
       }
@@ -332,19 +401,19 @@ export async function GET(req: NextRequest) {
         (geminiQueryIntent.confidence === "HIGH" || geminiQueryIntent.confidence === "MEDIUM")
       ) {
         matchKeyword = geminiQueryIntent.resolved_role;
-        console.log(`[talent-search] 🤖 Gemini Layer A: matchKeyword resolved → "${matchKeyword}"`);
+        debugLog(`[talent-search] 🤖 Gemini Layer A: matchKeyword resolved → "${matchKeyword}"`);
       } else {
-        console.log(`[talent-search] ℹ️  Gemini Layer A: keeping original keyword → "${matchKeyword}"`);
+        debugLog(`[talent-search] ℹ️  Gemini Layer A: keeping original keyword → "${matchKeyword}"`);
       }
     } else if (isSchoolSearch) {
-      console.log(`[talent-search] 🎓 School search detected — preserving original keyword "${keyword}"`);
+      debugLog(`[talent-search] 🎓 School search detected — preserving original keyword "${keyword}"`);
     } else {
-      console.log(`[talent-search] ℹ️  Gemini Layer A: skipped (query too short or not applicable) — keyword="${keyword}"`);
+      debugLog(`[talent-search] ℹ️  Gemini Layer A: skipped (query too short or not applicable) — keyword="${keyword}"`);
     }
 
     // Resolve Role Taxonomy using the effective match keyword (Gemini-resolved or original)
     const taxonomyContext = resolveRoleTaxonomy(matchKeyword, dbAliases);
-    console.log(`[talent-search] 📚 Taxonomy resolved:`, JSON.stringify({
+    debugLog(`[talent-search] 📚 Taxonomy resolved:`, JSON.stringify({
       matchKeyword,
       resolved_role: taxonomyContext.resolved_role,
       resolved_role_id: taxonomyContext.resolved_role_id,
@@ -389,6 +458,7 @@ export async function GET(req: NextRequest) {
         total: 0,
         page,
         limit,
+        warnings: scanWarnings,
       });
     }
 
@@ -396,120 +466,82 @@ export async function GET(req: NextRequest) {
 
     // ────────────────────────────────────────────
     // 2. Bulk fetch associated data in parallel
+    //
+    // The id lists are read in batches. One `_in=` request carrying every
+    // profile id exceeds what the transport accepts long before the corpus is
+    // exhausted, and each of these reads used to answer `[]` when it failed —
+    // the candidates then carried no skills, history or education, so the
+    // matcher scored real people at zero.
     // ────────────────────────────────────────────
-    const [usersRes, skillsRes, workRes, eduRes, savedRes, jobRes, certsRes, socialRes] = await Promise.all([
-      // vs_user — basic info + location
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_contact,user_city,user_province,profile_image_url,gender&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      // vs_user_skills_map — skills
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user_skills_map?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,skill_id.skill_name&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      // vs_work_experience
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_work_experience?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,company_name,job_title,job_description,start_date,end_date,is_current_role,employment_type,location&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      // vs_employee_education with school join
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_employee_education?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,employee_education_id,education_status,school_id.school_name,school_id.school_id,school_course_id.course_name,start_date,end_date&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      // vs_saved_applicant — which of these are already saved by this company
-      companyId
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_saved_applicant?filter[company_id][_eq]=${companyId}&fields=applicant_user_id&limit=-1`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-        : Promise.resolve(null),
-      // vs_job_posting — if job_id provided for AI match (strictly scoped to caller's company)
-      jobIdForMatch && companyId
-        ? fetch(
-            `${DIRECTUS_BASE}/items/vs_job_posting?filter[job_id][_eq]=${jobIdForMatch}&filter[company_id][_eq]=${companyId}&fields=job_id,job_title,job_location,experience_level&limit=1`,
-            { headers: getHeaders(), cache: "no-store" }
-          )
-        : Promise.resolve(null),
-      // vs_certifications
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_certifications?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,certificate_name,issuing_organization&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-      // vs_user_social_links
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user_social_links?filter[user_id][_in]=${profileUserIds.join(",")}&fields=user_id,platform_name,profile_url&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
-      ),
-    ]);
-
-    const users: Array<{
-      user_id: number;
-      user_fname: string;
-      user_lname: string;
-      user_email: string;
-      user_city?: string;
-      user_province?: string;
-      profile_image_url?: string;
-    }> = usersRes.ok ? (await usersRes.json()).data ?? [] : [];
-
-    const skillRows: Array<{ user_id: number; skill_id?: { skill_name?: string } }> =
-      skillsRes.ok ? (await skillsRes.json()).data ?? [] : [];
-
-    const workRows: Array<{
-      user_id: number;
-      company_name: string;
-      job_title: string;
-      job_description?: string;
-      start_date?: string;
-      end_date?: string;
-      is_current_role?: boolean;
-      employment_type?: string;
-      location?: string;
-    }> = workRes.ok ? (await workRes.json()).data ?? [] : [];
-
-    const eduRows: TalentEducationBulkRow[] =
-      eduRes.ok ? (await eduRes.json()).data ?? [] : [];
-
-    const certRows: Array<{ user_id: number; certificate_name: string; issuing_organization?: string }> =
-      certsRes.ok ? (await certsRes.json()).data ?? [] : [];
-
-    const socialRows: Array<{ user_id: number; platform_name: string; profile_url: string }> =
-      socialRes.ok ? (await socialRes.json()).data ?? [] : [];
+    const [users, skillRows, workRows, eduRows, certRows, socialRows, savedRows, jobRows] =
+      await Promise.all([
+        // vs_user — basic info + location
+        directusItemsWhereIn<BulkUserRow>("vs_user", "user_id", profileUserIds,
+          "user_id,user_fname,user_lname,user_email,user_city,user_province,profile_image_url"),
+        // vs_user_skills_map — skills
+        directusItemsWhereIn<BulkSkillRow>("vs_user_skills_map", "user_id", profileUserIds,
+          "user_id,skill_id.skill_name"),
+        // vs_work_experience
+        directusItemsWhereIn<BulkWorkRow>("vs_work_experience", "user_id", profileUserIds,
+          "user_id,company_name,job_title,job_description,start_date,end_date,is_current_role,employment_type,location"),
+        // vs_employee_education with school join
+        directusItemsWhereIn<TalentEducationBulkRow>("vs_employee_education", "user_id", profileUserIds,
+          "user_id,employee_education_id,education_status,school_id.school_name,school_id.school_id,school_course_id.course_name,start_date,end_date"),
+        // vs_certifications
+        directusItemsWhereIn<BulkCertRow>("vs_certifications", "user_id", profileUserIds,
+          "user_id,certificate_name,issuing_organization"),
+        // vs_user_social_links
+        directusItemsWhereIn<BulkSocialRow>("vs_user_social_links", "user_id", profileUserIds,
+          "user_id,platform_name,profile_url"),
+        // vs_saved_applicant — which of these are already saved by this company
+        companyId
+          ? directusItems<{ applicant_user_id: number }>("vs_saved_applicant", {
+              query: `filter[company_id][_eq]=${companyId}&fields=applicant_user_id&limit=${MAX_SCAN_ROWS}`,
+            })
+          : Promise.resolve([] as { applicant_user_id: number }[]),
+        // vs_job_posting — if job_id provided for AI match (strictly scoped to caller's company)
+        requestedJobId && companyId
+          ? directusItems<JobPostingRow>("vs_job_posting", {
+              query:
+                `filter[job_id][_eq]=${requestedJobId}&filter[company_id][_eq]=${companyId}` +
+                `&fields=job_id,job_title,job_location,experience_level&limit=1`,
+            })
+          : Promise.resolve([] as JobPostingRow[]),
+      ]);
 
     const savedUserIds = new Set<number>();
-    if (savedRes && savedRes.ok) {
-      const savedJson = await savedRes.json();
-      (savedJson.data ?? []).forEach((s: { applicant_user_id: number }) => savedUserIds.add(s.applicant_user_id));
-    }
+    savedRows.forEach((s) => savedUserIds.add(s.applicant_user_id));
 
-    // Job for match (verified against caller's company)
-    let jobData: { job_title?: string; job_location?: string; experience_level?: string } | null = null;
-    let verifiedJobIdForMatch = jobIdForMatch;
-    if (jobRes && jobRes.ok) {
-      const jobJson = await jobRes.json();
-      jobData = jobJson.data?.[0] ?? null;
-      if (!jobData) {
-        verifiedJobIdForMatch = "";
-      }
-    } else if (jobIdForMatch) {
-      verifiedJobIdForMatch = "";
+    // The job read above is scoped to the caller's company. An id belonging to
+    // someone else (or a deleted posting) used to fall straight through to an
+    // unscoped browse: the recruiter asked to match talent to one posting and
+    // got the whole market ranked as if it had.
+    const jobData = jobRows[0] ?? null;
+    if (requestedJobId && !jobData) {
+      return NextResponse.json(
+        {
+          error: "That job posting is no longer available on your account.",
+          talents: [],
+          total: 0,
+          page,
+          limit,
+        },
+        { status: 404 }
+      );
     }
 
     // Job skills for match
     let jobSkills: string[] = [];
-    if (verifiedJobIdForMatch) {
-      const jsRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_job_skills_map?filter[job_id][_eq]=${verifiedJobIdForMatch}&fields=skill_id.skill_name&limit=-1`,
-        { headers: getHeaders(), cache: "no-store" }
+    if (requestedJobId) {
+      const jobSkillRows = await directusItems<{ skill_id?: { skill_name?: string } }>(
+        "vs_job_skills_map",
+        {
+          query: `filter[job_id][_eq]=${requestedJobId}&fields=skill_id.skill_name&limit=${MAX_SCAN_ROWS}`,
+        }
       );
-      if (jsRes.ok) {
-        const jsJson = await jsRes.json();
-        jobSkills = (jsJson.data ?? [])
-          .map((r: { skill_id?: { skill_name?: string } }) => r.skill_id?.skill_name ?? "")
-          .filter(Boolean);
-      }
+      jobSkills = jobSkillRows
+        .map((r) => r.skill_id?.skill_name ?? "")
+        .filter(Boolean);
     }
 
     // ────────────────────────────────────────────
@@ -568,7 +600,7 @@ export async function GET(req: NextRequest) {
     const hasSearchCriteria = Boolean(
       keyword ||
         requestedSkills.length > 0 ||
-        jobIdForMatch ||
+        requestedJobId ||
         locations.length > 0 ||
         experienceLevel ||
         schoolFilters.length > 0
@@ -577,9 +609,9 @@ export async function GET(req: NextRequest) {
     const searchMode: "browse" | "search" = hasSearchCriteria ? "search" : "browse";
 
     let activeEngineMode: MatchMode = MatchMode.BROWSE;
-    if (jobIdForMatch && keyword) {
+    if (requestedJobId && keyword) {
       activeEngineMode = MatchMode.HYBRID;
-    } else if (jobIdForMatch) {
+    } else if (requestedJobId) {
       activeEngineMode = MatchMode.JOB_MATCH;
     } else if (requestedSkills.length > 0) {
       activeEngineMode = MatchMode.SKILL_MATCH;
@@ -592,8 +624,8 @@ export async function GET(req: NextRequest) {
     const matchContext: MatchContext = {
       mode: activeEngineMode,
       keyword: matchKeyword, // Use Gemini-resolved role keyword for scoring
-      requestedSkills: verifiedJobIdForMatch ? jobSkills : effectiveRequestedSkills,
-      jobId: verifiedJobIdForMatch ? Number(verifiedJobIdForMatch) : undefined,
+      requestedSkills: requestedJobId ? jobSkills : effectiveRequestedSkills,
+      jobId: requestedJobId || undefined,
       // The engine takes a single location; multi-tag matching happens in the
       // post-filter below.
       location: locations[0] ?? "",
@@ -623,6 +655,10 @@ export async function GET(req: NextRequest) {
         headline: profile.profile_headline,
         summary: profile.professional_summary,
         location,
+        // Derived exactly as the talent-profile route does it — there is no
+        // availability column. Left out, the normalizer defaulted everyone to
+        // "AVAILABLE" and the card told the employer a working candidate was free.
+        availability_status: work.some((w) => w.is_current_role) ? "EMPLOYED" : "AVAILABLE",
         skills,
         work_experience: work,
         education: edu.map((e) => ({
@@ -662,8 +698,8 @@ export async function GET(req: NextRequest) {
         const relYearsMatch = expEvidence?.value.match(/([\d\.]+)\s*yrs/);
         const relYears = relYearsMatch ? Number(relYearsMatch[1]) : 0;
 
-        // Match score percentage & badges are shown ONLY when matching against a specific Job Posting (verifiedJobIdForMatch)
-        const showMatchScore = Boolean(verifiedJobIdForMatch);
+        // Match score percentage & badges are shown ONLY when matching against a specific Job Posting (requestedJobId)
+        const showMatchScore = Boolean(requestedJobId);
 
         // Full education history in shared deterministic order; compact
         // surfaces preview from this array and expose the remainder via
@@ -685,12 +721,16 @@ export async function GET(req: NextRequest) {
           summary: normalized.summary,
           location: normalized.location,
           skills: normalized.skills,
-          experience_years: work.reduce((acc: number, w: { start_date?: string; end_date?: string; is_current_role?: boolean }) => {
-            if (!w.start_date) return acc;
-            const s = new Date(w.start_date);
-            const e = w.is_current_role ? new Date() : w.end_date ? new Date(w.end_date) : new Date();
-            return acc + Math.max(0, (e.getFullYear() - s.getFullYear()));
-          }, 0),
+          experience_years: Number(
+            (
+              work.reduce((acc: number, w: { start_date?: string; end_date?: string; is_current_role?: boolean }) => {
+                if (!w.start_date) return acc;
+                const s = new Date(w.start_date);
+                const e = w.is_current_role ? new Date() : w.end_date ? new Date(w.end_date) : new Date();
+                return acc + Math.max((e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()), 0);
+              }, 0) / 12
+            ).toFixed(1)
+          ),
           relevant_experience_years: relYears,
           work_experience: work.slice(0, 3).map((w: { company_name?: string; job_title?: string; start_date?: string; end_date?: string; is_current_role?: boolean; employment_type?: string }) => ({
             company_name: w.company_name,
@@ -747,10 +787,10 @@ export async function GET(req: NextRequest) {
     console.log(`[talent-search] ✅ Layer 2 candidates entering ranking: ${filtered.length}`);
 
     // Filter by user-specified skills only (not expanded DB role skills — those are for scoring only)
-    if (requestedSkills.length > 0 && !verifiedJobIdForMatch) {
+    if (requestedSkills.length > 0 && !requestedJobId) {
       console.log(`[talent-search] 🏷️ Filtering by requested skills: [${requestedSkills.join(", ")}]`);
     }
-    if (requestedSkills.length > 0 && !verifiedJobIdForMatch) {
+    if (requestedSkills.length > 0 && !requestedJobId) {
       filtered = filtered.filter((t) => {
         const lowerSkills = t.skills.map((s: string) => s.toLowerCase());
         return requestedSkills.some((rs) => lowerSkills.includes(rs.toLowerCase()));
@@ -804,13 +844,13 @@ export async function GET(req: NextRequest) {
 
     // ────────────────────────────────────────────
     // 6. Gemini Layer B: AI Reranking (job match mode only, top 50)
-    // Note: Layer B semantic reranking requires both an active job posting (jobIdForMatch)
+    // Note: Layer B semantic reranking requires both an active job posting (requestedJobId)
     // and a search query prompt (keyword) to semantically measure relevance against the prompt.
     // When no search keyword is provided, candidates remain ordered deterministically by Layer 2 ranking_score.
     // ────────────────────────────────────────────
     let aiReranked = false;
-    if (jobIdForMatch && keyword && filtered.length > 1) {
-      console.log(`[talent-search] 🤖 Gemini Layer B: reranking top ${Math.min(filtered.length, 50)} candidates for job ${jobIdForMatch}...`);
+    if (requestedJobId && keyword && filtered.length > 1) {
+      console.log(`[talent-search] 🤖 Gemini Layer B: reranking top ${Math.min(filtered.length, 50)} candidates for job ${requestedJobId}...`);
       const rerankInput = filtered.slice(0, 50).map((t) => ({
         id: t.user_id,
         title: t.headline,
@@ -847,9 +887,19 @@ export async function GET(req: NextRequest) {
       page,
       limit,
       ai_reranked: aiReranked,
+      warnings: scanWarnings,
     });
   } catch (err: unknown) {
     console.error("[talent-search GET] Error:", err);
+    // An unreachable Directus is not "the market has no matching talent". The
+    // reads above reject on failure so this is the only place an outage can
+    // surface, and it must not be shaped like a successful empty search.
+    if (err instanceof DirectusError) {
+      return NextResponse.json(
+        { error: "Talent search is unavailable right now. Please try again.", talents: [], total: 0 },
+        { status: 502 }
+      );
+    }
     return NextResponse.json({ error: "Failed to search talent profiles." }, { status: 500 });
   }
 }

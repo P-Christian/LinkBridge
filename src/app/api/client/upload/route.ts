@@ -85,7 +85,7 @@ async function resolveClientCompany(
   baseUrl: string,
   token: string,
   userId: string | number,
-): Promise<string | number | null> {
+): Promise<{ companyId: string | number | null; unavailable: boolean }> {
   const params = new URLSearchParams({
     "filter[user_id][_eq]": String(userId),
     fields: "company_id,company_user_role,status",
@@ -95,10 +95,13 @@ async function resolveClientCompany(
     headers: getHeaders(token),
     cache: "no-store",
   });
-  if (!response.ok) return null;
+  if (!response.ok) return { companyId: null, unavailable: true };
   const json = (await response.json()) as { data?: DirectusCompanyLink[] };
   const links = Array.isArray(json.data) ? json.data : [];
-  return links.map((link) => getCompanyId(link.company_id)).find((id) => id !== null) ?? null;
+  return {
+    companyId: links.map((link) => getCompanyId(link.company_id)).find((id) => id !== null) ?? null,
+    unavailable: false,
+  };
 }
 
 async function resolveProtectedClientFolder(baseUrl: string, token: string): Promise<string | null> {
@@ -212,7 +215,11 @@ export async function POST(req: NextRequest) {
 
     let companyId: string | number | null = null;
     if (documentType) {
-      companyId = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+      const link = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+      if (link.unavailable) {
+        return errorResponse("Your company association could not be read. Please try again.", 502);
+      }
+      companyId = link.companyId;
       if (companyId === null) return errorResponse("No company is associated with this account.", 403);
 
       // Verify that company documents can be edited (DRAFT, REJECTED, or CORRECTION_REQUIRED)

@@ -4,6 +4,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 import {
   fetchTelemetryRequests,
   fetchRecentRequests,
@@ -14,6 +15,7 @@ import {
   computeFreeTierStatus,
   computeRateLimitStatus,
   resolveAttributionNames,
+  GeminiRequestRow,
 } from "@/modules/vos-admin/gemini-monitoring/services/geminiMonitoring.repo";
 
 export const revalidate = 0;
@@ -69,10 +71,19 @@ export async function GET(req: NextRequest) {
   const nowPh = new Date(Date.now() + phTimezoneOffsetMs).toISOString().replace("Z", "+08:00");
 
   // Fetch from Directus in parallel
-  const [todayRows, recentRows] = await Promise.all([
-    fetchTelemetryRequests(filterOptions),
-    fetchRecentRequests(100, filterOptions),
-  ]);
+  let todayRows: GeminiRequestRow[];
+  let recentRows: GeminiRequestRow[];
+  try {
+    [todayRows, recentRows] = await Promise.all([
+      fetchTelemetryRequests(filterOptions),
+      fetchRecentRequests(100, filterOptions),
+    ]);
+  } catch (err: unknown) {
+    return NextResponse.json(
+      { error: safeErrorMessage(err, "Gemini telemetry could not be read.") },
+      { status: 502 }
+    );
+  }
 
   const kpis = computeKPIs(todayRows, recentRows);
   const peakUsageTrends = computePeakUsageTrends(todayRows);

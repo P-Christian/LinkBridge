@@ -39,7 +39,10 @@ export default async function PublicSchoolAdminProfilePage({
     }
   }
 
-  const profile = await getPublicSchoolAdminProfile(userId);
+  const profile = await getPublicSchoolAdminProfile(
+    userId,
+    session ? Number(session.userId) : undefined
+  );
 
   if (!profile) {
     notFound();

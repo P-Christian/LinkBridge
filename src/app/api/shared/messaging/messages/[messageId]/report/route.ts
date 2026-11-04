@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,72 +52,80 @@ export async function POST(
     }
 
     let targetMessageId = msgIdNum > 0 ? msgIdNum : 0;
-    let targetConversationId = conversation_id ? Number(conversation_id) : 0;
-    let targetReportedUserId = reported_user_id ? Number(reported_user_id) : 0;
+    // Body ids are only a hint; the conversation is always resolved from stored
+    // data so a caller cannot point a report at a thread it isn't part of.
+    let targetConversationId = Number(conversation_id) > 0 ? Number(conversation_id) : 0;
+    let targetReportedUserId =
+      Number(reported_user_id) > 0 ? Number(reported_user_id) : 0;
 
-    // If messageId is provided, query it to ensure conversation_id and reported_user_id are accurate
+    // If messageId is provided, its own conversation wins over the body value.
     if (targetMessageId > 0) {
-      try {
-        const msgRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message/${targetMessageId}?fields=message_id,conversation_id,sender_id`,
-          { headers: getHeaders() }
-        );
-        if (msgRes.ok) {
-          const msgJson = await msgRes.json();
-          const msgData = msgJson?.data;
-          if (msgData) {
-            if (!targetConversationId) targetConversationId = msgData.conversation_id;
-            if (!targetReportedUserId && msgData.sender_id !== reporterUserId) {
-              targetReportedUserId = msgData.sender_id;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to fetch message for report:", e);
+      const msgRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_message/${targetMessageId}?fields=message_id,conversation_id,sender_id`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!msgRes.ok) {
+        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      }
+      const msgData = (await msgRes.json())?.data;
+      if (!msgData) {
+        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      }
+      targetConversationId = Number(msgData.conversation_id);
+      if (!targetReportedUserId && Number(msgData.sender_id) !== reporterUserId) {
+        targetReportedUserId = Number(msgData.sender_id);
       }
     }
+
+    if (!targetConversationId || targetConversationId <= 0) {
+      return NextResponse.json(
+        { error: "Cannot submit report: invalid conversation ID." },
+        { status: 400 }
+      );
+    }
+
+    // Membership gate: only the two parties of the thread may report in it.
+    const convRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_conversation/${targetConversationId}?fields=conversation_id,client_id,freelancer_id`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!convRes.ok) {
+      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+    }
+    const convData = (await convRes.json())?.data;
+    if (
+      !convData ||
+      (Number(convData.client_id) !== reporterUserId &&
+        Number(convData.freelancer_id) !== reporterUserId)
+    ) {
+      return NextResponse.json(
+        { error: "Forbidden: You are not a participant in this conversation." },
+        { status: 403 }
+      );
+    }
+    const counterpartId =
+      reporterUserId === Number(convData.client_id)
+        ? Number(convData.freelancer_id)
+        : Number(convData.client_id);
 
     // If reporting a conversation (messageId = 0 or missing), resolve the latest message_id
-    if (!targetMessageId && targetConversationId > 0) {
-      try {
-        const msgRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${targetConversationId}&sort=-message_id&limit=1&fields=message_id,sender_id`,
-          { headers: getHeaders() }
+    if (!targetMessageId) {
+      const msgRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_message?filter[conversation_id][_eq]=${targetConversationId}&sort=-message_id&limit=1&fields=message_id,sender_id`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!msgRes.ok) {
+        return NextResponse.json(
+          { error: "Cannot submit report: no valid message found in this conversation." },
+          { status: 400 }
         );
-        if (msgRes.ok) {
-          const msgJson = await msgRes.json();
-          const list = msgJson?.data ?? [];
-          if (list.length > 0) {
-            targetMessageId = Number(list[0].message_id);
-            if (!targetReportedUserId && list[0].sender_id !== reporterUserId) {
-              targetReportedUserId = Number(list[0].sender_id);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to fetch latest message in conversation for report:", e);
       }
-    }
-
-    // If reported_user_id is still unknown or identical to reporter, resolve from vs_conversation
-    if ((!targetReportedUserId || targetReportedUserId === reporterUserId) && targetConversationId > 0) {
-      try {
-        const convRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_conversation/${targetConversationId}?fields=conversation_id,client_id,freelancer_id`,
-          { headers: getHeaders() }
-        );
-        if (convRes.ok) {
-          const convJson = await convRes.json();
-          const conv = convJson?.data;
-          if (conv) {
-            targetReportedUserId =
-              reporterUserId === Number(conv.client_id)
-                ? Number(conv.freelancer_id)
-                : Number(conv.client_id);
-          }
+      const list = (await msgRes.json())?.data ?? [];
+      if (list.length > 0) {
+        targetMessageId = Number(list[0].message_id);
+        if (!targetReportedUserId && Number(list[0].sender_id) !== reporterUserId) {
+          targetReportedUserId = Number(list[0].sender_id);
         }
-      } catch (e) {
-        console.warn("Failed to fetch conversation participants for report:", e);
       }
     }
 
@@ -127,12 +136,8 @@ export async function POST(
       );
     }
 
-    if (!targetConversationId || targetConversationId <= 0) {
-      return NextResponse.json(
-        { error: "Cannot submit report: invalid conversation ID." },
-        { status: 400 }
-      );
-    }
+    // A two-party thread has exactly one reportable user: the other participant.
+    if (targetReportedUserId !== counterpartId) targetReportedUserId = counterpartId;
 
     if (!targetReportedUserId || targetReportedUserId <= 0) {
       return NextResponse.json(
@@ -187,7 +192,7 @@ export async function POST(
       message: "Thank you. Your report has been submitted and will be reviewed by our moderation team.",
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Internal server error";
+    const message = safeErrorMessage(err, "Internal server error");
     console.error("Error in POST /api/shared/messaging/messages/[messageId]/report:", message);
     return NextResponse.json({ error: message }, { status: 500 });
   }

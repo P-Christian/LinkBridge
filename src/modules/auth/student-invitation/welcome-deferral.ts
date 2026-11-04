@@ -1,5 +1,7 @@
 import crypto from "node:crypto";
-import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
+
+const WELCOME_DEFERRAL_PURPOSE = "welcome-deferral";
 
 const WELCOME_DEFERRAL_VERSION = 1;
 const WELCOME_DEFERRAL_LIFETIME_SECONDS = 86_400;
@@ -28,7 +30,7 @@ export function issueWelcomeDeferral(
     "utf8"
   ).toString("base64url");
   const signature = crypto
-    .createHmac("sha256", getJwtVerificationSecret())
+    .createHmac("sha256", deriveJwtPurposeSecret(WELCOME_DEFERRAL_PURPOSE))
     .update(encodedPayload, "utf8")
     .digest("hex");
   return `${encodedPayload}.${signature}`;
@@ -60,7 +62,7 @@ export function readWelcomeDeferral(
     }
 
     const expectedSignature = crypto
-      .createHmac("sha256", getJwtVerificationSecret())
+      .createHmac("sha256", deriveJwtPurposeSecret(WELCOME_DEFERRAL_PURPOSE))
       .update(encodedPayload, "utf8")
       .digest();
     const suppliedSignature = Buffer.from(signatureHex, "hex");

@@ -3,6 +3,7 @@
 // src/modules/client/interviews/hooks/useInterviews.ts
 
 import { useCallback, useMemo, useState } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   Interview,
   InterviewFormData,
@@ -40,30 +41,37 @@ export function useInterviews() {
   const [filterStatus, setFilterStatus] = useState<InterviewStatus | "ALL">("ALL");
   const [search, setSearch] = useState("");
 
+  const abortRead = useRequestAbort();
+
   const loadInterviews = useCallback(async (status?: InterviewStatus | "ALL") => {
     setLoading(true);
     setError("");
+    const signal = abortRead();
     try {
-      const data = await fetchInterviews(status);
+      const data = await fetchInterviews(status, signal);
       setInterviews(data);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "An error occurred.";
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const createInterview = useCallback(async (data: InterviewFormData) => {
     setSaving(true);
     setError("");
     setSuccessMessage("");
     try {
-      await createInterviewSchedule(data);
+      const warnings = await createInterviewSchedule(data);
       const msg = "Interview scheduled successfully.";
       setSuccessMessage(msg);
       toast.success(msg);
+      warnings.forEach((warning) => toast.warning(warning));
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to schedule interview.";
@@ -127,10 +135,13 @@ export function useInterviews() {
       setError("");
       setSuccessMessage("");
       try {
-        await submitInterviewEvaluation(payload);
+        const warnings = await submitInterviewEvaluation(payload);
         const msg = "Evaluation recorded successfully.";
         setSuccessMessage(msg);
         toast.success(msg);
+        // The evaluation row is committed but the stage move, notes or the
+        // candidate email may not be; the refresh alone would hide that.
+        warnings.forEach((warning) => toast.warning(warning));
         await loadInterviews();
         return true;
       } catch (err: unknown) {

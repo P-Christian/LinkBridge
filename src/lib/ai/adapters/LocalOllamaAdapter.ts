@@ -1,4 +1,5 @@
 // src/lib/ai/adapters/LocalOllamaAdapter.ts
+import { fetchWithSafeEgress } from "../egress";
 import {
   AiProviderAdapter,
   AiProviderId,
@@ -26,7 +27,7 @@ export class LocalOllamaAdapter implements AiProviderAdapter {
 
     try {
       // First check Ollama ping / version
-      const versionRes = await fetch(`${base}/api/version`, {
+      const versionRes = await fetchWithSafeEgress(`${base}/api/version`, {
         signal: AbortSignal.timeout(3000),
       });
 
@@ -42,7 +43,7 @@ export class LocalOllamaAdapter implements AiProviderAdapter {
       }
 
       // Check tags to see available models
-      const tagsRes = await fetch(`${base}/api/tags`, {
+      const tagsRes = await fetchWithSafeEgress(`${base}/api/tags`, {
         signal: AbortSignal.timeout(3000),
       });
       const tagsData = await tagsRes.json().catch(() => ({ models: [] }));
@@ -53,7 +54,7 @@ export class LocalOllamaAdapter implements AiProviderAdapter {
         : availableModels[0] || modelId;
 
       // Fast generate ping
-      const genRes = await fetch(`${base}/api/generate`, {
+      const genRes = await fetchWithSafeEgress(`${base}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -103,7 +104,7 @@ export class LocalOllamaAdapter implements AiProviderAdapter {
   async discoverModels(credentials: ProviderCredentials): Promise<DiscoveredModel[]> {
     const base = this.getBaseUrl(credentials);
     try {
-      const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(4000) });
+      const res = await fetchWithSafeEgress(`${base}/api/tags`, { signal: AbortSignal.timeout(4000) });
       if (!res.ok) return [];
       const data = await res.json();
       const models = data.models || [];
@@ -128,7 +129,7 @@ export class LocalOllamaAdapter implements AiProviderAdapter {
     const base = this.getBaseUrl(credentials);
     const start = Date.now();
 
-    const res = await fetch(`${base}/api/generate`, {
+    const res = await fetchWithSafeEgress(`${base}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

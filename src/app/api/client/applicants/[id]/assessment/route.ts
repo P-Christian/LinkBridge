@@ -41,12 +41,20 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const applicationId = parseApplicationId(id);
   if (!applicationId) return errorResponse("Application not found.", 404);
 
-  const companyId = await resolveReviewerCompany(session.userId);
-  if (!companyId) return errorResponse("Company association not found.", 403);
+  const reviewer = await resolveReviewerCompany(session.userId);
+  if (reviewer.unavailable) {
+    return errorResponse("Your company association could not be read. Please try again.", 502);
+  }
+  if (!reviewer.companyId) return errorResponse("Company association not found.", 403);
+  const companyId = reviewer.companyId;
 
   try {
-    const application = await loadCompanyApplication(applicationId, companyId);
-    if (!application) return errorResponse("Application not found.", 404);
+    const owned = await loadCompanyApplication(applicationId, companyId);
+    if (owned.unavailable) {
+      return errorResponse("The application could not be read. Please try again.", 502);
+    }
+    if (!owned.application) return errorResponse("Application not found.", 404);
+    const application = owned.application;
     const context = await resolveReviewContext(application);
     const history = await resolveAssessmentHistory(application);
     if (context.kind === "empty") {
@@ -82,8 +90,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const applicationId = parseApplicationId(id);
   if (!applicationId) return errorResponse("Application not found.", 404);
 
-  const companyId = await resolveReviewerCompany(session.userId);
-  if (!companyId) return errorResponse("Company association not found.", 403);
+  const reviewer = await resolveReviewerCompany(session.userId);
+  if (reviewer.unavailable) {
+    return errorResponse("Your company association could not be read. Please try again.", 502);
+  }
+  if (!reviewer.companyId) return errorResponse("Company association not found.", 403);
+  const companyId = reviewer.companyId;
 
   const body = (await req.json().catch(() => null)) as {
     action?: unknown;
@@ -102,9 +114,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     typeof body?.review_notes === "string" ? body.review_notes : null;
 
   try {
-    const application = await loadCompanyApplication(applicationId, companyId);
-    if (!application) return errorResponse("Application not found.", 404);
-    const context = await resolveReviewContext(application);
+    const owned = await loadCompanyApplication(applicationId, companyId);
+    if (owned.unavailable) {
+      return errorResponse("The application could not be read. Please try again.", 502);
+    }
+    if (!owned.application) return errorResponse("Application not found.", 404);
+    const context = await resolveReviewContext(owned.application);
     if (context.kind === "empty") {
       return errorResponse("No assessment is available for this application stage.", 409);
     }

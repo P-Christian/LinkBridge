@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { generateMetricsAiInsights } from '@/modules/school-admin/success-metrics/services/success-metrics-ai.service';
 import { AiMetricsInsightRequestSchema } from '@/modules/school-admin/success-metrics/types/success-metrics.schema';
 import { authenticateRequest, hasRole } from '@/lib/authenticated-session';
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,12 +11,12 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     const session = await authenticateRequest(request);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
     const isSchoolAdmin = session ? hasRole(session, [3, 4], ["ADMIN", "ADMINISTRATOR", "SCHOOL_ADMIN", "SCH_ADMIN"]) : false;
-    if (session && !isSchoolAdmin && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isSchoolAdmin) {
       return NextResponse.json({ error: "Forbidden: school admin role required." }, { status: 403 });
     }
 
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
       data: insights,
     });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error generating AI insights';
+    const message = safeErrorMessage(error, "Internal server error generating AI insights");
     console.error('[API /api/school-admin/success-metrics/ai-insights] Error:', error);
     return NextResponse.json(
       {

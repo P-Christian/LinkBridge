@@ -2,7 +2,7 @@
 "use client";
 
 import React from "react";
-import { Applicant, ApplicationStatus } from "../types";
+import { Applicant } from "../types";
 import ApplicantCard from "./ApplicantCard";
 import ApplicantPagination from "./ApplicantPagination";
 import { Users, SearchX } from "lucide-react";
@@ -15,7 +15,6 @@ const DEFAULT_PAGE_SIZE = 20;
 interface ApplicantListProps {
   applicants: Applicant[];
   onUpdateStatus: (applicant: Applicant) => void;
-  onQuickStatusUpdate?: (applicant: Applicant, status: ApplicationStatus) => void;
   onQuickStageUpdate?: (applicant: Applicant, toStageId: number, stageName: string) => void;
   onScheduleInterview: (applicant: Applicant) => void;
   onViewScheduledInterview?: (interviewId: number) => void;
@@ -34,7 +33,6 @@ interface ApplicantListProps {
 type CardProps = Pick<
   ApplicantListProps,
   | "onUpdateStatus"
-  | "onQuickStatusUpdate"
   | "onQuickStageUpdate"
   | "onScheduleInterview"
   | "onViewScheduledInterview"

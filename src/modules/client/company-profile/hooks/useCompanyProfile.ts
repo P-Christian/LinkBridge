@@ -3,6 +3,7 @@
 
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { CompanyProfile, CompanyProfileMeta, EditableCompanyFields } from "../types";
 
 export function useCompanyProfile(
@@ -18,11 +19,14 @@ export function useCompanyProfile(
   const [error, setError] = useState(initialError);
   const [successMessage, setSuccessMessage] = useState("");
 
+  const abortRead = useRequestAbort();
+
   const fetchProfile = useCallback(async () => {
     setLoading(true);
     setError("");
+    const signal = abortRead();
     try {
-      const res = await fetch("/api/client/company-profile");
+      const res = await fetch("/api/client/company-profile", { signal });
       const json = await res.json();
       if (!res.ok) {
         throw new Error(json.error || "Failed to load company profile.");
@@ -30,13 +34,16 @@ export function useCompanyProfile(
       setCompany(json.company);
       setMeta(json.meta);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Failed to load company profile.";
       setError(msg);
       toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const updateProfile = useCallback(
     async (fields: Partial<EditableCompanyFields>) => {

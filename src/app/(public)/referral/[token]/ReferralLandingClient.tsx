@@ -44,9 +44,9 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
   const [claimCompleted, setClaimCompleted] = React.useState(false);
 
   React.useEffect(() => {
-    // Sync login state with server prop and fallback to check cookies
-    const hasToken = typeof document !== "undefined" && !!document.cookie.match(/(^|;)\s*vos_sync_access_token\s*=\s*([^;]+)/);
-    const resolvedLogged = isLoggedInFromServer || hasToken;
+    // Sync login state with the server-resolved prop. The auth cookie is
+    // HttpOnly, so document.cookie can never observe it (PRIV-017).
+    const resolvedLogged = isLoggedInFromServer;
     setIsLoggedIn((prev) => {
       if (prev !== resolvedLogged) {
         return resolvedLogged;
@@ -62,9 +62,9 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
     }
 
     if (!isLoggedIn) {
-      // Store referral details temporarily in a cookie so we can auto-claim on login/register if needed
-      document.cookie = `pending_referral=${token}; path=/; max-age=3600; SameSite=Lax`;
-      
+      // PRIV-017: the single-use referral token stays in component state only.
+      // It is echoed back through ?next= below; copying it into a JS-readable
+      // cookie would hand a live capability to any script on the page.
       toast.info("Authentication Required", { description: "Redirecting to login to verify your account." });
       router.push(`/login?next=/referral/${token}`);
       return;
@@ -76,8 +76,7 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          referral_id: referral.referral_id,
-          job_id: referral.job_id.job_id,
+          token,
           consent_version: "1.0",
         }),
       });

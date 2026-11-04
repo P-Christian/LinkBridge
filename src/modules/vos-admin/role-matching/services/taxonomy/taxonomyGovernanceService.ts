@@ -78,7 +78,18 @@ export async function evaluateTaxonomyProposal(proposal: FullTaxonomyProposal): 
     result.reused.push({ entity: "CanonicalRole", name: roleObj.role_name, id: roleObj.role_id });
   }
 
-  const targetRoleId = roleObj?.role_id ?? 1; // Default fallback to role 1 if not created yet
+  // An unresolved role used to fall back to role 1, so every suggestion for a
+  // new role — including the ones fired off unattended from the client portal's
+  // best-match route — was written against whichever role happened to be first.
+  const targetRoleId = roleObj?.role_id ?? null;
+  if (!targetRoleId) {
+    result.reviewRequired.push({
+      entity: "CanonicalRole",
+      name: roleName,
+      classification: "NEW_ROLE",
+      reason: "This role does not exist yet, so nothing below was written against it.",
+    });
+  }
 
   // 3. Process Keywords / Aliases
   for (const item of proposal.keywords ?? []) {
@@ -106,7 +117,7 @@ export async function evaluateTaxonomyProposal(proposal: FullTaxonomyProposal): 
     }
 
     // Classify Governance Action
-    if (["SYNONYM", "ABBREVIATION", "EXACT", "SEARCH_KEYWORD"].includes(classification) && confidence >= 0.85) {
+    if (targetRoleId && ["SYNONYM", "ABBREVIATION", "EXACT", "SEARCH_KEYWORD"].includes(classification) && confidence >= 0.85) {
       // Zero-touch background insert into Directus
       const newAliasId = await insertAlias(targetRoleId, rawName, confidence);
       if (newAliasId) {
@@ -120,7 +131,9 @@ export async function evaluateTaxonomyProposal(proposal: FullTaxonomyProposal): 
         entity: "Alias",
         name: rawName,
         classification,
-        reason: `Classification '${classification}' requires human confirmation`,
+        reason: targetRoleId
+          ? `Classification '${classification}' requires human confirmation`
+          : "The proposed role is not in the taxonomy yet, so no alias was written",
       });
     }
   }
@@ -148,12 +161,21 @@ export async function evaluateTaxonomyProposal(proposal: FullTaxonomyProposal): 
 
     if (skillObj) {
       result.reused.push({ entity: "MasterSkill", name: skillObj.skill_name, id: skillObj.id });
-    } else if (confidence >= 0.85) {
+    } else if (targetRoleId && confidence >= 0.85) {
       // Auto-insert missing master skill
       skillId = await insertMasterSkill(rawSkill, proposal.categoryName || "General");
       if (skillId) {
         result.autoApplied.push({ entity: "MasterSkill", name: rawSkill, action: "Inserted Master Skill", id: skillId });
+      } else {
+        result.reviewRequired.push({ entity: "MasterSkill", name: rawSkill, classification: "NEW_SKILL", reason: "Insert conflict / Directus unavailable" });
       }
+    } else if (!skillObj) {
+      result.reviewRequired.push({
+        entity: "MasterSkill",
+        name: rawSkill,
+        classification: "NEW_SKILL",
+        reason: targetRoleId ? `Low confidence to auto-create (${confidence.toFixed(2)})` : "The proposed role is not in the taxonomy yet, so no skill was created",
+      });
     }
 
     // Check role skill mapping DB
@@ -165,6 +187,8 @@ export async function evaluateTaxonomyProposal(proposal: FullTaxonomyProposal): 
         const mappingId = await insertRoleSkillMapping(targetRoleId, skillId, confidence, isRequired);
         if (mappingId) {
           result.autoApplied.push({ entity: "RoleSkillMapping", name: rawSkill, action: "Created Role Skill Mapping", id: mappingId });
+        } else {
+          result.reviewRequired.push({ entity: "RoleSkillMapping", name: rawSkill, classification: "SKILL_MAPPING", reason: "Insert conflict / Directus unavailable" });
         }
       }
     }

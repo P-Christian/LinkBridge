@@ -21,15 +21,10 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { PublicClientProfile } from "../services/public-profile.service";
+import { safeUrl } from "@/lib/safe-url";
 
 interface Props {
   profile: PublicClientProfile;
-}
-
-function formatUrl(url: string | null | undefined): string {
-  if (!url) return "#";
-  const t = url.trim();
-  return t.startsWith("http://") || t.startsWith("https://") ? t : `https://${t}`;
 }
 
 function InfoRow({
@@ -41,7 +36,7 @@ function InfoRow({
   icon: React.ElementType;
   label: string;
   value?: string | null;
-  href?: string;
+  href?: string | null;
 }) {
   if (!value) return null;
   return (
@@ -80,12 +75,14 @@ export function PublicClientProfileRender({ profile }: Props) {
   const coverUrl = comp?.company_cover;
   const logoUrl = comp?.company_logo || profile.avatar_url;
 
-  const hasSocials =
-    comp?.social_links?.facebook ||
-    comp?.social_links?.linkedin ||
-    comp?.social_links?.instagram ||
-    comp?.social_links?.youtube ||
-    comp?.social_links?.x;
+  // Employer-supplied URLs only become hrefs when their scheme is allowlisted.
+  const facebookHref = safeUrl(comp?.social_links?.facebook);
+  const linkedinHref = safeUrl(comp?.social_links?.linkedin);
+  const instagramHref = safeUrl(comp?.social_links?.instagram);
+  const youtubeHref = safeUrl(comp?.social_links?.youtube);
+  const xHref = safeUrl(comp?.social_links?.x);
+
+  const hasSocials = Boolean(facebookHref || linkedinHref || instagramHref || youtubeHref || xHref);
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-12">
@@ -274,7 +271,7 @@ export function PublicClientProfileRender({ profile }: Props) {
                   icon={Globe}
                   label="Website"
                   value={comp.company_website.replace(/^https?:\/\/(www\.)?/, "")}
-                  href={formatUrl(comp.company_website)}
+                  href={safeUrl(comp.company_website)}
                 />
               )}
             </div>
@@ -287,9 +284,9 @@ export function PublicClientProfileRender({ profile }: Props) {
                 Social Media
               </h3>
               <div className="flex flex-wrap gap-2">
-                {comp?.social_links?.facebook && (
+                {facebookHref && (
                   <a
-                    href={formatUrl(comp.social_links.facebook)}
+                    href={facebookHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:border-blue-400 hover:text-blue-600 transition-colors"
@@ -298,9 +295,9 @@ export function PublicClientProfileRender({ profile }: Props) {
                     Facebook
                   </a>
                 )}
-                {comp?.social_links?.linkedin && (
+                {linkedinHref && (
                   <a
-                    href={formatUrl(comp.social_links.linkedin)}
+                    href={linkedinHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:border-blue-600 hover:text-blue-700 transition-colors"
@@ -309,9 +306,9 @@ export function PublicClientProfileRender({ profile }: Props) {
                     LinkedIn
                   </a>
                 )}
-                {comp?.social_links?.instagram && (
+                {instagramHref && (
                   <a
-                    href={formatUrl(comp.social_links.instagram)}
+                    href={instagramHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:border-pink-500 hover:text-pink-600 transition-colors"
@@ -320,9 +317,9 @@ export function PublicClientProfileRender({ profile }: Props) {
                     Instagram
                   </a>
                 )}
-                {comp?.social_links?.youtube && (
+                {youtubeHref && (
                   <a
-                    href={formatUrl(comp.social_links.youtube)}
+                    href={youtubeHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:border-red-500 hover:text-red-600 transition-colors"
@@ -331,9 +328,9 @@ export function PublicClientProfileRender({ profile }: Props) {
                     YouTube
                   </a>
                 )}
-                {comp?.social_links?.x && (
+                {xHref && (
                   <a
-                    href={formatUrl(comp.social_links.x)}
+                    href={xHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:border-zinc-600 hover:text-zinc-800 dark:hover:text-zinc-200 transition-colors"

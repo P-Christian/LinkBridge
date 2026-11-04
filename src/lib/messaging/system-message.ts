@@ -63,10 +63,19 @@ export async function createSystemMessage({
 
     let conversationId: number | null = null;
 
-    if (checkRes.ok) {
-      const checkJson = await checkRes.json();
-      conversationId = checkJson.data?.[0]?.conversation_id ?? null;
+    // "Could not read" is not "no thread exists". Answering the second
+    // interpretation here opened a duplicate conversation for the same
+    // client/freelancer/job pair, splitting the chat history in two. The thread
+    // is retried by the next event once the read works again.
+    if (!checkRes.ok) {
+      console.error(
+        `[system-message] Existing conversation lookup failed (${checkRes.status}); not creating a thread.`
+      );
+      return;
     }
+
+    const checkJson = await checkRes.json();
+    conversationId = checkJson.data?.[0]?.conversation_id ?? null;
 
     // 2. Create conversation if it doesn't exist
     if (!conversationId) {
@@ -86,8 +95,18 @@ export async function createSystemMessage({
       });
 
       if (createRes.ok) {
-        const createJson = await createRes.json();
-        conversationId = createJson.data?.conversation_id ?? null;
+        const createJson = await createRes.json().catch(() => null);
+        conversationId = createJson?.data?.conversation_id ?? null;
+        if (conversationId === null) {
+          console.error(
+            "[system-message] The conversation insert returned no id, so this event was not delivered."
+          );
+        }
+      } else {
+        const errText = await createRes.text().catch(() => "");
+        console.error(
+          `[system-message] Conversation insert failed (${createRes.status}): ${errText}`
+        );
       }
     }
 
@@ -111,11 +130,25 @@ export async function createSystemMessage({
     });
 
     // 3b. Insert structured event into vs_system_message (if event type provided)
-    if (systemEventType && msgRes.ok) {
-      const msgJson = await msgRes.json();
-      const messageId = msgJson.data?.message_id ?? null;
-      if (messageId) {
-        await fetch(`${DIRECTUS_BASE}/items/vs_system_message`, {
+    if (!msgRes.ok) {
+      const errText = await msgRes.text().catch(() => "");
+      console.error(
+        `[system-message] SYSTEM message insert failed (${msgRes.status}): ${errText}`
+      );
+      // Bumping last_message_at for a message that does not exist would move the
+      // thread to the top of the list on the strength of nothing.
+      return;
+    }
+
+    if (systemEventType) {
+      const msgJson = await msgRes.json().catch(() => null);
+      const messageId = msgJson?.data?.message_id ?? null;
+      if (!messageId) {
+        console.error(
+          "[system-message] The SYSTEM insert returned no message id, so the event card was not written."
+        );
+      } else {
+        const smRes = await fetch(`${DIRECTUS_BASE}/items/vs_system_message`, {
           method: "POST",
           headers: getHeaders(),
           body: JSON.stringify({
@@ -125,7 +158,17 @@ export async function createSystemMessage({
             interview_id: interviewId ?? null,
             stage_history_id: stageHistoryId ?? null,
           }),
-        }).catch((e) => console.error("Error inserting vs_system_message:", e));
+        }).catch((e) => {
+          console.error("Error inserting vs_system_message:", e);
+          return null;
+        });
+        if (smRes !== null && !smRes.ok) {
+          // The plain text still landed; only the application/interview card is
+          // missing, so the chat reads as a message without its context.
+          console.error(
+            `[system-message] Event card insert failed (${smRes.status}) for message #${messageId}.`
+          );
+        }
       }
     }
 

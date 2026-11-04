@@ -1,113 +1,116 @@
 // src/app/api/auth/me/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import * as jose from "jose";
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { COOKIE_NAME } from "@/lib/auth-utils";
 import {
-  canAuthenticate,
-  getAccountAuthenticationState,
-} from "@/lib/status-validator";
-import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
+  authenticateRequestDetailed,
+  isAdministratorSession,
+  isClientSession,
+  isFreelancerSession,
+  isSchoolAdminSession,
+} from "@/lib/authenticated-session";
+import { directusSettled } from "@/lib/server/directus";
 
-const COOKIE_NAME = "vos_sync_access_token";
+/**
+ * Clears the cookie, because the credential is genuinely finished: no token,
+ * a token we did not sign, an account that may not authenticate, or a revoked
+ * session. The body keeps `authenticated: false` so callers that only read the
+ * JSON see the same guest answer as before.
+ */
+function signedOut(): NextResponse {
+  const response = NextResponse.json({ authenticated: false });
+  response.cookies.delete(COOKIE_NAME);
+  return response;
+}
 
-const DIRECTUS_BASE = (
-  process.env.DIRECTUS_URL || process.env.NEXT_PUBLIC_API_BASE_URL || ""
-).replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getDirectusHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
+/**
+ * Directus could not answer about this account. Reporting that as a logout
+ * would delete a perfectly good cookie on a transient 5xx, so the credential
+ * survives and the caller retries; guarded API routes still fail closed on
+ * their own lookups.
+ */
+function unavailable(): NextResponse {
+  return NextResponse.json(
+    { authenticated: false, unavailable: true },
+    { status: 503 }
+  );
 }
 
 export async function GET(req: NextRequest) {
-  try {
-    const token = req.cookies.get(COOKIE_NAME)?.value;
-    if (!token) {
-      return NextResponse.json({ authenticated: false });
-    }
+  const outcome = await authenticateRequestDetailed(req);
 
-    const secret = getJwtVerificationSecret();
-    const { payload } = await jose.jwtVerify(token, secret);
+  if (outcome.status === "unavailable") return unavailable();
+  if (outcome.status !== "authenticated") return signedOut();
 
-    const userId = payload.user_id || payload.sub;
-    if (typeof userId !== "string" && typeof userId !== "number") {
-      return NextResponse.json({ authenticated: false });
-    }
-    const currentUser = await getAccountAuthenticationState(userId);
-    if (!canAuthenticate(currentUser)) {
-      const response = NextResponse.json({ authenticated: false });
-      response.cookies.delete(COOKIE_NAME);
-      return response;
-    }
+  const { session } = outcome;
+  const claims = { roleId: session.roleId, roleName: session.roleName };
 
-    const userRoleId = Number(currentUser?.role_id);
-    const userRoleName =
-      typeof currentUser?.role_name === "string"
-        ? currentUser.role_name
-        : typeof currentUser?.role === "string"
-        ? currentUser.role
-        : "";
-    const roleUpper = userRoleName.toUpperCase();
+  // Role names are written by several signup flows with slightly different
+  // spellings, so the id/name table lives in authenticated-session and this
+  // route reads the same predicates the API guards use. An account that
+  // matches none of them keeps the historical freelancer default.
+  let role = "employee";
+  let dashboard = "/vos-sync/freelancer/dashboard";
 
-    let role = "employee";
-    let dashboard = "/vos-sync/freelancer/dashboard";
+  if (isClientSession(claims)) {
+    role = "employer";
+    dashboard = "/vos-sync/client/dashboard";
+  } else if (isAdministratorSession(claims)) {
+    role = "admin";
+    dashboard = "/vos-sync/vos-admin";
+  } else if (isSchoolAdminSession(claims)) {
+    role = "school";
+    dashboard = "/vos-sync/school-admin";
+  } else if (isFreelancerSession(claims)) {
+    role = "employee";
+  }
 
-    if (userRoleId === 2 || roleUpper === "CLIENT" || roleUpper === "EMPLOYER") {
-      role = "employer";
-      dashboard = "/vos-sync/client/dashboard";
-    } else if (userRoleId === 3 || roleUpper === "ADMIN") {
-      role = "admin";
-      dashboard = "/vos-sync/vos-admin";
-    } else if (userRoleId === 4 || roleUpper === "SCHOOL_ADMIN" || roleUpper === "SCH_ADMIN" || roleUpper === "SCHOOL") {
-      role = "school";
-      dashboard = "/vos-sync/school-admin";
-    }
+  let companyId: number | null = null;
+  let companyCode: string | null = null;
 
-    let companyId: number | null = null;
-    let companyCode: string | null = null;
+  if (role === "employer") {
+    // `directusSettled` hands back the raw Directus envelope, and it does not
+    // throw: a failed company lookup must not turn a valid session into a 500.
+    const link = await directusSettled<{ data?: Array<{ company_id: unknown }> }>(
+      "/items/vs_company_user",
+      {
+        query: `filter[user_id][_eq]=${encodeURIComponent(String(session.userId))}&fields=company_id&limit=1`,
+        cache: "no-store",
+      }
+    );
+    if (!link.ok) {
+      console.error(`[auth/me] Employer company link lookup failed: ${link.error}`);
+    } else {
+      const raw = link.data?.data?.[0]?.company_id;
+      const resolved =
+        typeof raw === "object" && raw !== null
+          ? (raw as { company_id?: unknown }).company_id
+          : raw;
+      const id = Number(resolved);
 
-    if (role === "employer") {
-      try {
-        const linkUrl = `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`;
-        const linkRes = await fetch(linkUrl, { headers: getDirectusHeaders(), next: { revalidate: 10 } });
-        if (linkRes.ok) {
-          const linkJson = await linkRes.json();
-          const rawComp = linkJson.data?.[0]?.company_id;
-          const resolvedCompId =
-            typeof rawComp === "object" && rawComp !== null
-              ? rawComp.company_id
-              : rawComp;
-
-          if (resolvedCompId) {
-            companyId = Number(resolvedCompId);
-            const compRes = await fetch(
-              `${DIRECTUS_BASE}/items/vs_company/${companyId}?fields=company_id,company_code`,
-              { headers: getDirectusHeaders(), next: { revalidate: 10 } }
-            );
-            if (compRes.ok) {
-              const compJson = await compRes.json();
-              companyCode = compJson.data?.company_code || null;
-            }
-          }
+      if (Number.isSafeInteger(id) && id > 0) {
+        companyId = id;
+        const company = await directusSettled<{
+          data?: { company_code?: string };
+        }>(`/items/vs_company/${id}`, {
+          query: "fields=company_id,company_code",
+          cache: "no-store",
+        });
+        if (!company.ok) {
+          console.error(`[auth/me] Employer company lookup failed: ${company.error}`);
+        } else {
+          companyCode = company.data?.data?.company_code || null;
         }
-      } catch (err) {
-        console.error("[auth/me] Error fetching employer company:", err);
       }
     }
-
-    return NextResponse.json({
-      authenticated: true,
-      role,
-      dashboard,
-      userId,
-      companyId,
-      companyCode,
-    });
-  } catch {
-    return NextResponse.json({ authenticated: false });
   }
+
+  return NextResponse.json({
+    authenticated: true,
+    role,
+    dashboard,
+    userId: session.userId,
+    companyId,
+    companyCode,
+  });
 }

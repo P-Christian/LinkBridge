@@ -1,6 +1,7 @@
 // src/app/api/vos-admin/job-roles/suggestions/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdministrator } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
 import { slugifyCode } from "@/modules/vos-admin/role-matching/validators";
 import type {
@@ -9,6 +10,7 @@ import type {
   ResolutionType,
 } from "@/modules/vos-admin/role-matching/types";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,11 @@ function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
   if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
   return h;
+}
+
+function toPositiveId(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
 /** Normalize a raw `vs_role_category_suggestion` DB row into IntelligenceRequest. */
@@ -48,6 +55,10 @@ function normalizeRow(row: Record<string, unknown>): IntelligenceRequest {
 //   status: PENDING | APPROVED | REJECTED (optional — omit for ALL)
 export async function GET(req: NextRequest) {
   try {
+    if (!(await requireAdministrator(req))) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
     const { searchParams } = new URL(req.url);
     const statusFilter = searchParams.get("status");
 
@@ -67,7 +78,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ requests });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: (err as Error).message || "Server error" },
+      { error: safeErrorMessage(err, "Server error") },
       { status: 500 }
     );
   }
@@ -88,6 +99,11 @@ export async function GET(req: NextRequest) {
 //   admin_remarks?: string
 export async function PATCH(req: NextRequest) {
   try {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
     const body = await req.json().catch(() => ({}));
     const {
       suggestion_id,
@@ -109,20 +125,28 @@ export async function PATCH(req: NextRequest) {
       admin_remarks?: string;
     };
 
-    if (!suggestion_id || isNaN(Number(suggestion_id))) {
+    const suggestionId = toPositiveId(suggestion_id);
+    if (!suggestionId) {
       return NextResponse.json({ error: "suggestion_id is required." }, { status: 400 });
     }
     if (!action || !["APPROVE", "REJECT"].includes(action)) {
       return NextResponse.json({ error: "action must be APPROVE or REJECT." }, { status: 400 });
     }
 
-    // 1. Fetch existing suggestion
+    // 1. Fetch existing suggestion. Only 404 means it is gone; an outage
+    // otherwise told the admin the suggestion had disappeared from the queue.
     const sgRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestion_id}`,
+      `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestionId}`,
       { headers: getHeaders(), cache: "no-store" }
     );
-    if (!sgRes.ok) {
+    if (sgRes.status === 404) {
       return NextResponse.json({ error: "Suggestion not found." }, { status: 404 });
+    }
+    if (!sgRes.ok) {
+      return NextResponse.json(
+        { error: `The suggestion could not be read (${sgRes.status}). Please try again.` },
+        { status: 502 }
+      );
     }
     const sgData = (await sgRes.json()).data as Record<string, unknown>;
     if (!sgData) {
@@ -138,12 +162,16 @@ export async function PATCH(req: NextRequest) {
     const nowPH = getPHTimeString();
     const linkedJobId = sgData.job_id != null ? Number(sgData.job_id) : null;
 
+    // The review decision is committed before the side writes below; each one
+    // that fails is reported instead of being swallowed with a 200.
+    const warnings: string[] = [];
+
     // ── APPROVE ──────────────────────────────────────────────────────────────
     if (action === "APPROVE") {
       // Option A: Map to Existing Category
       if (resolution_type === "MAPPED_EXISTING") {
-        const catId = Number(existing_category_id);
-        if (!catId || isNaN(catId)) {
+        const catId = toPositiveId(existing_category_id);
+        if (!catId) {
           return NextResponse.json(
             { error: "existing_category_id is required when mapping to an existing category." },
             { status: 400 }
@@ -155,50 +183,67 @@ export async function PATCH(req: NextRequest) {
           headers: getHeaders(),
           cache: "no-store",
         });
-        if (!catRes.ok) {
+        if (catRes.status === 404) {
           return NextResponse.json({ error: "Selected existing category does not exist." }, { status: 404 });
+        }
+        if (!catRes.ok) {
+          return NextResponse.json(
+            { error: `The selected category could not be read (${catRes.status}). Please try again.` },
+            { status: 502 }
+          );
         }
         const existingCat = (await catRes.json()).data;
         const canonicalName = existingCat?.category_name || (sgData.category_name as string);
 
         // Update linked job posting if present
         if (linkedJobId && !isNaN(linkedJobId)) {
-          try {
-            await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${linkedJobId}`, {
-              method: "PATCH",
-              headers: getHeaders(),
-              body: JSON.stringify({
-                category_id: catId,
-                job_category: canonicalName,
-                updated_at: nowPH,
-              }),
-            });
-          } catch (linkErr) {
-            console.error(`[Suggestions API] Failed to update linked job_id ${linkedJobId}:`, linkErr);
+          const linkRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${linkedJobId}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              category_id: catId,
+              job_category: canonicalName,
+              updated_at: nowPH,
+            }),
+          }).catch(() => null);
+          if (!linkRes?.ok) {
+            warnings.push(
+              `The request was approved, but job #${linkedJobId} was not moved to "${canonicalName}".`
+            );
           }
         }
 
         // Update suggestion status
-        await fetch(`${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestion_id}`, {
-          method: "PATCH",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            status: "APPROVED",
-            resolution_type: "MAPPED_EXISTING",
-            resolved_category_id: catId,
-            admin_remarks: (admin_remarks ?? "").trim() || null,
-            reviewed_at: nowPH,
-            updated_at: nowPH,
-          }),
-        });
+        const statusRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestionId}`,
+          {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              status: "APPROVED",
+              resolution_type: "MAPPED_EXISTING",
+              resolved_category_id: catId,
+              admin_remarks: (admin_remarks ?? "").trim() || null,
+              reviewed_by: auth.adminId,
+              reviewed_at: nowPH,
+              updated_at: nowPH,
+            }),
+          }
+        ).catch(() => null);
+        if (!statusRes?.ok) {
+          warnings.push(
+            "The category mapping is saved, but this request is still marked PENDING — its approval did not save."
+          );
+        }
 
         return NextResponse.json({
           success: true,
           action: "APPROVED",
           resolution_type: "MAPPED_EXISTING",
-          suggestion_id,
+          suggestion_id: suggestionId,
           resolved_category_id: catId,
           linked_job_id: linkedJobId,
+          ...(warnings.length > 0 ? { warnings } : {}),
         });
       }
 
@@ -238,43 +283,55 @@ export async function PATCH(req: NextRequest) {
 
       // Link job posting if present
       if (linkedJobId && !isNaN(linkedJobId) && createdCategoryId) {
-        try {
-          await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${linkedJobId}`, {
-            method: "PATCH",
-            headers: getHeaders(),
-            body: JSON.stringify({
-              category_id: createdCategoryId,
-              job_category: finalName,
-              updated_at: nowPH,
-            }),
-          });
-        } catch (linkErr) {
-          console.error(`[Suggestions API] Failed to update linked job_id ${linkedJobId}:`, linkErr);
+        const linkRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${linkedJobId}`, {
+          method: "PATCH",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            category_id: createdCategoryId,
+            job_category: finalName,
+            updated_at: nowPH,
+          }),
+        }).catch(() => null);
+        if (!linkRes?.ok) {
+          warnings.push(
+            `The category was created, but job #${linkedJobId} was not moved to "${finalName}".`
+          );
         }
       }
 
       // Update suggestion status
-      await fetch(`${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestion_id}`, {
-        method: "PATCH",
-        headers: getHeaders(),
-        body: JSON.stringify({
-          status: "APPROVED",
-          resolution_type: "CREATED_NEW",
-          resolved_category_id: createdCategoryId,
-          admin_remarks: (admin_remarks ?? "").trim() || null,
-          reviewed_at: nowPH,
-          updated_at: nowPH,
-        }),
-      });
+      const statusRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestionId}`,
+        {
+          method: "PATCH",
+          headers: getHeaders(),
+          body: JSON.stringify({
+            status: "APPROVED",
+            resolution_type: "CREATED_NEW",
+            resolved_category_id: createdCategoryId,
+            admin_remarks: (admin_remarks ?? "").trim() || null,
+            reviewed_by: auth.adminId,
+            reviewed_at: nowPH,
+            updated_at: nowPH,
+          }),
+        }
+      ).catch(() => null);
+      if (!statusRes?.ok) {
+        // Approving again would POST a second copy of this category.
+        warnings.push(
+          `"${finalName}" was created, but this request is still marked PENDING. Do not approve it again — map it to the new category instead.`
+        );
+      }
 
       return NextResponse.json({
         success: true,
         action: "APPROVED",
         resolution_type: "CREATED_NEW",
-        suggestion_id,
+        suggestion_id: suggestionId,
         resolved_category_id: createdCategoryId,
         linked_job_id: linkedJobId,
         created_category: createdCategory,
+        ...(warnings.length > 0 ? { warnings } : {}),
       });
     }
 
@@ -289,7 +346,7 @@ export async function PATCH(req: NextRequest) {
     }
 
     const rejectRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestion_id}`,
+      `${DIRECTUS_BASE}/items/vs_role_category_suggestion/${suggestionId}`,
       {
         method: "PATCH",
         headers: getHeaders(),
@@ -298,6 +355,7 @@ export async function PATCH(req: NextRequest) {
           resolution_type: "REJECTED",
           resolved_category_id: null,
           admin_remarks: trimmedRemarks,
+          reviewed_by: auth.adminId,
           reviewed_at: nowPH,
           updated_at: nowPH,
         }),
@@ -312,12 +370,12 @@ export async function PATCH(req: NextRequest) {
       success: true,
       action: "REJECTED",
       resolution_type: "REJECTED",
-      suggestion_id,
+      suggestion_id: suggestionId,
       linked_job_id: linkedJobId,
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: (err as Error).message || "Server error" },
+      { error: safeErrorMessage(err, "Server error") },
       { status: 500 }
     );
   }

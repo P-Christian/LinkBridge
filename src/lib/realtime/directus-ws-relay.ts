@@ -1,7 +1,8 @@
 // src/lib/realtime/directus-ws-relay.ts
 
 import { EventEmitter } from "events";
-import { safeDecryptMessage } from "@/lib/message-encryption";
+
+export type RelayState = "connecting" | "connected" | "down";
 
 export interface RelayEventPayload {
   collection: string;
@@ -40,38 +41,50 @@ const COLLECTION_QUERY_FIELDS: Record<string, string[]> = {
     "user_id",
     "reaction",
     "created_at",
+    // Owning conversation participants for server-side SSE scoping
+    "message_id.conversation_id.client_id",
+    "message_id.conversation_id.freelancer_id",
   ],
   vs_freelancer_notification: [
-    "id",
+    "notification_id",
     "user_id",
+    "event_id",
+    "category",
     "title",
     "message",
-    "type",
+    "action_url",
     "is_read",
+    "is_starred",
     "created_at",
   ],
   vs_employer_notification: [
-    "id",
+    "notification_id",
     "user_id",
+    "event_id",
+    "category",
     "title",
     "message",
-    "type",
+    "action_url",
     "is_read",
+    "is_starred",
     "created_at",
   ],
   vs_interview: [
-    "id",
-    "title",
+    "interview_id",
+    "company_id",
+    "interviewer_user_id",
     "scheduled_at",
-    "status",
+    "interview_status",
     "created_at",
+    "updated_at",
   ],
   vs_job_application: [
-    "id",
-    "status",
-    "applicant_id",
+    "application_id",
     "job_id",
-    "updated_at",
+    "user_id",
+    "application_status",
+    "applied_at",
+    "status_updated_at",
   ],
 };
 
@@ -124,16 +137,82 @@ export async function resolveSenderName(userId: number): Promise<string | null> 
   return null;
 }
 
+/**
+ * Company IDs the user belongs to. Used to scope vs_interview events to the
+ * employer side of the conversation; returns [] for non-company users.
+ */
+export async function resolveUserCompanyIds(
+  rawUserId: string | number
+): Promise<number[]> {
+  const userId = Number(rawUserId);
+  if (!Number.isSafeInteger(userId) || userId <= 0) return [];
+  try {
+    const raw =
+      process.env.DIRECTUS_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://localhost:8055";
+    const base = raw.replace(/\/$/, "");
+    const token =
+      process.env.DIRECTUS_STATIC_TOKEN?.trim() ||
+      process.env.WEBSOCKET_ACCESS_TOKEN?.trim() ||
+      "";
+    const res = await fetch(
+      // Every membership, not the first 50: an employer on more companies than
+      // this would silently never see interview events for the rest.
+      `${base}/items/vs_company_user?filter[user_id][_eq]=${userId}&filter[status][_eq]=ACTIVE&fields=company_id&limit=-1`,
+      {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+      }
+    );
+    if (res.ok) {
+      const json = await res.json();
+      const rows = Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
+      return rows
+        .map((row) => Number(row.company_id))
+        .filter((id) => Number.isSafeInteger(id) && id > 0);
+    }
+  } catch (err) {
+    console.error("[DirectusRelay] Failed to resolve company ids for userId", userId, err);
+  }
+  return [];
+}
+
 class DirectusWsRelay {
   private ws: WebSocket | null = null;
   private emitter = new EventEmitter();
   private isConnecting = false;
   private isConnected = false;
+  private state: RelayState = "down";
   private retryCount = 0;
   private reconnectTimeout: NodeJS.Timeout | null = null;
 
   constructor() {
     this.emitter.setMaxListeners(200);
+  }
+
+  /**
+   * The data plane's real health. Every SSE subscriber used to be told
+   * `status: "connected"` as soon as the browser's own stream opened, so a relay
+   * that never authenticated with Directus looked live to every portal while no
+   * event could ever arrive.
+   */
+  public get status(): RelayState {
+    return this.state;
+  }
+
+  public onStateChange(listener: (state: RelayState) => void): () => void {
+    this.emitter.on("state", listener);
+    return () => {
+      this.emitter.off("state", listener);
+    };
+  }
+
+  private setState(next: RelayState, detail: string) {
+    if (this.state === next) return;
+    this.state = next;
+    console.log(`[DirectusRelay] State → ${next} (${detail})`);
+    this.emitter.emit("state", next);
   }
 
   public onEvent(listener: (payload: RelayEventPayload) => void): () => void {
@@ -144,6 +223,10 @@ class DirectusWsRelay {
   }
 
   public start() {
+    // `ws`/`reconnectTimeout` as well as the flags: a rejected handshake leaves
+    // both booleans false, so every new SSE request used to open yet another
+    // socket while the pending reconnect was already scheduled.
+    if (this.ws || this.reconnectTimeout) return;
     if (this.isConnected || this.isConnecting) return;
     this.connect();
   }
@@ -163,6 +246,7 @@ class DirectusWsRelay {
 
   private connect() {
     this.isConnecting = true;
+    this.setState("connecting", "opening WebSocket");
     const url = this.getWebSocketUrl();
     const token =
       process.env.WEBSOCKET_ACCESS_TOKEN?.trim() ||
@@ -176,7 +260,6 @@ class DirectusWsRelay {
 
       ws.onopen = () => {
         this.isConnecting = false;
-        this.retryCount = 0;
         console.log("[DirectusRelay] WebSocket OPENED. Sending Directus auth handshake...");
         ws.send(JSON.stringify({ type: "auth", access_token: token }));
       };
@@ -185,14 +268,33 @@ class DirectusWsRelay {
         try {
           const msg = JSON.parse(String(event.data));
 
+          // Directus closes any socket that stops answering its ping frames (~30s
+          // after the first one), which used to drop this relay once a minute.
+          if (msg.type === "ping") {
+            this.ws?.send(JSON.stringify({ type: "pong" }));
+            return;
+          }
+
           if (msg.type === "auth") {
             if (msg.status === "ok") {
               this.isConnected = true;
+              // Reset the backoff only once authentication is confirmed: an
+              // open-but-rejected socket used to restart it at the 2s floor and
+              // hammer Directus forever.
+              this.retryCount = 0;
+              this.setState("connected", "authenticated");
               console.log("[DirectusRelay] ✅ Authenticated with Directus WebSocket.");
               this.subscribeAll();
             } else {
+              // Directus answers the failed handshake and leaves the socket up.
+              // Without closing it here the relay wedged: no events, no reconnect
+              // timer, and every portal still looked live.
               this.isConnected = false;
+              this.setState("down", `auth rejected: ${String(msg.error ?? "unknown")}`);
               console.error("[DirectusRelay] ❌ Authentication failed:", msg.error);
+              try {
+                ws.close();
+              } catch {}
             }
             return;
           }
@@ -210,12 +312,11 @@ class DirectusWsRelay {
               : [];
             const eventType = msg.event || "update";
 
-            // Decrypt message_content, resolve sender_name, and flatten conversation participant IDs for vs_message records
+            // Flatten conversation participant IDs and resolve sender_name for vs_message records.
+            // message_content stays encrypted here — the SSE route decrypts only the rows a
+            // membership filter has already allowed through to that subscriber.
             if (collection === "vs_message") {
               for (const rec of records) {
-                if (typeof rec.message_content === "string") {
-                  rec.message_content = safeDecryptMessage(rec.message_content) ?? rec.message_content;
-                }
                 // Flatten nested relation: conversation_id: { client_id, freelancer_id }
                 if (rec.conversation_id && typeof rec.conversation_id === "object") {
                   const conv = rec.conversation_id as Record<string, unknown>;
@@ -254,6 +355,24 @@ class DirectusWsRelay {
               }
             }
 
+            // Flatten the owning conversation's participants for vs_message_reaction records
+            if (collection === "vs_message_reaction") {
+              for (const rec of records) {
+                if (rec.message_id && typeof rec.message_id === "object") {
+                  const msg = rec.message_id as Record<string, unknown>;
+                  const conv =
+                    msg.conversation_id && typeof msg.conversation_id === "object"
+                      ? (msg.conversation_id as Record<string, unknown>)
+                      : {};
+                  rec.client_id = conv.client_id ?? null;
+                  rec.freelancer_id = conv.freelancer_id ?? null;
+                  if (typeof msg.message_id === "number") {
+                    rec.message_id = msg.message_id;
+                  }
+                }
+              }
+            }
+
             if (collection && records.length > 0) {
               this.emitter.emit("event", {
                 collection,
@@ -275,25 +394,36 @@ class DirectusWsRelay {
         this.isConnecting = false;
         this.isConnected = false;
         this.ws = null;
+        this.setState("down", `closed (code: ${evt.code}, reason: ${evt.reason || "none"})`);
         console.warn(`[DirectusRelay] WebSocket CLOSED (code: ${evt.code}, reason: ${evt.reason || "none"})`);
 
         const delay = Math.min(30000, 2000 * Math.pow(1.5, this.retryCount));
         this.retryCount++;
         if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
         this.reconnectTimeout = setTimeout(() => {
+          this.reconnectTimeout = null;
           this.connect();
         }, delay);
       };
     } catch (e) {
       this.isConnecting = false;
       this.isConnected = false;
+      this.setState("down", `constructor threw: ${String(e)}`);
       console.error("[DirectusRelay] Exception starting WebSocket:", e);
     }
   }
 
   public destroy() {
     if (this.reconnectTimeout) clearTimeout(this.reconnectTimeout);
+    this.reconnectTimeout = null;
     if (this.ws) {
+      // Detach first: the close event used to schedule a fresh reconnect from a
+      // relay that hot-reload had already thrown away, so the dev server kept a
+      // socket churning against a singleton nothing listened to.
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onerror = null;
+      this.ws.onclose = null;
       try {
         this.ws.close();
       } catch {}
@@ -301,6 +431,7 @@ class DirectusWsRelay {
     }
     this.isConnected = false;
     this.isConnecting = false;
+    this.setState("down", "destroyed");
     this.emitter.removeAllListeners();
   }
 

@@ -4,7 +4,7 @@
 // Gemini does NOT modify scores. It explains deterministic evidence and gaps only.
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import {
   CampusCandidate,
@@ -39,6 +39,9 @@ export async function POST(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     const userId = Number(session.userId);
     const { isVerified, verification_status, companyId } = await checkCompanyVerificationStatus(userId);
@@ -62,8 +65,16 @@ export async function POST(req: NextRequest) {
         `${DIRECTUS_BASE}/items/vs_job_posting/${job.job_id}?fields=job_id,company_id`,
         { headers: getHeaders(), cache: "no-store" }
       );
-      if (!jobCheckRes.ok) {
+      // Only 404 means the posting is gone; anything else was an outage that read
+      // back to the recruiter as "your job does not exist".
+      if (jobCheckRes.status === 404) {
         return NextResponse.json({ error: "Job posting not found." }, { status: 404 });
+      }
+      if (!jobCheckRes.ok) {
+        return NextResponse.json(
+          { error: "The job posting could not be verified. Please try again." },
+          { status: 502 }
+        );
       }
       const jobCheckData = await jobCheckRes.json();
       if (Number(jobCheckData.data?.company_id) !== Number(companyId)) {

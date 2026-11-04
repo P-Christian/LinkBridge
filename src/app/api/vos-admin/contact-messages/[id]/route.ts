@@ -52,16 +52,27 @@ export async function GET(
       return NextResponse.json({ error: "Message not found." }, { status: 404 });
     }
 
+    const warnings: string[] = [];
+
     // Auto-advance 'new' → 'read'
     if (msg.status === "new") {
       const now = getPHTimeString();
-      await markAsReadRepo(numId, Number(session.userId), now);
-      msg.status = "read";
-      msg.reviewed_by = Number(session.userId);
-      msg.reviewed_at = now;
+      try {
+        await markAsReadRepo(numId, Number(session.userId), now);
+        msg.status = "read";
+        msg.reviewed_by = Number(session.userId);
+        msg.reviewed_at = now;
+      } catch {
+        // The body is still readable, but claiming it was read would move it out
+        // of the "New" queue on screen while the row is untouched in Directus.
+        warnings.push("The message opened, but it could not be marked as read.");
+      }
     }
 
-    return NextResponse.json({ item: msg });
+    return NextResponse.json({
+      item: msg,
+      ...(warnings.length ? { warnings } : {}),
+    });
   } catch (error: unknown) {
     console.error("[GET /api/vos-admin/contact-messages/[id]]", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

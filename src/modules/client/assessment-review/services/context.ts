@@ -8,7 +8,7 @@ import {
   type AssessmentTaskEmployerDTO,
   type AssessmentTaskType,
 } from "@/modules/shared/assessment";
-import { directusGetOne, directusList } from "./directus";
+import { directusGetOneSettled, directusList } from "./directus";
 
 const APPLICATION_FIELDS = "application_id,job_id,user_id,current_stage_id";
 
@@ -46,9 +46,18 @@ export interface AssessmentHistoryContext {
   stages: AssessmentStageTasks[];
 }
 
+export interface ReviewerCompanyRead {
+  companyId: number | null;
+  /**
+   * The link row could not be read. Kept separate from `companyId: null` so a
+   * Directus outage does not answer as "this account has no company".
+   */
+  unavailable: boolean;
+}
+
 export async function resolveReviewerCompany(
   userId: string | number,
-): Promise<number | null> {
+): Promise<ReviewerCompanyRead> {
   try {
     const params = new URLSearchParams({
       "filter[user_id][_eq]": String(userId),
@@ -58,37 +67,62 @@ export async function resolveReviewerCompany(
     const rows = await directusList("vs_company_user", params);
     const raw = rows[0]?.company_id ?? null;
     const id = Number(raw);
-    return Number.isSafeInteger(id) && id > 0 ? id : null;
+    const companyId = Number.isSafeInteger(id) && id > 0 ? id : null;
+    return { companyId, unavailable: false };
   } catch {
-    return null;
+    return { companyId: null, unavailable: true };
   }
+}
+
+export interface CompanyApplicationRead {
+  application: CompanyApplication | null;
+  /** See `ReviewerCompanyRead.unavailable` — a failed read is not a missing row. */
+  unavailable: boolean;
 }
 
 /**
  * Loads the application and verifies the application's job belongs to the
- * reviewer's company. Returns null when missing or out of scope so existence
- * is not leaked across companies.
+ * reviewer's company. Returns `application: null` when the row is missing or out
+ * of scope, so existence is not leaked across companies; `unavailable: true` is
+ * reserved for reads that never completed.
  */
 export async function loadCompanyApplication(
   applicationId: number,
   companyId: number,
-): Promise<CompanyApplication | null> {
-  const raw = await directusGetOne("vs_job_application", applicationId, APPLICATION_FIELDS);
-  if (!raw) return null;
+): Promise<CompanyApplicationRead> {
+  const appRead = await directusGetOneSettled(
+    "vs_job_application",
+    applicationId,
+    APPLICATION_FIELDS,
+  );
+  if (!appRead.ok) return { application: null, unavailable: true };
+  const raw = appRead.row;
+  if (!raw) return { application: null, unavailable: false };
+
   const jobId = Number(raw.job_id);
-  if (!Number.isSafeInteger(jobId) || jobId <= 0) return null;
-  const job = await directusGetOne("vs_job_posting", jobId, "job_id,company_id");
-  if (!job) return null;
-  if (Number(job.company_id) !== companyId) return null;
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+    return { application: null, unavailable: false };
+  }
+
+  const jobRead = await directusGetOneSettled("vs_job_posting", jobId, "job_id,company_id");
+  if (!jobRead.ok) return { application: null, unavailable: true };
+  if (!jobRead.row) return { application: null, unavailable: false };
+  if (Number(jobRead.row.company_id) !== companyId) {
+    return { application: null, unavailable: false };
+  }
+
   const stageValue = raw.current_stage_id;
   const stageId =
     stageValue === null || stageValue === undefined ? null : Number(stageValue);
   return {
-    application_id: Number(raw.application_id),
-    job_id: jobId,
-    user_id: Number(raw.user_id),
-    current_stage_id:
-      stageId !== null && Number.isSafeInteger(stageId) && stageId > 0 ? stageId : null,
+    application: {
+      application_id: Number(raw.application_id),
+      job_id: jobId,
+      user_id: Number(raw.user_id),
+      current_stage_id:
+        stageId !== null && Number.isSafeInteger(stageId) && stageId > 0 ? stageId : null,
+    },
+    unavailable: false,
   };
 }
 

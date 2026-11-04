@@ -67,6 +67,101 @@ const data = {
     ],
 };
 
+// Module scope keeps `config.navItems` reference-stable; defined inside the
+// render body it was a fresh object each render, which re-ran DashboardSidebar's
+// unread-count effect and re-issued its fetches on every unrelated re-render.
+const FREELANCER_SIDEBAR_CONFIG: SidebarConfig = {
+    title: "VOS Sync",
+    subtitle: "FREELANCER PORTAL",
+    homeUrl: "/vos-sync/freelancer/dashboard",
+    navItems: [
+        { label: "Dashboard", href: "/vos-sync/freelancer/dashboard", icon: LayoutDashboard, group: "Overview" },
+        { label: "My Profile", href: "/vos-sync/freelancer/profile", icon: User },
+        { label: "Find Work", href: "/vos-sync/freelancer/jobs", icon: Briefcase, group: "Work" },
+        { label: "My Applications", href: "/vos-sync/freelancer/applications", icon: FileText },
+        { label: "Messages", href: "/vos-sync/freelancer/messaging", icon: MessageSquare, group: "Inbox" },
+        { label: "Referrals", href: "/vos-sync/freelancer/referrals", icon: Share2 },
+        { label: "Notifications", href: "/vos-sync/freelancer/notifications", icon: Bell },
+        // { label: "How It Works", href: "/vos-sync/freelancer/how-it-works", icon: HelpCircle },
+        { label: "Settings", href: "/vos-sync/freelancer/settings", icon: Settings2, group: "Account" },
+    ],
+    footerLinks: [
+        { label: "Log out", href: "/logout", icon: LogOut },
+    ],
+};
+
+const FREELANCER_GUEST_SIDEBAR_CONFIG: SidebarConfig = {
+    ...FREELANCER_SIDEBAR_CONFIG,
+    homeUrl: "/vos-sync/freelancer/jobs",
+    navItems: [
+        { label: "Find Work", href: "/vos-sync/freelancer/jobs", icon: Briefcase },
+        { label: "How It Works", href: "/vos-sync/freelancer/how-it-works", icon: HelpCircle },
+    ],
+};
+
+const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
+    title: "VOS Sync",
+    subtitle: "CLIENT PORTAL",
+    homeUrl: "/vos-sync/client/dashboard",
+    navItems: [
+        { label: "Dashboard", href: "/vos-sync/client/dashboard", icon: LayoutDashboard, group: "Overview" },
+        { label: "Company Profile", href: "/vos-sync/client/company-profile", icon: User },
+        { label: "Manage Jobs", href: "/vos-sync/client/jobs", icon: Briefcase, group: "Hiring" },
+        { label: "Review Candidates", href: "/vos-sync/client/applicants", icon: FileText },
+        { label: "Talent Search", href: "/vos-sync/client/talent-search", icon: Search },
+        { label: "Campus Talent", href: "/vos-sync/client/campus-talent", icon: GraduationCap },
+        { label: "Interview Schedule", href: "/vos-sync/client/interviews", icon: CalendarDays },
+        { label: "Messages", href: "/vos-sync/client/messaging", icon: MessageSquare, group: "Inbox" },
+        { label: "Notifications", href: "/vos-sync/client/notifications", icon: Bell },
+        // { label: "How It Works", href: "/vos-sync/client/how-it-works", icon: HelpCircle },
+        { label: "ATS Pipeline", href: "/vos-sync/client/ats-pipeline", icon: GitFork, group: "Configuration" },
+    ],
+    footerLinks: [],
+};
+
+const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
+    title: "VOS Sync",
+    subtitle: "SCHOOL ADMIN",
+    homeUrl: "/vos-sync/school-admin",
+    navItems: [
+        { label: "Dashboard", href: "/vos-sync/school-admin", icon: LayoutDashboard, group: "Overview" },
+        { label: "My School", href: "/vos-sync/school-admin/profile", icon: Building2 },
+        { label: "My Courses", href: "/vos-sync/school-admin/courses", icon: GraduationCap, group: "Programs" },
+        { label: "Student Roster", href: "/vos-sync/school-admin/students", icon: Users },
+        { label: "Requests", href: "/vos-sync/school-admin/requests", icon: ClipboardCheck },
+        { label: "Job Referrals", href: "/vos-sync/school-admin/job-referrals", icon: Briefcase, group: "Careers" },
+        { label: "Success Metrics", href: "/vos-sync/school-admin/success-metrics", icon: TrendingUp },
+        { label: "Configuration", href: "/vos-sync/school-admin/settings", icon: Settings2, group: "Account" },
+    ],
+    footerLinks: [
+        { label: "Log out", href: "/logout", icon: LogOut },
+    ],
+};
+
+const SCHOOL_ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
+    title: "VOS Sync",
+    subtitle: "VOS Sync ADMIN",
+    homeUrl: "/vos-sync/vos-admin",
+    navItems: [
+        { label: "Dashboard", href: "/vos-sync/vos-admin", icon: LayoutDashboard, group: "Overview" },
+        { label: "Request Management", href: "/vos-sync/vos-admin/requests", icon: ClipboardCheck, group: "Management" },
+        { label: "Contact Messages", href: "/vos-sync/vos-admin/contact-messages", icon: MessageSquare },
+        { label: "User Management", href: "/vos-sync/vos-admin/users", icon: Users },
+        { label: "Account Status", href: "/vos-sync/vos-admin/account-status", icon: ShieldAlert },
+        { label: "Career Advice", href: "/vos-sync/vos-admin/career-articles", icon: FileText, group: "Content" },
+        { label: "Platform Company", href: "/vos-sync/vos-admin/platform-company", icon: Building },
+        { label: "Company Verification", href: "/vos-sync/vos-admin/company-verification", icon: Building2, group: "Verification" },
+        { label: "School Verification", href: "/vos-sync/vos-admin/school-verification", icon: GraduationCap },
+        { label: "Role Matching", href: "/vos-sync/vos-admin/job-roles", icon: Target, group: "System" },
+        { label: "Gemini Monitoring", href: "/vos-sync/vos-admin/gemini-monitoring", icon: Cpu },
+        { label: "Audit Trail", href: "/vos-sync/vos-admin/audit-trail", icon: ShieldCheck },
+        { label: "Configuration", href: "/vos-sync/vos-admin/settings", icon: Settings2 },
+    ],
+    footerLinks: [
+        { label: "Log out", href: "/logout", icon: LogOut },
+    ],
+};
+
 export function AppSidebar({
     className,
     ...props
@@ -101,102 +196,23 @@ export function AppSidebar({
     }
 
     if (role === "FREELANCER" || pathname.startsWith("/vos-sync/freelancer") || (isGuest && pathname.startsWith("/vos-sync/public")) || portal === "freelancer") {
-        const FREELANCER_SIDEBAR_CONFIG: SidebarConfig = {
-            title: "VOS Sync",
-            subtitle: "FREELANCER PORTAL",
-            homeUrl: isGuest ? "/vos-sync/freelancer/jobs" : "/vos-sync/freelancer/dashboard",
-            navItems: isGuest
-                ? [
-                    { label: "Find Work", href: "/vos-sync/freelancer/jobs", icon: Briefcase },
-                    { label: "How It Works", href: "/vos-sync/freelancer/how-it-works", icon: HelpCircle },
-                  ]
-                : [
-                    { label: "Dashboard", href: "/vos-sync/freelancer/dashboard", icon: LayoutDashboard, group: "Overview" },
-                    { label: "My Profile", href: "/vos-sync/freelancer/profile", icon: User },
-                    { label: "Find Work", href: "/vos-sync/freelancer/jobs", icon: Briefcase, group: "Work" },
-                    { label: "My Applications", href: "/vos-sync/freelancer/applications", icon: FileText },
-                    { label: "Messages", href: "/vos-sync/freelancer/messaging", icon: MessageSquare, group: "Inbox" },
-                    { label: "Referrals", href: "/vos-sync/freelancer/referrals", icon: Share2 },
-                    { label: "Notifications", href: "/vos-sync/freelancer/notifications", icon: Bell },
-                    // { label: "How It Works", href: "/vos-sync/freelancer/how-it-works", icon: HelpCircle },
-                    { label: "Settings", href: "/vos-sync/freelancer/settings", icon: Settings2, group: "Account" },
-                  ],
-            footerLinks: [
-                { label: "Log out", href: "/logout", icon: LogOut },
-            ],
-        };
-        return <DashboardSidebar config={FREELANCER_SIDEBAR_CONFIG} {...props} />;
+        return (
+            <DashboardSidebar
+                config={isGuest ? FREELANCER_GUEST_SIDEBAR_CONFIG : FREELANCER_SIDEBAR_CONFIG}
+                {...props}
+            />
+        );
     }
 
     if (role === "CLIENT" || pathname.startsWith("/vos-sync/client") || portal === "client") {
-        const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
-            title: "VOS Sync",
-            subtitle: "CLIENT PORTAL",
-            homeUrl: "/vos-sync/client/dashboard",
-            navItems: [
-                { label: "Dashboard", href: "/vos-sync/client/dashboard", icon: LayoutDashboard, group: "Overview" },
-                { label: "Company Profile", href: "/vos-sync/client/company-profile", icon: User },
-                { label: "Manage Jobs", href: "/vos-sync/client/jobs", icon: Briefcase, group: "Hiring" },
-                { label: "Review Candidates", href: "/vos-sync/client/applicants", icon: FileText },
-                { label: "Talent Search", href: "/vos-sync/client/talent-search", icon: Search },
-                { label: "Campus Talent", href: "/vos-sync/client/campus-talent", icon: GraduationCap },
-                { label: "Interview Schedule", href: "/vos-sync/client/interviews", icon: CalendarDays },
-                { label: "Messages", href: "/vos-sync/client/messaging", icon: MessageSquare, group: "Inbox" },
-                { label: "Notifications", href: "/vos-sync/client/notifications", icon: Bell },
-                // { label: "How It Works", href: "/vos-sync/client/how-it-works", icon: HelpCircle },
-                { label: "ATS Pipeline", href: "/vos-sync/client/ats-pipeline", icon: GitFork, group: "Configuration" },
-            ],
-            footerLinks: [],
-        };
         return <DashboardSidebar config={CLIENT_SIDEBAR_CONFIG} {...props} />;
     }
 
     if (role === "SCHOOL_ADMIN" || pathname.startsWith("/vos-sync/school-admin") || portal === "school-admin") {
-        const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
-            title: "VOS Sync",
-            subtitle: "SCHOOL ADMIN",
-            homeUrl: "/vos-sync/school-admin",
-            navItems: [
-                { label: "Dashboard", href: "/vos-sync/school-admin", icon: LayoutDashboard, group: "Overview" },
-                { label: "My School", href: "/vos-sync/school-admin/profile", icon: Building2 },
-                { label: "My Courses", href: "/vos-sync/school-admin/courses", icon: GraduationCap, group: "Programs" },
-                { label: "Student Roster", href: "/vos-sync/school-admin/students", icon: Users },
-                { label: "Requests", href: "/vos-sync/school-admin/requests", icon: ClipboardCheck },
-                { label: "Job Referrals", href: "/vos-sync/school-admin/job-referrals", icon: Briefcase, group: "Careers" },
-                { label: "Success Metrics", href: "/vos-sync/school-admin/success-metrics", icon: TrendingUp },
-                { label: "Configuration", href: "/vos-sync/school-admin/settings", icon: Settings2, group: "Account" },
-            ],
-            footerLinks: [
-                { label: "Log out", href: "/logout", icon: LogOut },
-            ],
-        };
         return <DashboardSidebar config={SCHOOL_DASHBOARD_SIDEBAR_CONFIG} {...props} />;
     }
 
     if (role === "ADMIN" || pathname.startsWith("/vos-sync/vos-admin") || portal === "vos-admin") {
-        const SCHOOL_ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
-            title: "VOS Sync",
-            subtitle: "VOS Sync ADMIN",
-            homeUrl: "/vos-sync/vos-admin",
-            navItems: [
-                { label: "Dashboard", href: "/vos-sync/vos-admin", icon: LayoutDashboard, group: "Overview" },
-                { label: "Request Management", href: "/vos-sync/vos-admin/requests", icon: ClipboardCheck, group: "Management" },
-                { label: "Contact Messages", href: "/vos-sync/vos-admin/contact-messages", icon: MessageSquare },
-                { label: "User Management", href: "/vos-sync/vos-admin/users", icon: Users },
-                { label: "Account Status", href: "/vos-sync/vos-admin/account-status", icon: ShieldAlert },
-                { label: "Career Advice", href: "/vos-sync/vos-admin/career-articles", icon: FileText, group: "Content" },
-                { label: "Platform Company", href: "/vos-sync/vos-admin/platform-company", icon: Building },
-                { label: "Company Verification", href: "/vos-sync/vos-admin/company-verification", icon: Building2, group: "Verification" },
-                { label: "School Verification", href: "/vos-sync/vos-admin/school-verification", icon: GraduationCap },
-                { label: "Role Matching", href: "/vos-sync/vos-admin/job-roles", icon: Target, group: "System" },
-                { label: "Gemini Monitoring", href: "/vos-sync/vos-admin/gemini-monitoring", icon: Cpu },
-                { label: "Audit Trail", href: "/vos-sync/vos-admin/audit-trail", icon: ShieldCheck },
-                { label: "Configuration", href: "/vos-sync/vos-admin/settings", icon: Settings2 },
-            ],
-            footerLinks: [
-                { label: "Log out", href: "/logout", icon: LogOut },
-            ],
-        };
         return <DashboardSidebar config={SCHOOL_ADMIN_SIDEBAR_CONFIG} {...props} />;
     }
     return (

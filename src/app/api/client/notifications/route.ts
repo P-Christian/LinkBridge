@@ -2,6 +2,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { pageParams } from "@/lib/server/paging";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,21 +44,23 @@ async function getUnreadCount(userId: number): Promise<number> {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const { searchParams } = new URL(req.url);
     const unreadOnly = searchParams.get("unread_only") === "true";
     const starredOnly = searchParams.get("starred_only") === "true";
-    const limit = parseInt(searchParams.get("limit") ?? "50", 10);
-    const offset = parseInt(searchParams.get("offset") ?? "0", 10);
+    // Shared clamp: ?limit=abc used to reach Directus as limit=NaN (a 400 the
+    // panel shows as a failed list), ?limit=-1 is Directus's "no limit" sentinel
+    // and would read the whole table, and a negative offset shifts the range.
+    const { limit, offset } = pageParams(searchParams);
 
     // Build filter query against vs_employer_notification
     let filterQuery = `filter[user_id][_eq]=${userId}`;
@@ -79,7 +83,12 @@ export async function GET(req: NextRequest) {
       );
     } catch (fetchErr: unknown) {
       console.warn("[Employer notifications] Upstream socket/network error:", fetchErr instanceof Error ? fetchErr.message : fetchErr);
-      return NextResponse.json({ notifications: [] }, { status: 200 });
+      // An unreachable Directus is not "no notifications"; the bell panel shows
+      // this reason instead of an empty list that looks like nothing arrived.
+      return NextResponse.json(
+        { error: "Notifications could not be loaded right now." },
+        { status: 502 }
+      );
     }
 
     if (!notifRes.ok) {
@@ -115,7 +124,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/notifications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -126,55 +135,90 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
     const body = await req.json().catch(() => ({}));
 
     // Mode 1: Mark all as read
     if (body.mark_all_read) {
-      const listRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_employer_notification?filter[user_id][_eq]=${userId}&filter[is_read][_eq]=0&fields=notification_id&limit=500`,
-        { headers: getHeaders(), cache: "no-store" }
-      );
+      // One 500-row page used to be read as "everything is clear": a failed
+      // fetch answered `unread_count: 0`, and an account with more than one
+      // page of unread rows had the rest left unread behind the same zero.
+      const PAGE = 500;
+      const MAX_PAGES = 20;
+      let updated = 0;
 
-      const listJson = await listRes.json();
-      const ids: number[] = (listJson.data ?? []).map(
-        (n: { notification_id: number }) => n.notification_id
-      );
-
-      if (ids.length === 0) {
-        return NextResponse.json({ success: true, updated: 0, unread_count: 0 });
-      }
-
-      const patchRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_employer_notification`,
-        {
-          method: "PATCH",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            keys: ids,
-            data: { is_read: 1 },
-          }),
-        }
-      );
-
-      if (!patchRes.ok) {
-        const text = await patchRes.text();
-        console.error("Directus bulk mark-read error:", text);
-        return NextResponse.json(
-          { error: "Failed to mark notifications as read." },
-          { status: patchRes.status }
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const listRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_employer_notification?filter[user_id][_eq]=${userId}&filter[is_read][_eq]=0&fields=notification_id&limit=${PAGE}`,
+          { headers: getHeaders(), cache: "no-store" }
         );
+
+        if (!listRes.ok) {
+          return NextResponse.json(
+            {
+              error:
+                updated > 0
+                  ? `${updated} notification(s) were marked as read, but the rest could not be read. Please try again.`
+                  : "Notifications could not be read. Nothing was marked as read. Please try again.",
+            },
+            { status: 502 }
+          );
+        }
+
+        const listJson = await listRes.json();
+        const ids: number[] = ((listJson.data ?? []) as Array<{ notification_id: number }>)
+          .map((n) => Number(n.notification_id))
+          .filter((id) => Number.isFinite(id) && id > 0);
+
+        if (ids.length === 0) {
+          return NextResponse.json({ success: true, updated, unread_count: 0 });
+        }
+
+        const patchRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_employer_notification`,
+          {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              keys: ids,
+              data: { is_read: 1 },
+            }),
+          }
+        );
+
+        if (!patchRes.ok) {
+          const text = await patchRes.text();
+          console.error("Directus bulk mark-read error:", text);
+          return NextResponse.json(
+            { error: "Failed to mark notifications as read." },
+            { status: patchRes.status }
+          );
+        }
+
+        updated += ids.length;
+
+        // A short page means the unread set is exhausted.
+        if (ids.length < PAGE) {
+          return NextResponse.json({ success: true, updated, unread_count: 0 });
+        }
       }
 
-      return NextResponse.json({ success: true, updated: ids.length, unread_count: 0 });
+      return NextResponse.json({
+        success: true,
+        updated,
+        unread_count: null,
+        warnings: [
+          "Only the first batch of unread notifications could be cleared. Reload the list and mark the rest again.",
+        ],
+      });
     }
 
     // Mode 2: Bulk update specific notification_ids
@@ -260,7 +304,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/client/notifications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -271,15 +315,15 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
     const body = await req.json().catch(() => ({}));
 
     if (!Array.isArray(body.notification_ids)) {
@@ -350,7 +394,7 @@ export async function DELETE(req: NextRequest) {
   } catch (err: unknown) {
     console.error("DELETE /api/client/notifications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

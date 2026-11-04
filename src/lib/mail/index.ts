@@ -32,3 +32,4 @@ export * from "./services/job-mail";
 export * from "./services/notification-mail";
 export * from "./services/employer-mail";
 export * from "./templates/base-url";
+export * from "./templates/escape-html";

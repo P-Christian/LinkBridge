@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  deleteCompanyPipeline,
   getPipelineWithDetails,
   updateCompanyPipeline,
 } from "@/modules/client/pipeline/services/pipeline.service";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,16 +27,15 @@ function getHeaders(): Record<string, string> {
 }
 
 async function getCompanyId(userId: number): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const json = await res.json();
-    return json.data?.[0]?.company_id ?? null;
-  } catch {
-    return null;
-  }
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  // An unreadable link is not "no link": falling through to the null branch
+  // answered 403/404 and a recruiter read that as having no company at all.
+  if (!res.ok) throw new Error(`Company link lookup failed (${res.status}).`);
+  const json = await res.json();
+  return json.data?.[0]?.company_id ?? null;
 }
 
 export async function GET(
@@ -52,6 +52,9 @@ export async function GET(
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
@@ -92,6 +95,9 @@ export async function PATCH(
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
@@ -141,6 +147,52 @@ export async function PATCH(
     console.error("PATCH /api/client/pipelines/[id] error:", err);
     return NextResponse.json(
       { error: "Failed to update pipeline." },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const pipelineId = Number(id);
+    if (!pipelineId || isNaN(pipelineId)) {
+      return NextResponse.json({ error: "Invalid pipeline ID." }, { status: 400 });
+    }
+
+    const session = await authenticateRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
+
+    const userId = Number(session.userId);
+    const companyId = await getCompanyId(userId);
+    if (!companyId) {
+      return NextResponse.json({ error: "Company association not found." }, { status: 404 });
+    }
+
+    const result = await deleteCompanyPipeline(pipelineId, companyId);
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.error || "Failed to delete pipeline." },
+        { status: 400 }
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      message: "Pipeline template deleted successfully.",
+    });
+  } catch (err) {
+    console.error("DELETE /api/client/pipelines/[id] error:", err);
+    return NextResponse.json(
+      { error: "Failed to delete pipeline template." },
       { status: 500 }
     );
   }

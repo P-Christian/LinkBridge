@@ -64,7 +64,6 @@ function hashString(input: string): number {
 interface ApplicantCardProps {
   applicant: Applicant;
   onUpdateStatus: (applicant: Applicant) => void;
-  onQuickStatusUpdate?: (applicant: Applicant, status: ApplicationStatus) => void;
   onQuickStageUpdate?: (applicant: Applicant, toStageId: number, stageName: string) => void;
   onScheduleInterview: (applicant: Applicant) => void;
   onViewScheduledInterview?: (interviewId: number) => void;

@@ -24,6 +24,7 @@ import {
   Briefcase,
 } from "lucide-react";
 import { CandidateDetail } from "../types";
+import { toast } from "sonner";
 import {
   CandidateAiAnalysis,
   getCachedApplicantAnalysis,
@@ -50,9 +51,11 @@ export function ApplicantAiAnalysisModal({
   const fetchAnalysis = React.useCallback(async (forceRegenerate = false) => {
     if (!applicant || !applicationId) return;
 
+    let cached: CandidateAiAnalysis | null = null;
+
     if (!forceRegenerate) {
       // 1. Check L1 browser cache for instant 0ms display
-      const cached = getCachedApplicantAnalysis(applicationId);
+      cached = getCachedApplicantAnalysis(applicationId);
       if (cached) {
         setAnalysis(cached);
       }
@@ -60,22 +63,36 @@ export function ApplicantAiAnalysisModal({
       // 2. Check active record from DB
       try {
         const getRes = await fetch(`/api/client/applicants/${applicationId}/ai-analysis`);
-        if (getRes.ok) {
-          const getData = await getRes.json();
-          if (getData.success && getData.analysis) {
-            setAnalysis(getData.analysis);
-            setCachedApplicantAnalysis(applicationId, getData.analysis);
-            return;
-          }
+        const getData = await getRes.json().catch(() => null);
+
+        if (getRes.ok && getData?.success && getData.analysis) {
+          setAnalysis(getData.analysis);
+          setCachedApplicantAnalysis(applicationId, getData.analysis);
+          return;
+        }
+
+        // 3. An evaluation that could not be read is not an evaluation that was
+        // never made. This used to fall through and generate: a paid model run
+        // on every outage, which then superseded the stored record the read had
+        // failed to return.
+        if (!getRes.ok) {
+          if (cached) return;
+          setError(
+            (getData?.error as string) ||
+              "Saved evaluation could not be read. Please try again."
+          );
+          return;
         }
       } catch {
-        // Fallback to generation
+        if (cached) return;
+        setError("Saved evaluation could not be read. Please try again.");
+        return;
       }
 
       if (cached) return;
     }
 
-    // 3. Generate or regenerate evaluation
+    // 4. Generate or regenerate evaluation
     setLoading(true);
     setError(null);
 
@@ -94,6 +111,11 @@ export function ApplicantAiAnalysisModal({
 
       setAnalysis(data.analysis);
       setCachedApplicantAnalysis(applicationId, data.analysis);
+
+      // A generated evaluation the server could not retain is shown, but the
+      // employer has to know it will not be there next time.
+      const warnings = Array.isArray(data.warnings) ? data.warnings : [];
+      warnings.forEach((warning: string) => toast.warning(warning));
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Error analyzing candidate.";
       setError(msg);

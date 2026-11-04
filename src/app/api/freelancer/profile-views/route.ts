@@ -1,13 +1,21 @@
 // src/app/api/freelancer/profile-views/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { createNotification } from "@/lib/notifications";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession, isFreelancerSession } from "@/lib/authenticated-session";
+import { rateLimitRetryAfterMs, tooManyRequestsResponse } from "@/lib/rate-limit";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/** View logs one freelancer may create per minute. */
+const VIEW_RATE_LIMIT = 30;
+const VIEW_RATE_WINDOW_MS = 60_000;
+/** A repeat view of the same profile inside this window is not recorded again. */
+const VIEW_DEDUPE_WINDOW_MS = 10 * 60_000;
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
@@ -21,8 +29,18 @@ function getHeaders(): Record<string, string> {
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    const viewerUserId = session?.userId ? Number(session.userId) : null;
-    if (!viewerUserId) {
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isFreelancerSession(session) && !isClientSession(session)) {
+      return NextResponse.json(
+        { error: "Forbidden: freelancer or client account required." },
+        { status: 403 }
+      );
+    }
+
+    const viewerUserId = Number(session.userId);
+    if (!Number.isSafeInteger(viewerUserId) || viewerUserId <= 0) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
@@ -32,10 +50,35 @@ export async function POST(req: NextRequest) {
     }
 
     const viewedUserId = Number(body.viewed_user_id);
+    if (!Number.isSafeInteger(viewedUserId) || viewedUserId <= 0) {
+      return NextResponse.json({ error: "viewed_user_id is invalid." }, { status: 400 });
+    }
 
     // Skip tracking if user views their own profile
     if (viewedUserId === viewerUserId) {
       return NextResponse.json({ success: true, message: "Ignored self-view" });
+    }
+
+    const throttledMs = rateLimitRetryAfterMs(
+      "freelancer-profile-view",
+      String(viewerUserId),
+      VIEW_RATE_LIMIT,
+      VIEW_RATE_WINDOW_MS
+    );
+    if (throttledMs > 0) return tooManyRequestsResponse(throttledMs);
+
+    const alreadyRecordedMs = rateLimitRetryAfterMs(
+      `freelancer-profile-view-pair:${viewerUserId}>${viewedUserId}`,
+      "once",
+      1,
+      VIEW_DEDUPE_WINDOW_MS
+    );
+    if (alreadyRecordedMs > 0) {
+      return NextResponse.json({
+        success: true,
+        message: "Profile view already recorded.",
+        deduplicated: true,
+      });
     }
 
     const nowPH = new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -107,7 +150,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/freelancer/profile-views error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

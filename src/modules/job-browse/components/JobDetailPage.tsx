@@ -29,6 +29,7 @@ import { ApplyModal } from "./ApplyModal";
 import { useFreelancerBookmarks } from "../../freelancer/freelancer-bookmarks/hooks/useFreelancerBookmarks";
 import ReferModal from "../../freelancer/freelancer-referrals/components/ReferModal";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { safeUrl } from "@/lib/safe-url";
 
 interface Props {
   jobId: number;
@@ -197,6 +198,11 @@ export default function JobDetailPage({ jobId }: Props) {
       </div>
     );
   }
+
+  // Employer-supplied socials must pass a scheme allowlist before reaching an href.
+  const facebookUrl = safeUrl(job.company_facebook);
+  const instagramUrl = safeUrl(job.company_instagram);
+  const youtubeUrl = safeUrl(job.company_youtube);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
@@ -462,23 +468,23 @@ export default function JobDetailPage({ jobId }: Props) {
               )}
 
               {/* Socials */}
-              {(job.company_facebook || job.company_linkedin || job.company_instagram || job.company_x || job.company_youtube) && (
+              {(facebookUrl || instagramUrl || youtubeUrl) && (
                 <div className="space-y-2 pt-1">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Social Media</span>
                   <div className="flex flex-wrap gap-2">
-                    {job.company_facebook && (
-                      <a href={job.company_facebook} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {facebookUrl && (
+                      <a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Facebook className="h-4 w-4" />
                       </a>
                     )}
 
-                    {job.company_instagram && (
-                      <a href={job.company_instagram} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {instagramUrl && (
+                      <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Instagram className="h-4 w-4" />
                       </a>
                     )}
-                    {job.company_youtube && (
-                      <a href={job.company_youtube} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {youtubeUrl && (
+                      <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Youtube className="h-4 w-4" />
                       </a>
                     )}

@@ -166,7 +166,6 @@ export interface TalentProfile {
 export interface SavedTalent {
   id: number;
   talent_user_id: number;
-  folder_name: string;
   notes: string | null;
   created_at: string | null;
   name: string;

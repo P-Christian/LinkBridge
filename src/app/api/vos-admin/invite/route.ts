@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isDevAuthBypassEnabled } from '@/lib/dev-auth-bypass';
 import { cookies } from 'next/headers';
 import * as jose from 'jose';
 import { z } from 'zod';
@@ -13,7 +14,7 @@ interface AdminAuth {
 }
 
 async function verifyVosAdmin(req: Request): Promise<AdminAuth | null> {
-    if (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
+    if (isDevAuthBypassEnabled()) {
         return { adminId: 1, roleId: 3 };
     }
 

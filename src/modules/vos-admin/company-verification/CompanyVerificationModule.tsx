@@ -17,6 +17,7 @@ import { motion } from "framer-motion";
 export function CompanyVerificationModule() {
   const {
     records,
+    allRecords,
     loading,
     kpiData,
     statusFilter,
@@ -86,6 +87,7 @@ export function CompanyVerificationModule() {
       {/* KPI Stat Cards */}
       <CompanyVerificationKpis
         kpis={kpiData}
+        loading={loading && allRecords.length === 0}
         currentFilter={statusFilter}
         onFilterSelect={(status) => setStatusFilter(status)}
       />

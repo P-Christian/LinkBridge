@@ -11,6 +11,7 @@ import {
   updateMyCourse,
 } from "@/modules/school-admin/services/school-admin.service";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -71,7 +72,7 @@ export async function PATCH(
 
     return NextResponse.json({ course: updated });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

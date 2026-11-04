@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
-import { cookies } from "next/headers";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import { demoteOtherPrimaries, resolveCompanyId } from "./_primary";
+import { mapValueRow, syncCompanyValues } from "./_values";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,58 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "")
 const DIRECTUS_TOKEN = (process.env.DIRECTUS_STATIC_TOKEN || "")
   .split("#")[0]
   .trim();
-const JWT_SECRET = new TextEncoder().encode(process.env.JWT_SECRET || "default_jwt_secret_change_me");
+
+const COMPANY_COLUMNS = [
+  "slug",
+  "company_code",
+  "company_name",
+  "platform_name",
+  "company_legal_name",
+  "company_tagline",
+  "year_established",
+  "organization_type_id",
+  "industry_id",
+  "company_size_id",
+  "company_address",
+  "company_brgy",
+  "company_city",
+  "company_province",
+  "company_country",
+  "company_zipCode",
+  "map_embed_url",
+  "registration_no",
+  "company_tin",
+  "company_contact",
+  "company_email",
+  "support_email",
+  "support_hours_days",
+  "support_hours_time",
+  "support_hours_timezone",
+  "company_website",
+  "company_logo",
+  "platform_icon",
+  "company_cover",
+  "company_facebook",
+  "company_linkedin",
+  "company_instagram",
+  "company_x",
+  "company_youtube",
+  "company_short_description",
+  "company_description",
+  "company_mission",
+  "company_vision",
+  "company_culture",
+  "company_benefits",
+  "company_tags",
+];
+
+function pickCompanyColumns(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const col of COMPANY_COLUMNS) {
+    if (body[col] !== undefined) out[col] = body[col];
+  }
+  return out;
+}
 
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = { "Content-Type": "application/json" };
@@ -33,25 +85,6 @@ function getPHDateTimeString(): string {
     hour12: false,
   });
   return dtf.format(now);
-}
-
-async function getAdminUserFromToken(req: NextRequest): Promise<{ adminId: number } | null> {
-  if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-    return { adminId: 1 };
-  }
-  const cookieStore = await cookies();
-  const token =
-    req.headers.get("authorization")?.replace("Bearer ", "") ||
-    cookieStore.get("vos_sync_access_token")?.value;
-  if (!token) return null;
-
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const adminId = Number(payload.sub || payload.user_id || payload.id || 1);
-    return { adminId };
-  } catch {
-    return { adminId: 1 };
-  }
 }
 
 function normalizePlatformCompany(raw: Record<string, unknown> | null) {
@@ -81,8 +114,8 @@ function normalizePlatformCompany(raw: Record<string, unknown> | null) {
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await getAdminUserFromToken(req);
-    if (!auth && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -124,20 +157,7 @@ export async function GET(req: NextRequest) {
           if (!valuesByCompanyId.has(cid)) {
             valuesByCompanyId.set(cid, []);
           }
-          valuesByCompanyId.get(cid)!.push({
-            id: v.id,
-            company_id: v.company_id,
-            title: v.title,
-            description: v.description,
-            desc: v.description,
-            icon_name: v.icon_name,
-            icon: v.icon_name,
-            color: v.color,
-            display_order: v.display_order,
-            is_active: Number(v.is_active) === 1 || v.is_active === true,
-            created_at: v.created_at,
-            updated_at: v.updated_at,
-          });
+          valuesByCompanyId.get(cid)!.push(mapValueRow(v));
         }
 
         for (const company of companies) {
@@ -163,46 +183,10 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function resolveCompanyId(candidateId?: number | null): Promise<number | null> {
-  if (candidateId && !isNaN(candidateId)) {
-    try {
-      const checkRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_platform_company/${candidateId}?fields=company_id`,
-        { headers: getHeaders(), cache: "no-store" }
-      );
-      if (checkRes.ok) {
-        const checkJson = await checkRes.json();
-        if (checkJson.data?.company_id) {
-          return Number(checkJson.data.company_id);
-        }
-      }
-    } catch {
-      // Fall through to query first available record
-    }
-  }
-
-  try {
-    const findRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_platform_company?sort[]=-is_primary&sort[]=display_order&sort[]=company_id&limit=1&fields=company_id`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    if (findRes.ok) {
-      const findJson = await findRes.json();
-      if (findJson.data && findJson.data.length > 0 && findJson.data[0]?.company_id) {
-        return Number(findJson.data[0].company_id);
-      }
-    }
-  } catch (err) {
-    console.error("Error discovering platform company record:", err);
-  }
-
-  return null;
-}
-
 async function handleUpdateCompanyRecord(
   companyId: number,
   body: Record<string, unknown>,
-  auth: { adminId: number } | null
+  auth: { adminId: number }
 ) {
   const isPrimary =
     body.is_primary !== undefined
@@ -213,22 +197,9 @@ async function handleUpdateCompanyRecord(
 
   // If setting this record to primary, unset all other records to 0
   if (isPrimary === 1) {
-    const existingRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_platform_company?filter[is_primary][_eq]=1&fields=company_id`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    if (existingRes.ok) {
-      const existingData = await existingRes.json();
-      const primaryItems: Array<{ company_id: number }> = existingData.data || [];
-      for (const item of primaryItems) {
-        if (String(item.company_id) !== String(companyId)) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_platform_company/${item.company_id}`, {
-            method: "PATCH",
-            headers: getHeaders(),
-            body: JSON.stringify({ is_primary: 0 }),
-          });
-        }
-      }
+    const demotionError = await demoteOtherPrimaries(companyId);
+    if (demotionError) {
+      return NextResponse.json({ error: demotionError }, { status: 502 });
     }
   }
 
@@ -254,57 +225,13 @@ async function handleUpdateCompanyRecord(
     ...(body.values !== undefined ? { values: Array.isArray(body.values) ? body.values.slice(0, 4) : [] } : {}),
   };
 
-  const ALLOWED_FIELDS = [
-    "slug",
-    "company_code",
-    "company_name",
-    "platform_name",
-    "company_legal_name",
-    "company_tagline",
-    "year_established",
-    "organization_type_id",
-    "industry_id",
-    "company_size_id",
-    "company_address",
-    "company_brgy",
-    "company_city",
-    "company_province",
-    "company_country",
-    "company_zipCode",
-    "map_embed_url",
-    "registration_no",
-    "company_tin",
-    "company_contact",
-    "company_email",
-    "support_email",
-    "support_hours_days",
-    "support_hours_time",
-    "support_hours_timezone",
-    "company_website",
-    "company_logo",
-    "platform_icon",
-    "company_cover",
-    "company_facebook",
-    "company_linkedin",
-    "company_instagram",
-    "company_x",
-    "company_youtube",
-    "company_short_description",
-    "company_description",
-    "company_mission",
-    "company_vision",
-    "company_culture",
-    "company_benefits",
-    "company_tags",
-  ];
-
   const updatePayload: Record<string, unknown> = {
     metadata: updatedMetadata,
     updated_at: now,
-    updated_by_user_id: auth?.adminId ?? 1,
+    updated_by_user_id: auth.adminId,
   };
 
-  for (const field of ALLOWED_FIELDS) {
+  for (const field of COMPANY_COLUMNS) {
     if (body[field] !== undefined) {
       updatePayload[field] = body[field];
     }
@@ -338,103 +265,34 @@ async function handleUpdateCompanyRecord(
   const normalized = normalizePlatformCompany(updatedJson.data);
 
   // Synchronize vs_platform_company_value table
+  const valueWarnings: string[] = [];
   if (Array.isArray(body.values)) {
-    const submittedValues = (body.values as Array<Record<string, unknown>>).slice(0, 4);
     try {
-      const existingValuesRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_platform_company_value?filter[company_id][_eq]=${companyId}&fields=id`,
-        { headers: getHeaders(), cache: "no-store" }
+      const synced = await syncCompanyValues(
+        companyId,
+        body.values as Array<Record<string, unknown>>,
+        now
       );
-      const existingIds = new Set<number>();
-      if (existingValuesRes.ok) {
-        const evJson = await existingValuesRes.json();
-        if (Array.isArray(evJson.data)) {
-          evJson.data.forEach((r: { id: number }) => existingIds.add(Number(r.id)));
-        }
-      }
-
-      const retainedIds = new Set<number>();
-      const savedValues: Array<Record<string, unknown>> = [];
-
-      for (let idx = 0; idx < submittedValues.length; idx++) {
-        const val = submittedValues[idx];
-        const valPayload = {
-          company_id: Number(companyId),
-          title: String(val.title || ""),
-          description: String(val.description || val.desc || ""),
-          icon_name: String(val.icon_name || val.icon || "HeartHandshake"),
-          color: String(val.color || "bg-blue-500/10 text-blue-500"),
-          display_order: typeof val.display_order === "number" ? val.display_order : idx + 1,
-          is_active: val.is_active === false || Number(val.is_active) === 0 ? 0 : 1,
-          updated_at: now,
-        };
-
-        const rawId = val.id ? Number(val.id) : null;
-        if (rawId && existingIds.has(rawId)) {
-          retainedIds.add(rawId);
-          const patchValRes = await fetch(`${DIRECTUS_BASE}/items/vs_platform_company_value/${rawId}`, {
-            method: "PATCH",
-            headers: getHeaders(),
-            body: JSON.stringify(valPayload),
-          });
-          if (patchValRes.ok) {
-            const pvJson = await patchValRes.json();
-            savedValues.push(pvJson.data);
-          }
-        } else {
-          const createValRes = await fetch(`${DIRECTUS_BASE}/items/vs_platform_company_value`, {
-            method: "POST",
-            headers: getHeaders(),
-            body: JSON.stringify({ ...valPayload, created_at: now }),
-          });
-          if (createValRes.ok) {
-            const createdValJson = await createValRes.json();
-            if (createdValJson.data?.id) {
-              retainedIds.add(Number(createdValJson.data.id));
-              savedValues.push(createdValJson.data);
-            }
-          }
-        }
-      }
-
-      // Delete records no longer in submitted values
-      for (const existingId of existingIds) {
-        if (!retainedIds.has(existingId)) {
-          await fetch(`${DIRECTUS_BASE}/items/vs_platform_company_value/${existingId}`, {
-            method: "DELETE",
-            headers: getHeaders(),
-          });
-        }
-      }
-
-      if (savedValues.length > 0 && normalized) {
-        normalized.values = savedValues.map((v) => ({
-          id: v.id,
-          company_id: v.company_id,
-          title: v.title,
-          description: v.description,
-          desc: v.description,
-          icon_name: v.icon_name,
-          icon: v.icon_name,
-          color: v.color,
-          display_order: v.display_order,
-          is_active: Number(v.is_active) === 1 || v.is_active === true,
-          created_at: v.created_at,
-          updated_at: v.updated_at,
-        }));
+      valueWarnings.push(...synced.warnings);
+      if (synced.values.length > 0 && normalized) {
+        normalized.values = synced.values;
       }
     } catch (err) {
       console.error("Error syncing vs_platform_company_value:", err);
+      valueWarnings.push("The company values could not be saved.");
     }
   }
 
-  return NextResponse.json({ data: normalized });
+  return NextResponse.json({
+    data: normalized,
+    ...(valueWarnings.length > 0 ? { warnings: valueWarnings } : {}),
+  });
 }
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await getAdminUserFromToken(req);
-    if (!auth && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -445,10 +303,16 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     // In a singleton table, check if a company row already exists
-    const existingCompanyId = await resolveCompanyId(body.company_id ? Number(body.company_id) : null);
-    if (existingCompanyId) {
+    const resolved = await resolveCompanyId(body.company_id);
+    if (resolved.ok) {
       // Delegate to update handler to avoid unique constraint violations
-      return await handleUpdateCompanyRecord(existingCompanyId, body, auth);
+      return await handleUpdateCompanyRecord(resolved.companyId, body, auth);
+    }
+    // Creating is only legitimate when the named row genuinely does not exist
+    // (or the table is empty). A rejected id or an unreadable Directus must not
+    // add a second row to what the editor treats as a singleton table.
+    if (resolved.status !== 404) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
 
     if (!body.company_name?.trim() || !body.company_legal_name?.trim() || !body.company_code?.trim()) {
@@ -460,18 +324,18 @@ export async function POST(req: NextRequest) {
 
     const isPrimary = Number(body.is_primary) === 1 || body.is_primary === true ? 1 : 0;
     const now = getPHDateTimeString();
-    const payload = {
-      ...body,
+    const payload: Record<string, unknown> = {
+      ...pickCompanyColumns(body),
       is_primary: isPrimary,
       is_active: Number(body.is_active) === 1 || body.is_active === true ? 1 : 0,
       display_order: Number(body.display_order) || 0,
-      created_by_user_id: auth?.adminId ?? 1,
-      updated_by_user_id: auth?.adminId ?? 1,
+      created_by_user_id: auth.adminId,
+      updated_by_user_id: auth.adminId,
       created_at: now,
       updated_at: now,
     };
 
-    delete payload.values;
+    if (body.metadata !== undefined) payload.metadata = body.metadata;
 
     const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_platform_company`, {
       method: "POST",
@@ -491,29 +355,20 @@ export async function POST(req: NextRequest) {
     const newCompanyId = createdJson.data?.company_id;
 
     // Insert relational values if provided
+    const valueWarnings: string[] = [];
     if (newCompanyId && Array.isArray(body.values) && body.values.length > 0) {
-      const submitted = body.values.slice(0, 4);
-      for (let idx = 0; idx < submitted.length; idx++) {
-        const val = submitted[idx];
-        await fetch(`${DIRECTUS_BASE}/items/vs_platform_company_value`, {
-          method: "POST",
-          headers: getHeaders(),
-          body: JSON.stringify({
-            company_id: Number(newCompanyId),
-            title: String(val.title || ""),
-            description: String(val.description || val.desc || ""),
-            icon_name: String(val.icon_name || val.icon || "HeartHandshake"),
-            color: String(val.color || "bg-blue-500/10 text-blue-500"),
-            display_order: typeof val.display_order === "number" ? val.display_order : idx + 1,
-            is_active: val.is_active === false || Number(val.is_active) === 0 ? 0 : 1,
-            created_at: now,
-            updated_at: now,
-          }),
-        });
-      }
+      const synced = await syncCompanyValues(
+        Number(newCompanyId),
+        body.values as Array<Record<string, unknown>>,
+        now
+      );
+      valueWarnings.push(...synced.warnings);
     }
 
-    return NextResponse.json({ data: createdJson.data }, { status: 201 });
+    return NextResponse.json(
+      { data: createdJson.data, ...(valueWarnings.length > 0 ? { warnings: valueWarnings } : {}) },
+      { status: 201 }
+    );
   } catch (error: unknown) {
     const err = error as Error;
     return NextResponse.json(
@@ -525,8 +380,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   try {
-    const auth = await getAdminUserFromToken(req);
-    if (!auth && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    const auth = await requireAdministrator(req);
+    if (!auth) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -536,12 +391,12 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json();
 
-    const companyId = await resolveCompanyId(body.company_id ? Number(body.company_id) : null);
-    if (!companyId) {
-      return NextResponse.json({ error: "No platform company record found to update" }, { status: 404 });
+    const resolved = await resolveCompanyId(body.company_id);
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error }, { status: resolved.status });
     }
 
-    return await handleUpdateCompanyRecord(companyId, body, auth);
+    return await handleUpdateCompanyRecord(resolved.companyId, body, auth);
   } catch (error: unknown) {
     const err = error as Error;
     return NextResponse.json({ error: err.message || "Internal server error" }, { status: 500 });

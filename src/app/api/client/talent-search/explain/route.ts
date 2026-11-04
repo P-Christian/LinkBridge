@@ -1,7 +1,7 @@
 // src/app/api/client/talent-search/explain/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import { generateMatchExplanation, ExplainCandidate } from "@/lib/gemini/matchExplainer";
 
@@ -13,6 +13,9 @@ export async function POST(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);

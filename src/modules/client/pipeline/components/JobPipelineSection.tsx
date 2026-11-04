@@ -54,6 +54,7 @@ export default function JobPipelineSection({
     loading,
     saving,
     clearMessages,
+    fetchPipeline,
     resetToCompanyDefault,
     addStage,
     updateStage,
@@ -65,7 +66,12 @@ export default function JobPipelineSection({
   } = useJobPipeline(jobId);
 
   // Customization Mode Toggle: "DEFAULT" | "CUSTOM"
-  const [mode, setMode] = useState<"DEFAULT" | "CUSTOM">("DEFAULT");
+  // An existing job already owns its snapshotted workflow, so the editor opens
+  // on the mode that shows and edits those stages. Opening on "DEFAULT" used to
+  // make the only visible action for a customized job a re-sync that replaces
+  // them.
+  const [mode, setMode] = useState<"DEFAULT" | "CUSTOM">(jobId ? "CUSTOM" : "DEFAULT");
+  const [reSyncArmed, setReSyncArmed] = useState(false);
 
   // Modals
   const [stageModalOpen, setStageModalOpen] = useState(false);
@@ -396,11 +402,31 @@ export default function JobPipelineSection({
       {isLocked && (
         <div className="flex items-start gap-2.5 p-3.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-800 dark:text-amber-300 text-xs">
           <Lock className="h-4 w-4 shrink-0 mt-0.5 text-amber-600" />
-          <div>
-            <span className="font-bold">Hiring Pipeline Locked:</span> This job has received{" "}
-            {applicationCount} candidate application(s). The active stage workflow is immutable
-            to preserve candidate progress, transition history, and audit compliance.
-          </div>
+          {applicationCount < 0 ? (
+            <div className="space-y-2">
+              <div>
+                <span className="font-bold">Hiring Pipeline Locked:</span> The
+                candidate count for this job could not be read, so editing is
+                refused until it can be verified.
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => fetchPipeline()}
+                disabled={loading}
+                className="h-7 text-xs font-semibold gap-1.5"
+              >
+                <RotateCcw className="h-3 w-3" /> Try again
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <span className="font-bold">Hiring Pipeline Locked:</span> This job has received{" "}
+              {applicationCount} candidate application(s). The active stage workflow is immutable
+              to preserve candidate progress, transition history, and audit compliance.
+            </div>
+          )}
         </div>
       )}
 
@@ -431,7 +457,10 @@ export default function JobPipelineSection({
           </label>
 
           <label
-            onClick={() => setMode("CUSTOM")}
+            onClick={() => {
+              setMode("CUSTOM");
+              setReSyncArmed(false);
+            }}
             className={`flex items-start gap-2.5 p-3 rounded-lg border cursor-pointer transition-all ${
               mode === "CUSTOM"
                 ? "border-primary/50 bg-primary/5 shadow-sm"
@@ -442,7 +471,10 @@ export default function JobPipelineSection({
               type="radio"
               name="hiring_pipeline_mode"
               checked={mode === "CUSTOM"}
-              onChange={() => setMode("CUSTOM")}
+              onChange={() => {
+                setMode("CUSTOM");
+                setReSyncArmed(false);
+              }}
               className="mt-0.5 text-primary focus:ring-primary"
             />
             <div>
@@ -457,20 +489,44 @@ export default function JobPipelineSection({
 
       {/* If Mode is DEFAULT and not locked/readOnly, offer Reset button */}
       {!readOnly && !isLocked && mode === "DEFAULT" && (
-        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50 text-xs">
+        <div className="flex items-center justify-between gap-3 p-3 rounded-lg bg-muted/30 border border-border/50 text-xs">
           <span className="text-muted-foreground">
-            Want to re-synchronize with your latest company default template?
+            {reSyncArmed
+              ? "This replaces this job's stages, transitions and copied assessment tasks with the company template. Continue?"
+              : "Want to re-synchronize with your latest company default template?"}
           </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => resetToCompanyDefault(pipeline?.source_pipeline_id ?? undefined)}
-            disabled={saving}
-            className="h-7 text-xs font-semibold gap-1.5"
-          >
-            <RotateCcw className="h-3 w-3" /> Re-sync from Company Default
-          </Button>
+          <div className="flex items-center gap-2 shrink-0">
+            {reSyncArmed && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setReSyncArmed(false)}
+                disabled={saving}
+                className="h-7 text-xs font-semibold"
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="button"
+              variant={reSyncArmed ? "destructive" : "outline"}
+              size="sm"
+              onClick={() => {
+                if (!reSyncArmed) {
+                  setReSyncArmed(true);
+                  return;
+                }
+                setReSyncArmed(false);
+                resetToCompanyDefault(pipeline?.source_pipeline_id ?? undefined);
+              }}
+              disabled={saving}
+              className="h-7 text-xs font-semibold gap-1.5"
+            >
+              <RotateCcw className="h-3 w-3" />
+              {reSyncArmed ? "Confirm re-sync" : "Re-sync from Company Default"}
+            </Button>
+          </div>
         </div>
       )}
 

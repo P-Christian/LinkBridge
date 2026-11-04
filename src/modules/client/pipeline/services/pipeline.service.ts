@@ -11,6 +11,7 @@ import {
   TERMINAL_STAGE_TYPES,
 } from "../types";
 import { getPHTimeString } from "@/lib/utils";
+import { mapPool } from "@/lib/server/pool";
 
 const DIRECTUS_BASE = (
   process.env.DIRECTUS_URL ||
@@ -178,14 +179,11 @@ export async function getCompanyPipelines(companyId: number): Promise<CompanyPip
     }
 
     // Hydrate stages and transitions for each pipeline
-    const hydratedPipelines: CompanyPipeline[] = [];
-    for (const pipeline of pipelines) {
-      const hydrated = await getPipelineWithDetails(pipeline.id, companyId);
-      if (hydrated) hydratedPipelines.push(hydrated);
-      else hydratedPipelines.push(pipeline);
-    }
-
-    return hydratedPipelines;
+    return await mapPool(
+      pipelines,
+      async (pipeline) =>
+        (await getPipelineWithDetails(pipeline.id, companyId)) ?? pipeline
+    );
   } catch (error) {
     console.error("[pipeline.service] getCompanyPipelines exception:", error);
     return [];
@@ -558,6 +556,64 @@ export async function updateCompanyPipeline(
   } catch (error) {
     console.error("[pipeline.service] updateCompanyPipeline error:", error);
     return false;
+  }
+}
+
+/**
+ * Soft deletes / archives a company pipeline template
+ */
+export async function deleteCompanyPipeline(
+  pipelineId: number,
+  companyId: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const pipeline = await getPipelineWithDetails(pipelineId, companyId);
+    if (!pipeline || pipeline.company_id !== companyId) {
+      return { success: false, error: "Pipeline template not found or unauthorized." };
+    }
+
+    if (pipeline.is_default) {
+      return {
+        success: false,
+        error: "The default pipeline template cannot be deleted. Please set another template as default first.",
+      };
+    }
+
+    // Verify company has more than one active pipeline template
+    const countRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_company_pipelines?filter[company_id][_eq]=${companyId}&filter[status][_neq]=ARCHIVED&aggregate[count]=id`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (countRes.ok) {
+      const countJson = await countRes.json();
+      const currentCount = Number(countJson.data?.[0]?.count?.id ?? countJson.data?.[0]?.count ?? 0);
+      if (currentCount <= 1) {
+        return {
+          success: false,
+          error: "At least one active pipeline template is required.",
+        };
+      }
+    }
+
+    const nowPH = getPHTimeString();
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_company_pipelines/${pipelineId}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({
+        status: "ARCHIVED",
+        updated_at: nowPH,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("[pipeline.service] deleteCompanyPipeline failed:", await res.text());
+      return { success: false, error: "Failed to delete pipeline template." };
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error("[pipeline.service] deleteCompanyPipeline error:", error);
+    return { success: false, error: "An unexpected error occurred while deleting the pipeline template." };
   }
 }
 

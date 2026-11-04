@@ -14,6 +14,7 @@ interface Props {
   conversations: Conversation[];
   activeConversationId: number | null;
   loading: boolean;
+  loadFailed: boolean;
   searchQuery: string;
   showArchived: boolean;
   searchInputRef?: React.Ref<HTMLInputElement>;
@@ -28,6 +29,7 @@ export default function ConversationList({
   conversations,
   activeConversationId,
   loading,
+  loadFailed,
   searchQuery,
   showArchived,
   searchInputRef,
@@ -88,19 +90,9 @@ export default function ConversationList({
       {/* Header */}
       <div className="border-b border-zinc-100 px-4 pb-3 pt-4 dark:border-zinc-800">
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              {showArchived ? "Archived" : "Messages"}
-            </h2>
-            {unreadConversations > 0 && !showArchived && (
-              <span
-                aria-label={`${unreadConversations} unread conversations`}
-                className="flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-100 px-1.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
-              >
-                {unreadConversations}
-              </span>
-            )}
-          </div>
+          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {showArchived ? "Archived" : "Messages"}
+          </h2>
 
           <div className="flex items-center gap-1">
             <button
@@ -197,6 +189,21 @@ export default function ConversationList({
                 </div>
               </div>
             ))}
+          </div>
+        ) : loadFailed && conversations.length === 0 ? (
+          // Not the same as an empty inbox: this only means the list could not
+          // be read, and "No conversations yet" would be a claim about them.
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+            <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+              Your conversations could not be loaded.
+            </p>
+            <button
+              type="button"
+              onClick={onRefresh}
+              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+            >
+              Try again
+            </button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
