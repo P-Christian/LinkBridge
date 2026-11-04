@@ -89,5 +89,5 @@ export function shouldExpandWithGemini(query: string): boolean {
   const trimmed = query.trim();
   // Trigger Gemini for longer or sentence-like queries
   const wordCount = trimmed.split(/\s+/).length;
-  return wordCount >= 3 || trimmed.length > 20;
+  return wordCount >= 2 || trimmed.length > 12;
 }
