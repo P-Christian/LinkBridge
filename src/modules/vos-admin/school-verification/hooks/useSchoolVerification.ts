@@ -13,7 +13,7 @@ import {
 import {
   fetchSchoolVerifications,
   submitSchoolVerificationDecision,
-} from "../services/schoolVerification.service";
+} from "../services/schoolVerification.api";
 import { computeSchoolKpis } from "../services/schoolVerification.helpers";
 
 export function useSchoolVerification() {
