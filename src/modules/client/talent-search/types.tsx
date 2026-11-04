@@ -70,7 +70,6 @@ export interface TalentCard {
   user_id: number;
   profile_id: number;
   name: string;
-  email: string;
   profile_image_url: string | null;
   headline: string | null;
   summary: string | null;
