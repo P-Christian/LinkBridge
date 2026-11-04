@@ -1,6 +1,6 @@
 // src/modules/vos-admin/types/dashboard.ts
 
-export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'NO_DATA';
+export type HealthStatus = 'HEALTHY' | 'DEGRADED' | 'UNAVAILABLE' | 'NO_DATA' | 'STANDBY';
 
 export interface AdminDashboardKPIs {
   // null means the read failed, which the panels render as an em dash. A real

@@ -152,6 +152,35 @@ export async function DELETE(req: NextRequest) {
     const id = toPositiveId(searchParams.get("id"));
     if (!id) return NextResponse.json({ error: "Role ID required." }, { status: 400 });
 
+    // Safeguard dependency checks before hard deletion
+    const [skillsCheckRes, aliasCheckRes, jobsCheckRes] = await Promise.all([
+      fetch(`${DIRECTUS_BASE}/items/vs_role_skill_mapping?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_role_title_alias?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_job_posting?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+    ]);
+
+    const skillsCount = (await skillsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const aliasCount = (await aliasCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const jobsCount = (await jobsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+
+    if (skillsCount > 0 || aliasCount > 0 || jobsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete: Standard role has mapped skills, search keywords, or job postings. Deactivate (set to Inactive) instead to preserve data integrity.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_title/${id}`, {
       method: "DELETE",
       headers: getHeaders(),

@@ -16,7 +16,7 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
-const ALIAS_COLUMNS = ["role_id", "alias_name", "normalized_alias", "match_weight", "is_primary", "alias_type"] as const;
+const ALIAS_COLUMNS = ["role_id", "alias_name", "normalized_alias", "match_weight", "is_primary", "alias_type", "is_active"] as const;
 
 function pickAliasColumns(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
     const rolesList = rolesJson.data ?? [];
     const rolesMap = new Map(rolesList.map((r: { role_id: number; role_name: string }) => [Number(r.role_id), r.role_name]));
 
-    const formatted = rawAliases.map((a: { alias_id: number; role_id: unknown; alias_name: string; normalized_alias?: string; match_weight?: number; is_primary?: boolean }) => {
+    const formatted = rawAliases.map((a: { alias_id: number; role_id: unknown; alias_name: string; normalized_alias?: string; match_weight?: number; is_primary?: boolean; is_active?: unknown }) => {
       const rId = typeof a.role_id === "object" && a.role_id !== null ? (a.role_id as { role_id: number }).role_id : Number(a.role_id);
       const rName = typeof a.role_id === "object" && a.role_id !== null ? (a.role_id as { role_name: string }).role_name : rolesMap.get(rId);
 
@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
         normalized_alias: a.normalized_alias,
         match_weight: Number(a.match_weight ?? 1.0),
         is_primary: Boolean(a.is_primary),
+        is_active: a.is_active !== false && a.is_active !== 0 && a.is_active !== "false",
       };
     });
 

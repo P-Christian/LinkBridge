@@ -56,9 +56,31 @@ export async function POST(req: NextRequest) {
     const rolesList = (await rolesRes.json()).data ?? [];
     const catList = (await catRes.json()).data ?? [];
 
+    // Filter out inactive categories, roles, and orphaned aliases so inactive entries are not matched
+    const activeCatList = catList.filter(
+      (c: Record<string, unknown>) => c.is_active !== false && c.is_active !== 0 && c.is_active !== "false"
+    );
+    const activeCatIds = new Set(activeCatList.map((c: Record<string, unknown>) => Number(c.category_id)));
+
+    const activeRolesList = rolesList.filter((r: Record<string, unknown>) => {
+      const isRoleActive = r.is_active !== false && r.is_active !== 0 && r.is_active !== "false";
+      const isCatActive = !r.category_id || activeCatIds.has(Number(r.category_id));
+      return isRoleActive && isCatActive;
+    });
+    const activeRoleIds = new Set(activeRolesList.map((r: Record<string, unknown>) => Number(r.role_id)));
+
+    const activeAliasList = aliasList.filter((a: Record<string, unknown>) => {
+      const isAliasActive = a.is_active !== false && a.is_active !== 0 && a.is_active !== "false";
+      return isAliasActive && (!a.role_id || activeRoleIds.has(Number(a.role_id)));
+    });
+
     // Algorithmic query analysis & pure DB-driven taxonomy resolution
     const analyzed = analyzeQuery(keyword);
-    const taxonomyContext = resolveTaxonomyFromDB(analyzed, { aliasList, rolesList, catList });
+    const taxonomyContext = resolveTaxonomyFromDB(analyzed, {
+      aliasList: activeAliasList,
+      rolesList: activeRolesList,
+      catList: activeCatList,
+    });
 
     // 2. Candidate profile (Default / Custom from body)
     const defaultRawCandidate = {

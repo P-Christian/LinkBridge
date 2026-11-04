@@ -3,6 +3,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Play,
@@ -20,10 +21,20 @@ import {
   RotateCcw,
   Sparkles,
   Info,
+  ArrowLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Breadcrumb,
+  BreadcrumbList,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { useMatchTester } from "../hooks/useMatchTester";
 import {
   CandidateSimulationProfile,
@@ -267,23 +278,62 @@ export function MatchTestStudio() {
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      {/* Header Banner */}
+      {/* Top Breadcrumbs & Back Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <BreadcrumbLink asChild>
+                <Link href="/vos-sync/vos-admin/job-roles" className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                  Matching Intelligence
+                </Link>
+              </BreadcrumbLink>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <span className="text-muted-foreground text-xs font-medium">Sandbox</span>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className="text-xs font-bold text-foreground">
+                Match Test Studio
+              </BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
+
+        <Link href="/vos-sync/vos-admin/job-roles">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 px-3 rounded-xl text-xs gap-1.5 font-semibold text-muted-foreground hover:text-foreground border-border hover:bg-muted active:scale-95 transition-all cursor-pointer"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Back to Matching Taxonomy
+          </Button>
+        </Link>
+      </div>
+
+      {/* Header Banner using Shadcn Card */}
       <motion.div
-        initial={{ opacity: 0, y: -8 }}
+        initial={{ opacity: 0, y: -6 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.25 }}
-        className="p-6 sm:p-8 rounded-3xl bg-gradient-to-br from-indigo-950 via-zinc-900 to-violet-950 text-white border border-white/10 shadow-xl relative overflow-hidden"
+        transition={{ duration: 0.2 }}
       >
-        <div className="relative z-10 space-y-2">
-          <div className="flex items-center gap-2 text-indigo-400 text-xs font-bold uppercase tracking-wider">
-            <Sparkles className="h-4 w-4" />
-            <span>Matching Intelligence Engine Sandbox</span>
-          </div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Match Test Studio</h1>
-          <p className="text-xs sm:text-sm text-indigo-200/80 max-w-2xl">
-            Test search terms and inspect or edit the simulated jobseeker profile in real time to verify compatibility scoring, category resolution, credentials, and signal verification.
-          </p>
-        </div>
+        <Card className="rounded-2xl border-border bg-card shadow-xs">
+          <CardHeader className="p-6">
+            <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 text-xs font-bold uppercase tracking-wider mb-1">
+              <Sparkles className="h-4 w-4" />
+              <span>Matching Intelligence Engine Sandbox</span>
+            </div>
+            <CardTitle className="text-xl sm:text-2xl font-black tracking-tight text-foreground">
+              Match Test Studio
+            </CardTitle>
+            <CardDescription className="text-xs sm:text-sm text-muted-foreground max-w-2xl mt-1 leading-relaxed">
+              Test search terms and inspect or edit the simulated jobseeker profile in real time to verify compatibility scoring, category resolution, credentials, and signal verification.
+            </CardDescription>
+          </CardHeader>
+        </Card>
       </motion.div>
 
       {/* Main Simulation Sandbox & Profile Inspector Layout */}

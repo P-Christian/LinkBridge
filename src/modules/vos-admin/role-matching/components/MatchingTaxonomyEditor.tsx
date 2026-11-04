@@ -17,7 +17,11 @@ import {
   Loader2,
   SlidersHorizontal,
   ShieldAlert,
+  Power,
+  Ban,
+  AlertTriangle,
 } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -99,6 +103,7 @@ export function MatchingTaxonomyEditor() {
   const [catNameInput, setCatNameInput] = useState("");
   const [catCodeInput, setCatCodeInput] = useState("");
   const [catDescInput, setCatDescInput] = useState("");
+  const [catIsActiveInput, setCatIsActiveInput] = useState(true);
   const [catSaving, setCatSaving] = useState(false);
 
   // Role Modal State
@@ -107,9 +112,13 @@ export function MatchingTaxonomyEditor() {
   const [targetCatIdForNewRole, setTargetCatIdForNewRole] = useState<number>(1);
   const [roleNameInput, setRoleNameInput] = useState("");
   const [roleExpLevelInput, setRoleExpLevelInput] = useState<ExperienceLevel>("MID");
+  const [roleIsActiveInput, setRoleIsActiveInput] = useState(true);
   const [roleSaving, setRoleSaving] = useState(false);
 
   const [generalError, setGeneralError] = useState("");
+  const [deleteCatTarget, setDeleteCatTarget] = useState<JobCategory | null>(null);
+  const [deleteRoleTarget, setDeleteRoleTarget] = useState<StandardRole | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const toggleCat = (id: number) => {
     setExpandedCats((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -147,6 +156,7 @@ export function MatchingTaxonomyEditor() {
     setCatNameInput("");
     setCatCodeInput("");
     setCatDescInput("");
+    setCatIsActiveInput(true);
     setGeneralError("");
     setCategoryModalOpen(true);
   };
@@ -157,6 +167,7 @@ export function MatchingTaxonomyEditor() {
     setCatNameInput(cat.category_name);
     setCatCodeInput(cat.category_code);
     setCatDescInput(cat.description || "");
+    setCatIsActiveInput(cat.is_active !== false);
     setGeneralError("");
     setCategoryModalOpen(true);
   };
@@ -177,12 +188,14 @@ export function MatchingTaxonomyEditor() {
         category_name: catNameInput.trim(),
         category_code: code,
         description: catDescInput.trim(),
+        is_active: catIsActiveInput,
       });
     } else {
       ok = await addCategory({
         category_name: catNameInput.trim(),
         category_code: code,
         description: catDescInput.trim(),
+        is_active: catIsActiveInput,
       });
     }
 
@@ -192,10 +205,31 @@ export function MatchingTaxonomyEditor() {
     }
   };
 
-  const handleDeleteCategory = async (catId: number, e: React.MouseEvent) => {
+  const handleToggleCategoryActive = async (cat: JobCategory, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Are you sure you want to delete this category and unbind its roles?")) {
-      await removeCategory(catId);
+    const updated = cat.is_active === false;
+    const ok = await editCategory({
+      category_id: cat.category_id,
+      is_active: updated,
+    });
+    if (ok) {
+      toast.success(`Category "${cat.category_name}" marked as ${updated ? "Active" : "Inactive"}.`);
+    }
+  };
+
+  const handleDeleteCategory = (cat: JobCategory, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDeleteCatTarget(cat);
+  };
+
+  const handleConfirmDeleteCategory = async () => {
+    if (!deleteCatTarget) return;
+    setIsDeleting(true);
+    const ok = await removeCategory(deleteCatTarget.category_id);
+    setIsDeleting(false);
+    if (ok) {
+      toast.success(`Category "${deleteCatTarget.category_name}" deleted.`);
+      setDeleteCatTarget(null);
     }
   };
 
@@ -206,6 +240,7 @@ export function MatchingTaxonomyEditor() {
     setTargetCatIdForNewRole(catId);
     setRoleNameInput("");
     setRoleExpLevelInput("MID");
+    setRoleIsActiveInput(true);
     setGeneralError("");
     setRoleModalOpen(true);
   };
@@ -216,8 +251,21 @@ export function MatchingTaxonomyEditor() {
     setTargetCatIdForNewRole(role.category_id);
     setRoleNameInput(role.role_name);
     setRoleExpLevelInput(role.experience_level || "MID");
+    setRoleIsActiveInput(role.is_active !== false);
     setGeneralError("");
     setRoleModalOpen(true);
+  };
+
+  const handleToggleRoleActive = async (role: StandardRole, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const updated = role.is_active === false;
+    const ok = await editRole({
+      role_id: role.role_id,
+      is_active: updated,
+    });
+    if (ok) {
+      toast.success(`Role "${role.role_name}" marked as ${updated ? "Active" : "Inactive"}.`);
+    }
   };
 
   const handleSaveRole = async () => {
@@ -235,12 +283,14 @@ export function MatchingTaxonomyEditor() {
         role_name: roleNameInput.trim(),
         category_id: targetCatIdForNewRole,
         experience_level: roleExpLevelInput,
+        is_active: roleIsActiveInput,
       });
     } else {
       ok = await addRole({
         role_name: roleNameInput.trim(),
         category_id: targetCatIdForNewRole,
         experience_level: roleExpLevelInput,
+        is_active: roleIsActiveInput,
       });
     }
 
@@ -250,10 +300,19 @@ export function MatchingTaxonomyEditor() {
     }
   };
 
-  const handleDeleteRole = async (roleId: number, e: React.MouseEvent) => {
+  const handleDeleteRole = (role: StandardRole, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm("Are you sure you want to delete this standard role?")) {
-      await removeRole(roleId);
+    setDeleteRoleTarget(role);
+  };
+
+  const handleConfirmDeleteRole = async () => {
+    if (!deleteRoleTarget) return;
+    setIsDeleting(true);
+    const ok = await removeRole(deleteRoleTarget.role_id);
+    setIsDeleting(false);
+    if (ok) {
+      toast.success(`Role "${deleteRoleTarget.role_name}" deleted.`);
+      setDeleteRoleTarget(null);
     }
   };
 
@@ -293,6 +352,16 @@ export function MatchingTaxonomyEditor() {
       });
     });
   }, [categories, roles, skillsByRole, keywordsByRole, searchQuery]);
+
+  // Inactive categories sort to the bottom (last)
+  const sortedCategories = useMemo(() => {
+    return [...filteredCategories].sort((a, b) => {
+      const aActive = a.is_active !== false;
+      const bActive = b.is_active !== false;
+      if (aActive === bActive) return a.category_id - b.category_id;
+      return aActive ? -1 : 1;
+    });
+  }, [filteredCategories]);
 
   const loading = catLoading || rolesLoading || kwLoading || skillsLoading;
 
@@ -337,7 +406,7 @@ export function MatchingTaxonomyEditor() {
             <Loader2 className="h-6 w-6 animate-spin text-indigo-500 mr-2" />
             <span className="text-sm text-zinc-500">Loading matching taxonomy…</span>
           </div>
-        ) : filteredCategories.length === 0 ? (
+        ) : sortedCategories.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.98 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -348,13 +417,20 @@ export function MatchingTaxonomyEditor() {
           </motion.div>
         ) : (
           <AnimatePresence>
-            {filteredCategories.map((cat, catIdx) => {
+            {sortedCategories.map((cat, catIdx) => {
               const isCatExpanded = searchQuery.trim() ? true : !!expandedCats[cat.category_id];
-              const catRoles = roles.filter(
+              const rawRoles = roles.filter(
                 (r) =>
                   r.category_id === cat.category_id ||
                   (r.category_code && r.category_code === cat.category_code)
               );
+              // Inactive roles sort to the bottom (last)
+              const catRoles = [...rawRoles].sort((a, b) => {
+                const aActive = a.is_active !== false;
+                const bActive = b.is_active !== false;
+                if (aActive === bActive) return a.role_id - b.role_id;
+                return aActive ? -1 : 1;
+              });
 
               return (
                 <motion.div
@@ -364,7 +440,9 @@ export function MatchingTaxonomyEditor() {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.98 }}
                   transition={{ duration: 0.15, delay: catIdx * 0.02 }}
-                  className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-2xs"
+                  className={`border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-2xs ${
+                    cat.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
+                  }`}
                 >
                   {/* Category Header Row */}
                   <div
@@ -384,6 +462,11 @@ export function MatchingTaxonomyEditor() {
                       <span className="text-[10px] font-mono text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/70 px-2 py-0.2 rounded-full border border-indigo-200 dark:border-indigo-800">
                         {cat.category_code}
                       </span>
+                      {cat.is_active === false && (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-200/80 dark:bg-zinc-800 px-1.5 py-0.2 rounded-md">
+                          Inactive
+                        </span>
+                      )}
                       <span className="text-xs text-zinc-500 font-medium ml-1">
                         ({catRoles.length} {catRoles.length === 1 ? "role" : "roles"})
                       </span>
@@ -391,6 +474,19 @@ export function MatchingTaxonomyEditor() {
 
                     {/* Category Action Buttons */}
                     <div className="flex items-center gap-1 self-end sm:self-auto shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={(e) => handleToggleCategoryActive(cat, e)}
+                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                          cat.is_active !== false
+                            ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
+                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                        }`}
+                        title={cat.is_active !== false ? "Deactivate Category" : "Activate Category"}
+                      >
+                        <Power className="h-3 w-3" />
+                        {cat.is_active !== false ? "Deactivate" : "Activate"}
+                      </button>
                       <button
                         type="button"
                         onClick={(e) => openAddRoleForCategory(cat.category_id, e)}
@@ -409,7 +505,7 @@ export function MatchingTaxonomyEditor() {
                       </button>
                       <button
                         type="button"
-                        onClick={(e) => handleDeleteCategory(cat.category_id, e)}
+                        onClick={(e) => handleDeleteCategory(cat, e)}
                         className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                         title="Delete Category"
                       >
@@ -441,7 +537,9 @@ export function MatchingTaxonomyEditor() {
                             return (
                               <div
                                 key={role.role_id}
-                                className="border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl overflow-hidden transition-all bg-zinc-50/40 dark:bg-zinc-900/50 hover:border-zinc-300 dark:hover:border-zinc-700"
+                                className={`border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl overflow-hidden transition-all bg-zinc-50/40 dark:bg-zinc-900/50 hover:border-zinc-300 dark:hover:border-zinc-700 ${
+                                  role.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
+                                }`}
                               >
                                 {/* Role Row */}
                                 <div
@@ -461,6 +559,11 @@ export function MatchingTaxonomyEditor() {
                                     <span className="px-2 py-0.2 rounded-full text-[10px] font-bold bg-zinc-200/80 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 shrink-0">
                                       {role.experience_level}
                                     </span>
+                                    {role.is_active === false && (
+                                      <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-200/80 dark:bg-zinc-800 px-1.5 py-0.2 rounded-md shrink-0">
+                                        Inactive
+                                      </span>
+                                    )}
                                     <span className="text-[11px] text-zinc-500 font-medium hidden sm:inline">
                                       · {rSkills.length} skills · {rKeywords.length} keywords
                                     </span>
@@ -471,6 +574,19 @@ export function MatchingTaxonomyEditor() {
                                     className="flex items-center gap-1.5 self-end sm:self-auto shrink-0"
                                     onClick={(e) => e.stopPropagation()}
                                   >
+                                    <button
+                                      type="button"
+                                      onClick={(e) => handleToggleRoleActive(role, e)}
+                                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
+                                        role.is_active !== false
+                                          ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
+                                          : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
+                                      }`}
+                                      title={role.is_active !== false ? "Deactivate Role" : "Activate Role"}
+                                    >
+                                      <Power className="h-3 w-3" />
+                                      {role.is_active !== false ? "Deactivate" : "Activate"}
+                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => setSelectedRoleForDetail(role)}
@@ -489,7 +605,7 @@ export function MatchingTaxonomyEditor() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={(e) => handleDeleteRole(role.role_id, e)}
+                                      onClick={(e) => handleDeleteRole(role, e)}
                                       className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
                                       title="Delete Role"
                                     >
@@ -711,6 +827,30 @@ export function MatchingTaxonomyEditor() {
                   className="w-full rounded-lg border border-input bg-background px-3 py-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+
+              {/* Category Status Toggle */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border bg-muted/40">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold">Category Status</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {catIsActiveInput ? "Active — Included in taxonomy & matching" : "Inactive — Excluded from matching"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCatIsActiveInput(!catIsActiveInput)}
+                  className={`h-8 text-xs font-semibold gap-1.5 ${
+                    catIsActiveInput
+                      ? "text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800"
+                      : "text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:border-amber-800"
+                  }`}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  {catIsActiveInput ? "Active" : "Inactive"}
+                </Button>
+              </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t">
               <Button variant="outline" size="sm" onClick={() => setCategoryModalOpen(false)}>
@@ -774,6 +914,30 @@ export function MatchingTaxonomyEditor() {
                   triggerClassName="h-9 text-xs w-full"
                 />
               </div>
+
+              {/* Role Status Toggle */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl border bg-muted/40">
+                <div className="space-y-0.5">
+                  <div className="text-xs font-semibold">Role Status</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {roleIsActiveInput ? "Active — Eligible for matching algorithm" : "Inactive — Excluded from matching calculations"}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRoleIsActiveInput(!roleIsActiveInput)}
+                  className={`h-8 text-xs font-semibold gap-1.5 ${
+                    roleIsActiveInput
+                      ? "text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800"
+                      : "text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:border-amber-800"
+                  }`}
+                >
+                  <Power className="h-3.5 w-3.5" />
+                  {roleIsActiveInput ? "Active" : "Inactive"}
+                </Button>
+              </div>
             </div>
             <div className="flex justify-end gap-2 pt-2 border-t">
               <Button variant="outline" size="sm" onClick={() => setRoleModalOpen(false)}>
@@ -792,6 +956,90 @@ export function MatchingTaxonomyEditor() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* ── MODAL: Delete Category Confirmation ───────────────────────────── */}
+      <Dialog open={Boolean(deleteCatTarget)} onOpenChange={(open) => !open && setDeleteCatTarget(null)}>
+        <DialogContent className="sm:max-w-md sm:gap-2 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Confirm Category Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-xs space-y-2 text-muted-foreground">
+            <p>
+              Are you sure you want to permanently delete category{" "}
+              <strong className="text-foreground">"{deleteCatTarget?.category_name}"</strong> (#{deleteCatTarget?.category_id})?
+            </p>
+            <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
+              <strong>Data Safeguard:</strong> This permanently deletes the category. If active standard roles or job postings reference this category, deletion will be blocked by system safeguards.
+            </p>
+          </div>
+          <div className="flex items-center justify-end sm:gap-2 gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => setDeleteCatTarget(null)}
+              className="h-9 px-3 rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeleting}
+              onClick={handleConfirmDeleteCategory}
+              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
+            >
+              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete Permanently
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── MODAL: Delete Role Confirmation ──────────────────────────────── */}
+      <Dialog open={Boolean(deleteRoleTarget)} onOpenChange={(open) => !open && setDeleteRoleTarget(null)}>
+        <DialogContent className="sm:max-w-md sm:gap-2 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Confirm Role Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-xs space-y-2 text-muted-foreground">
+            <p>
+              Are you sure you want to permanently delete standard role{" "}
+              <strong className="text-foreground">"{deleteRoleTarget?.role_name}"</strong> (#{deleteRoleTarget?.role_id})?
+            </p>
+            <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
+              <strong>Data Safeguard:</strong> This permanently deletes the standard role. If mapped skills, search keywords, or job postings reference this role, deletion will be blocked by system safeguards.
+            </p>
+          </div>
+          <div className="flex items-center justify-end sm:gap-2 gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeleting}
+              onClick={() => setDeleteRoleTarget(null)}
+              className="h-9 px-3 rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeleting}
+              onClick={handleConfirmDeleteRole}
+              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
+            >
+              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Delete Permanently
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

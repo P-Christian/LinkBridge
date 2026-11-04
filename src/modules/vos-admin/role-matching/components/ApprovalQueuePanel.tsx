@@ -20,6 +20,7 @@ import {
   FileText,
   AlertTriangle,
   ArrowLeft,
+  Search,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,6 +30,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useIntelligenceRequests } from "../hooks/useIntelligenceRequests";
 import { useJobCategories } from "../hooks/useJobCategories";
@@ -633,15 +642,41 @@ export function ApprovalQueuePanel() {
 
   const [reviewingRequest, setReviewingRequest] = useState<IntelligenceRequest | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 10;
+
   const handleFilterChange = useCallback((status: FilterOption) => {
     setFilterStatus(status);
+    setCurrentPage(1);
   }, []);
 
   const handleRefresh = useCallback(() => {
     loadRequests(queueStatus);
   }, [loadRequests, queueStatus]);
 
-  const filteredRequests = useMemo(() => requests, [requests]);
+  const filteredRequests = useMemo(() => {
+    let result = requests;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter((req) => {
+        const nameMatch = (req.category_name || "").toLowerCase().includes(q);
+        const descMatch = (req.category_description || "").toLowerCase().includes(q);
+        const sourceMatch = (req.source || "").toLowerCase().includes(q);
+        const entityMatch = (req.entity_type || "").toLowerCase().includes(q);
+        const jobMatch = req.job_id ? String(req.job_id).includes(q) : false;
+        const idMatch = String(req.suggestion_id).includes(q);
+        return nameMatch || descMatch || sourceMatch || entityMatch || jobMatch || idMatch;
+      });
+    }
+    return result;
+  }, [requests, searchQuery]);
+
+  const totalItems = filteredRequests.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const safePage = Math.min(currentPage, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const paginatedRequests = filteredRequests.slice(startIdx, startIdx + pageSize);
 
   const pendingCount = useMemo(
     () => requests.filter((r) => r.status === "PENDING").length,
@@ -689,22 +724,51 @@ export function ApprovalQueuePanel() {
         </Button>
       </div>
 
-      {/* Filter tabs */}
-      <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/60 w-fit">
-        {FILTER_OPTIONS.map((opt) => (
-          <button
-            key={opt.value}
-            type="button"
-            onClick={() => handleFilterChange(opt.value)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-              filterStatus === opt.value
-                ? "bg-background text-foreground shadow-xs border border-border/60"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+      {/* Search & Filter Toolbar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {/* Search Input */}
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search suggestions, source, job #..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setCurrentPage(1);
+            }}
+            className="pl-8 pr-8 h-9 text-xs rounded-xl"
+          />
+          {searchQuery && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery("");
+                setCurrentPage(1);
+              }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Filter tabs */}
+        <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/60 w-fit">
+          {FILTER_OPTIONS.map((opt) => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => handleFilterChange(opt.value)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                filterStatus === opt.value
+                  ? "bg-background text-foreground shadow-xs border border-border/60"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Requests table */}
@@ -734,14 +798,16 @@ export function ApprovalQueuePanel() {
                   <Inbox className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
                   <p className="text-sm font-semibold text-muted-foreground">No requests found</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {filterStatus === "PENDING"
+                    {searchQuery
+                      ? "No suggestions match your search criteria."
+                      : filterStatus === "PENDING"
                       ? "All requests have been reviewed."
                       : "No requests match the selected filter."}
                   </p>
                 </td>
               </tr>
             ) : (
-              filteredRequests.map((req) => {
+              paginatedRequests.map((req) => {
                 const statusCfg = STATUS_CONFIGS[req.status];
                 const resolutionCfg = req.resolution_type ? RESOLUTION_CONFIGS[req.resolution_type] : null;
                 return (
@@ -826,6 +892,79 @@ export function ApprovalQueuePanel() {
             )}
           </tbody>
         </table>
+
+        {/* Pagination Footer */}
+        {!loading && filteredRequests.length > 0 && (
+          <div className="px-4 py-3 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/20 text-xs text-muted-foreground">
+            <div>
+              Showing{" "}
+              <span className="font-semibold text-foreground">
+                {totalItems === 0 ? 0 : startIdx + 1}
+              </span>{" "}
+              to{" "}
+              <span className="font-semibold text-foreground">
+                {Math.min(startIdx + pageSize, totalItems)}
+              </span>{" "}
+              of{" "}
+              <span className="font-semibold text-foreground">{totalItems}</span>{" "}
+              requests
+            </div>
+
+            {totalPages > 1 && (
+              <Pagination className="mx-0 w-auto justify-end">
+                <PaginationContent>
+                  <PaginationItem>
+                    <PaginationPrevious
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (safePage > 1) setCurrentPage((p) => p - 1);
+                      }}
+                      className={safePage <= 1 ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1)
+                    .filter((p) => p === 1 || p === totalPages || Math.abs(p - safePage) <= 1)
+                    .map((page, idx, arr) => {
+                      const prev = arr[idx - 1];
+                      return (
+                        <React.Fragment key={page}>
+                          {prev && page - prev > 1 && (
+                            <PaginationItem>
+                              <span className="px-2 text-muted-foreground">…</span>
+                            </PaginationItem>
+                          )}
+                          <PaginationItem>
+                            <PaginationLink
+                              href="#"
+                              isActive={page === safePage}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                setCurrentPage(page);
+                              }}
+                              className="cursor-pointer h-8 w-8 text-xs"
+                            >
+                              {page}
+                            </PaginationLink>
+                          </PaginationItem>
+                        </React.Fragment>
+                      );
+                    })}
+                  <PaginationItem>
+                    <PaginationNext
+                      href="#"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        if (safePage < totalPages) setCurrentPage((p) => p + 1);
+                      }}
+                      className={safePage >= totalPages ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                    />
+                  </PaginationItem>
+                </PaginationContent>
+              </Pagination>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Review Dialog */}
