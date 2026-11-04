@@ -8,6 +8,11 @@ import type {
   StatusDistributionItem,
   PendingActionItem,
 } from "@/modules/vos-admin/types/dashboard";
+import {
+  fetchTelemetryRequests,
+  fetchRecentRequests,
+  computeKPIs,
+} from "@/modules/vos-admin/gemini-monitoring/services/geminiMonitoring.repo";
 
 import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
@@ -110,13 +115,17 @@ export async function GET(req: NextRequest) {
         fetch(`${DIRECTUS_BASE}/items/vs_company?fields=company_id,company_name,verification_status,created_at&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
         fetch(`${DIRECTUS_BASE}/items/vs_company_verifications?fields=id,company_id,status,created_at&sort=-created_at,-id&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
         fetch(`${DIRECTUS_BASE}/items/vs_school?fields=school_id,school_name,verification_status,school_status,created_at&limit=${ROW_SCAN_LIMIT}`, { headers, cache: "no-store" }).catch(() => null),
-        fetch(new URL("/api/vos-admin/gemini-monitoring", req.url).toString(), {
-          headers: {
-            cookie: req.headers.get("cookie") || "",
-            authorization: req.headers.get("authorization") || "",
-          },
-          cache: "no-store",
-        }).catch(() => null),
+        (async () => {
+          try {
+            const [todayRows, recentRows] = await Promise.all([
+              fetchTelemetryRequests(),
+              fetchRecentRequests(100),
+            ]);
+            return { ok: true, kpis: computeKPIs(todayRows, recentRows) };
+          } catch {
+            return { ok: false };
+          }
+        })(),
         Promise.all([
           countItems("vs_user?aggregate[count]=user_id", headers),
           countItems("vs_user?aggregate[count]=user_id&filter[status][_eq]=ACTIVE", headers),
@@ -144,7 +153,19 @@ export async function GET(req: NextRequest) {
       }
 
       if (geminiRes?.ok) {
-        geminiTelemetry = (await geminiRes.json().catch(() => null)) as Record<string, unknown> | null;
+        const kpis = (geminiRes as { ok: true; kpis: ReturnType<typeof computeKPIs> }).kpis;
+        const noRecentData = kpis.recentSuccessRate === 100 && kpis.recentAvgLatencyMs === 0;
+        geminiTelemetry = {
+          serviceHealth: noRecentData
+            ? "STANDBY"
+            : kpis.recentSuccessRate >= 95 && kpis.recentAvgLatencyMs < 3000
+            ? "HEALTHY"
+            : kpis.recentSuccessRate >= 50
+            ? "DEGRADED"
+            : "UNAVAILABLE",
+          recentSuccessRate: kpis.recentSuccessRate,
+          recentAvgLatencyMs: kpis.recentAvgLatencyMs,
+        };
       } else {
         errors.push("AI engine telemetry");
       }
@@ -216,7 +237,8 @@ export async function GET(req: NextRequest) {
       | "DEGRADED"
       | "UNAVAILABLE"
       | "NO_DATA"
-      | undefined) ?? "NO_DATA";
+      | "STANDBY"
+      | undefined) ?? "STANDBY";
     const geminiSuccessRate =
       typeof geminiTelemetry?.recentSuccessRate === "number"
         ? geminiTelemetry.recentSuccessRate
