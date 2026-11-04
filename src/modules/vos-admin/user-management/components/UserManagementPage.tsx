@@ -86,12 +86,13 @@ export function UserManagementPage() {
 
   // Derive client-side count metrics globally for the KPI section
   const kpiData = useMemo<UserManagementKPIs>(() => {
-    const counts = { totalCount: activeUsers.length, pendingCount: 0, approvedCount: 0, rejectedCount: 0 };
+    const counts = { totalCount: activeUsers.length, pendingCount: 0, approvedCount: 0, rejectedCount: 0, notSubmittedCount: 0 };
     activeUsers.forEach(u => {
       const status = getVerificationStatus(u);
       if (status === 'pending') counts.pendingCount++;
       else if (status === 'approved') counts.approvedCount++;
       else if (status === 'rejected') counts.rejectedCount++;
+      else if (status === 'not_submitted') counts.notSubmittedCount++;
     });
     return counts;
   }, [activeUsers]);
