@@ -262,7 +262,7 @@ export function DashboardSidebar({
                     const endpoint = isFreelancer
                         ? "/api/freelancer/notifications?unread_only=true"
                         : isClient
-                        ? "/api/client/notifications?unread_only=true&limit=100"
+                        ? "/api/client/notifications?count_only=true"
                         : null;
 
                     if (endpoint) {

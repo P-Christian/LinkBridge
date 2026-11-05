@@ -7,7 +7,9 @@ import { Search, MessageSquare, RefreshCw, Archive } from "lucide-react";
 import { Conversation } from "../types";
 import ConversationItem from "./ConversationItem";
 import ConversationGroupItem, { FreelancerConversationGroup } from "./ConversationGroupItem";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { LayoutGroup, motion, AnimatePresence } from "framer-motion";
 import {
   Tooltip,
   TooltipTrigger,
@@ -173,89 +175,131 @@ export default function ConversationList({
         <button
           onClick={() => setFilterTab("ALL")}
           className={cn(
-            "px-3 py-1.5 rounded-lg text-sm md:text-xs font-medium transition-colors max-md:min-h-11",
+            "relative px-3 py-1.5 rounded-lg text-sm md:text-xs font-medium transition-colors max-md:min-h-11",
             filterTab === "ALL"
-              ? "bg-muted text-foreground"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              ? "text-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground"
           )}
         >
-          All
+          {filterTab === "ALL" && (
+            <motion.span
+              layoutId="activeFilterTabFreelancer"
+              className="absolute inset-0 rounded-lg bg-muted shadow-2xs"
+              transition={{ type: "spring", stiffness: 500, damping: 35 }}
+            />
+          )}
+          <span className="relative z-10">All</span>
         </button>
         <button
           onClick={() => setFilterTab("UNREAD")}
           className={cn(
-            "px-3 py-1.5 rounded-lg text-sm md:text-xs font-medium transition-colors flex items-center gap-1.5 max-md:min-h-11",
+            "relative px-3 py-1.5 rounded-lg text-sm md:text-xs font-medium transition-colors flex items-center gap-1.5 max-md:min-h-11",
             filterTab === "UNREAD"
-              ? "bg-primary text-primary-foreground font-semibold"
-              : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              ? "text-primary-foreground font-semibold"
+              : "text-muted-foreground hover:text-foreground"
           )}
         >
-          Unread
-          {totalUnread > 0 && (
-            <span className={cn(
-              "h-4 min-w-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold",
-              filterTab === "UNREAD" ? "bg-primary-foreground text-primary" : "bg-destructive/15 text-destructive"
-            )}>
-              {totalUnread}
-            </span>
+          {filterTab === "UNREAD" && (
+            <motion.span
+              layoutId="activeFilterTabFreelancer"
+              className="absolute inset-0 rounded-lg bg-primary shadow-2xs"
+              transition={{ type: "spring", stiffness: 500, damping: 35 }}
+            />
           )}
+          <span className="relative z-10 flex items-center gap-1.5">
+            Unread
+            {totalUnread > 0 && (
+              <span className={cn(
+                "h-4 min-w-4 px-1 flex items-center justify-center rounded-full text-[9px] font-bold",
+                filterTab === "UNREAD" ? "bg-primary-foreground text-primary" : "bg-destructive/15 text-destructive"
+              )}>
+                {totalUnread}
+              </span>
+            )}
+          </span>
         </button>
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <div className="flex flex-col gap-3 p-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center gap-3 animate-pulse">
-                <div className="h-10 w-10 rounded-full bg-muted shrink-0" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3 w-3/4 rounded bg-muted" />
-                  <div className="h-2 w-full rounded bg-muted/60" />
+      <ScrollArea className="flex-1 min-h-0">
+        <AnimatePresence mode="wait" initial={false}>
+          {loading ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="flex flex-col gap-3 p-4"
+            >
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-center gap-3 animate-pulse">
+                  <div className="h-10 w-10 rounded-full bg-muted shrink-0" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-3/4 rounded bg-muted" />
+                    <div className="h-2 w-full rounded bg-muted/60" />
+                  </div>
                 </div>
+              ))}
+            </motion.div>
+          ) : filtered.length === 0 ? (
+            <motion.div
+              key={`empty-${filterTab}-${searchQuery ? "search" : "idle"}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex flex-col items-center justify-center h-full gap-3 py-16 px-6 text-center"
+            >
+              <div className="p-4 rounded-2xl bg-muted/60">
+                <MessageSquare className="h-7 w-7 text-muted-foreground" />
               </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 py-16 px-6 text-center">
-            <div className="p-4 rounded-2xl bg-muted/60">
-              <MessageSquare className="h-7 w-7 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {searchQuery ? "No results found" : showArchived ? "No archived messages" : "No messages yet"}
-              </p>
-              <p className="text-sm md:text-xs text-muted-foreground mt-1">
-                {searchQuery
-                  ? "Try a different search term"
-                  : "When employers message you about your applications, they will appear here."}
-              </p>
-            </div>
-          </div>
-        ) : (
-          grouped.map((group) =>
-            group.items.length === 1 ? (
-              <ConversationItem
-                key={group.items[0].conversation_id}
-                conversation={group.items[0]}
-                isActive={group.items[0].conversation_id === activeConversationId}
-                currentUserId={currentUserId}
-                onSelect={onSelect}
-                onArchive={onArchive}
-              />
-            ) : (
-              <ConversationGroupItem
-                key={`group-${group.groupId}`}
-                group={group}
-                activeConversationId={activeConversationId}
-                searchQuery={searchQuery}
-                onSelect={onSelect}
-                onArchive={onArchive}
-              />
-            )
-          )
-        )}
-      </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">
+                  {searchQuery ? "No results found" : showArchived ? "No archived messages" : "No messages yet"}
+                </p>
+                <p className="text-sm md:text-xs text-muted-foreground mt-1">
+                  {searchQuery
+                    ? "Try a different search term"
+                    : "When employers message you about your applications, they will appear here."}
+                </p>
+              </div>
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`list-${filterTab}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <LayoutGroup id="freelancer-conversations">
+                {grouped.map((group) =>
+                  group.items.length === 1 ? (
+                    <ConversationItem
+                      key={group.items[0].conversation_id}
+                      conversation={group.items[0]}
+                      isActive={group.items[0].conversation_id === activeConversationId}
+                      currentUserId={currentUserId}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  ) : (
+                    <ConversationGroupItem
+                      key={`group-${group.groupId}`}
+                      group={group}
+                      activeConversationId={activeConversationId}
+                      searchQuery={searchQuery}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  )
+                )}
+              </LayoutGroup>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </ScrollArea>
     </div>
   </TooltipProvider>
   );

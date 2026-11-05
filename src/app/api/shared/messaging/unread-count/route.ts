@@ -1,5 +1,6 @@
 // src/app/api/shared/messaging/unread-count/route.ts
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { DirectusError, directusItems } from "@/lib/server/directus";
 import { chunk, mapPool } from "@/lib/server/pool";
@@ -112,19 +113,17 @@ async function countUnreadConversations(userId: number): Promise<number> {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session) return NextResponse.json({ unreadCount: 0 });
+    if (!session) return json({ unreadCount: 0 });
 
     const userId = Number(session.userId);
-    if (!Number.isInteger(userId) || userId <= 0) return NextResponse.json({ unreadCount: 0 });
+    if (!Number.isInteger(userId) || userId <= 0) return json({ unreadCount: 0 });
 
-    return NextResponse.json({ unreadCount: await countUnreadConversations(userId) });
+    return json({ unreadCount: await countUnreadConversations(userId) });
   } catch (err) {
     // Answering 0 here cleared a badge that still had messages waiting; the
     // sidebar keeps the previous count when the request fails instead.
     console.error("[GET /api/shared/messaging/unread-count]", err);
-    return NextResponse.json(
-      { error: "The unread count could not be calculated." },
-      { status: err instanceof DirectusError ? 502 : 500 }
-    );
+    return json(
+      { error: "The unread count could not be calculated." }, err instanceof DirectusError ? 502 : 500);
   }
 }

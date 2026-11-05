@@ -352,7 +352,7 @@ function BubbleActions({
           title="Reply"
           aria-label="Reply to message"
           onClick={onReply}
-          className={cn(actionButton, showPicker && "bg-zinc-100 text-zinc-900 dark:bg-zinc-700 dark:text-zinc-100 ring-2 ring-indigo-500/30")}
+          className={actionButton}
         >
           <Reply className="h-3.5 w-3.5" />
         </button>
@@ -884,12 +884,17 @@ function MessageBubble({
                                 {reply_to.sender_id === message.sender_id ? "You" : (reply_to.sender_name && reply_to.sender_name !== "Freelancer" && reply_to.sender_name !== "Client" ? reply_to.sender_name : otherParty?.name || reply_to.sender_name || "User")}
                               </span>
                             </div>
-                            <span className="truncate text-[11px] opacity-90 line-clamp-1 mt-0.5">
-                              {(reply_to.message_content && reply_to.message_content !== "Attachment"
-                                ? reply_to.message_content
-                                : reply_to.attachments?.[0]?.file_name) ||
-                                reply_to.message_content ||
-                                "Attachment"}
+                            <span className={cn(
+                              "truncate text-[11px] opacity-90 line-clamp-1 mt-0.5",
+                              (reply_to.is_deleted || reply_to.message_content === "This message was removed") && "italic opacity-70"
+                            )}>
+                              {reply_to.is_deleted || reply_to.message_content === "This message was removed"
+                                ? "This message was removed"
+                                : (reply_to.message_content && reply_to.message_content !== "Attachment"
+                                    ? reply_to.message_content
+                                    : reply_to.attachments?.[0]?.file_name) ||
+                                  reply_to.message_content ||
+                                  "Attachment"}
                             </span>
                           </button>
                         )}

@@ -16,6 +16,11 @@ import {
   lastMessageByConversation,
   unreadCountByConversation,
 } from "@/lib/messaging/conversation-reads";
+import {
+  encodeConversationList,
+  protobufResponse,
+  protobufTransportEnabled,
+} from "@/lib/messaging/transport/rest";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -187,6 +192,12 @@ export const GET = withRoute(async ({ req, session }) => {
       last_message_at: lastMsg?.created_at ?? conv.last_message_at ?? conv.created_at,
     };
   });
+
+  // A `Response` here bypasses the wrapper's JSON body, which is how the
+  // protobuf path keeps its binary body and format headers.
+  if (protobufTransportEnabled()) {
+    return protobufResponse(encodeConversationList(enriched));
+  }
 
   return { conversations: enriched };
 }, { auth: "client" });

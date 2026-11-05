@@ -27,7 +27,9 @@ const COLLECTION_QUERY_FIELDS: Record<string, string[]> = {
     "is_pinned",
     "pinned_at",
     "pinned_by",
-    // Participant IDs for server-side SSE scoping — resolved via relational query
+    // Participant IDs for server-side SSE scoping, and the owning conversation's
+    // primary key, resolved via relational query
+    "conversation_id.conversation_id",
     "conversation_id.client_id",
     "conversation_id.freelancer_id",
     // Sender user information for notifications — resolved via relational query
@@ -41,7 +43,8 @@ const COLLECTION_QUERY_FIELDS: Record<string, string[]> = {
     "user_id",
     "reaction",
     "created_at",
-    // Owning conversation participants for server-side SSE scoping
+    // Owning message ID and conversation participants for server-side SSE scoping
+    "message_id.message_id",
     "message_id.conversation_id.client_id",
     "message_id.conversation_id.freelancer_id",
   ],
@@ -96,6 +99,55 @@ const SUBSCRIBED_COLLECTIONS = [
   "vs_interview",
   "vs_job_application",
 ];
+
+/**
+ * The message fields the browser may receive over SSE — the same set the REST
+ * message DTO returns, plus `sender_name` that the optimistic bubbles render
+ * before the background refresh. `client_id`/`freelancer_id` are carried on the
+ * relay rows only for membership scoping and are dropped by the SSE route's
+ * whitelist.
+ */
+export const SSE_MESSAGE_FIELDS = [
+  "message_id",
+  "conversation_id",
+  "sender_id",
+  "sender_name",
+  "message_type",
+  "message_content",
+  "is_edited",
+  "edited_at",
+  "created_at",
+  "is_deleted",
+  "reply_to_message_id",
+  "is_pinned",
+  "pinned_at",
+  "pinned_by",
+] as const;
+
+/**
+ * Reaction frames carry only what the REST reaction payloads expose. Deliberately
+ * no `conversation_id`: these rows are also fanned out to `vs_message`
+ * subscribers, and an inserted message must come from a real message row.
+ */
+export const SSE_REACTION_FIELDS = [
+  "reaction_id",
+  "message_id",
+  "user_id",
+  "reaction",
+  "created_at",
+] as const;
+
+/** Drops every column outside `fields`, keeping the row's own key order. */
+export function pickFields(
+  rec: Record<string, unknown>,
+  fields: readonly string[]
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(rec)) {
+    if (fields.includes(key)) out[key] = rec[key];
+  }
+  return out;
+}
 
 const userSenderNameCache = new Map<number, string>();
 
@@ -317,15 +369,16 @@ class DirectusWsRelay {
             // membership filter has already allowed through to that subscriber.
             if (collection === "vs_message") {
               for (const rec of records) {
-                // Flatten nested relation: conversation_id: { client_id, freelancer_id }
+                // Flatten nested relation: conversation_id: { conversation_id, client_id, freelancer_id }
                 if (rec.conversation_id && typeof rec.conversation_id === "object") {
                   const conv = rec.conversation_id as Record<string, unknown>;
                   rec.client_id = conv.client_id ?? null;
                   rec.freelancer_id = conv.freelancer_id ?? null;
-                  // Replace the nested object with just the numeric ID if present
-                  if (typeof conv.conversation_id === "number") {
-                    rec.conversation_id = conv.conversation_id;
-                  }
+                  // Collapse to the numeric ID so the frame matches the REST DTO.
+                  // Nulling the object when the ID is absent is what keeps the
+                  // participant IDs from ever reaching the browser.
+                  rec.conversation_id =
+                    typeof conv.conversation_id === "number" ? conv.conversation_id : null;
                 }
                 // Resolve sender name and normalize sender_id
                 if (rec.sender_id && typeof rec.sender_id === "object") {
@@ -366,9 +419,8 @@ class DirectusWsRelay {
                       : {};
                   rec.client_id = conv.client_id ?? null;
                   rec.freelancer_id = conv.freelancer_id ?? null;
-                  if (typeof msg.message_id === "number") {
-                    rec.message_id = msg.message_id;
-                  }
+                  rec.message_id =
+                    typeof msg.message_id === "number" ? msg.message_id : null;
                 }
               }
             }

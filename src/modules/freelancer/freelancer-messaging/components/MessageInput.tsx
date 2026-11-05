@@ -4,6 +4,7 @@
 
 import React, { useCallback, useEffect, useRef, useState, KeyboardEvent } from "react";
 import { Send, Paperclip, X, FileText, ImageIcon, Loader2, Reply } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
@@ -145,32 +146,52 @@ export default function MessageInput({
   return (
     <div className="border-t border-border/60 bg-card p-4 shrink-0 font-sans">
       {/* Replying banner */}
-      {replyingTo && (
-        <div className="mb-2.5 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary">
-          <div className="flex min-w-0 items-center gap-2">
-            <Reply className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="font-semibold text-[11px] text-primary">
-              Replying:
-            </span>
-            <span className="truncate text-[11px] text-muted-foreground">
-              {replyingTo.message_content ||
-                (replyingTo.attachments?.[0]?.file_name
-                  ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
-                  : "Attachment")}
-            </span>
-          </div>
-          {onCancelReply && (
-            <button
-              type="button"
-              onClick={onCancelReply}
-              aria-label="Cancel reply"
-              className="ml-2 shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      )}
+      <AnimatePresence>
+        {replyingTo && (
+          <motion.div
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ type: "spring", stiffness: 450, damping: 30 }}
+            className="overflow-hidden"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={replyingTo.message_id}
+                initial={{ opacity: 0, y: 6, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="mb-2.5 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Reply className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="shrink-0 font-semibold text-[11px] text-primary">
+                    Replying:
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {replyingTo.message_content ||
+                      (replyingTo.attachments?.[0]?.file_name
+                        ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
+                        : "Attachment")}
+                  </span>
+                </div>
+                {onCancelReply && (
+                  <button
+                    type="button"
+                    onClick={onCancelReply}
+                    aria-label="Cancel reply"
+                    className="ml-2 shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Pending files preview */}
       {pendingFiles.length > 0 && (

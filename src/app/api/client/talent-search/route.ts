@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
-import { analyzeQuery, retrieveCandidatePool, type NormalizedProfile } from "@/modules/matching-engine";
+import { analyzeQuery, retrieveCandidatePool, getOrLoadTaxonomy, type NormalizedProfile } from "@/modules/matching-engine";
 import { DirectusError } from "@/lib/server/directus";
 import { toId } from "@/lib/server/route";
 import {
@@ -17,8 +17,6 @@ import {
   readJobSkillRows,
   readMostRecentlyWrittenProfile,
   readProfilesByUserIds,
-  scanRoleAliasRows,
-  scanRoleSkillRows,
   scanSearchableProfiles,
   type JobPostingRow,
 } from "@/modules/client/talent-search/services/talent-search.repo";
@@ -370,10 +368,9 @@ export async function GET(req: NextRequest) {
     // unreachable made every role, alias and skill requirement vanish, and the
     // recruiter was told the market had no matching talent.
     // ────────────────────────────────────────────
-    const [profiles, dbAliases, dbRoleSkills] = await Promise.all([
+    const [profiles, { aliases: dbAliases, roleSkills: dbRoleSkills }] = await Promise.all([
       scanSearchableProfiles(),
-      scanRoleAliasRows(),
-      scanRoleSkillRows(),
+      getOrLoadTaxonomy(),
     ]);
 
     // The scan ceiling is a memory guard, not a licence to search a partial
@@ -507,26 +504,42 @@ export async function GET(req: NextRequest) {
       taxonomy,
       0,
       keyword,
-      effectiveSkills
+      effectiveSkills,
+      engineMode
     );
     mark("layer_1");
     counts.layer_1 = retrievedPool.length;
+
+    // Filter by relevance eligibility when in search mode (hybrid relevance)
+    const eligiblePool =
+      searchMode === "browse"
+        ? retrievedPool
+        : retrievedPool.filter((r) => r.eligibility?.eligible);
+
+    counts.eligible = eligiblePool.length;
+    counts.excluded_relevance = retrievedPool.length - eligiblePool.length;
+
     if (retrievedPool.length > 0) {
       const reasons = new Map<string, number>();
       for (const r of retrievedPool) reasons.set(r.retrievalReason, (reasons.get(r.retrievalReason) ?? 0) + 1);
-      layerLog("LAYER_1", `threshold 0 keeps every candidate — the score decides order, not membership`, {
-        retrieved: retrievedPool.length,
-        of: normalizedProfilesList.length,
-        scored: retrievedPool.filter((r) => r.retrievalScore > 0).length,
-        top: Math.max(...retrievedPool.map((r) => r.retrievalScore)),
-        why: [...reasons].map(([k, v]) => `${k}×${v}`).join(" "),
-      });
+      layerLog(
+        "LAYER_1",
+        `retrieval completed: ${eligiblePool.length} of ${retrievedPool.length} eligible (${retrievedPool.length - eligiblePool.length} excluded as NO_RELEVANCE)`,
+        {
+          retrieved: retrievedPool.length,
+          of: normalizedProfilesList.length,
+          eligible: eligiblePool.length,
+          scored: retrievedPool.filter((r) => r.retrievalScore > 0).length,
+          top: Math.max(...retrievedPool.map((r) => r.retrievalScore)),
+          why: [...reasons].map(([k, v]) => `${k}×${v}`).join(" "),
+        }
+      );
     } else {
       layerLog("LAYER_1", "retrieval returned nothing", { of: normalizedProfilesList.length });
     }
 
     const { pool, removed } = applyPreScoringFilters({
-      pool: retrievedPool,
+      pool: eligiblePool,
       items: normalizedProfilesMap,
       requestedSkills,
       jobId: requestedJobId,

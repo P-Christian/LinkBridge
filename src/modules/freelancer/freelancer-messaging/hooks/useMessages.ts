@@ -637,17 +637,30 @@ export function useMessages(currentUserId: number = 0) {
       setMessages((prev) => {
         previousMessage = prev.find((m) => m.message_id === messageId);
         if (!previousMessage) return prev;
-        return prev.map((msg) =>
-          msg.message_id === messageId
-            ? {
-                ...msg,
+        return prev.map((msg) => {
+          let updated = msg;
+          if (msg.message_id === messageId) {
+            updated = {
+              ...msg,
+              is_deleted: true,
+              message_content: null,
+              attachments: [],
+              is_pinned: false,
+            };
+          }
+          if (msg.reply_to && msg.reply_to.message_id === messageId) {
+            updated = {
+              ...updated,
+              reply_to: {
+                ...msg.reply_to,
                 is_deleted: true,
-                message_content: null,
+                message_content: "This message was removed",
                 attachments: [],
-                is_pinned: false,
-              }
-            : msg
-        );
+              },
+            };
+          }
+          return updated;
+        });
       });
 
       try {

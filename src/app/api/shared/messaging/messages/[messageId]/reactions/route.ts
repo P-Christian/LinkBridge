@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getPHTimeString } from "@/lib/utils";
 import { mapPool } from "@/lib/server/pool";
 
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
-import { toId } from "@/lib/server/route";
+import { json, toId } from "@/lib/server/route";
 import { directusItems, directusItemsWhereIn } from "@/lib/server/directus";
 
 export const runtime = "nodejs";
@@ -49,12 +49,12 @@ export async function POST(
     const { messageId } = await params;
     const numMessageId = toId(messageId);
     if (numMessageId === null) {
-      return NextResponse.json({ error: "Invalid message ID." }, { status: 400 });
+      return json({ error: "Invalid message ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
 
     const userId = Number(session.userId);
@@ -63,10 +63,8 @@ export async function POST(
     const reaction = body?.reaction;
 
     if (!reaction || typeof reaction !== "string" || !ALLOWED_REACTIONS.includes(reaction as (typeof ALLOWED_REACTIONS)[number])) {
-      return NextResponse.json(
-        { error: `Invalid reaction. Allowed: ${ALLOWED_REACTIONS.join(", ")}` },
-        { status: 400 }
-      );
+      return json(
+        { error: `Invalid reaction. Allowed: ${ALLOWED_REACTIONS.join(", ")}` }, 400);
     }
 
     // 1. Fetch message and verify conversation ownership
@@ -80,20 +78,18 @@ export async function POST(
     // their message or their seat in the conversation did not exist.
     if (!msgRes.ok) {
       if (msgRes.status === 404) {
-        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+        return json({ error: "Message not found." }, 404);
       }
       console.error(`Message lookup failed for #${numMessageId}: ${msgRes.status}`);
-      return NextResponse.json(
-        { error: "The message could not be read. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The message could not be read. Please try again." }, 502);
     }
 
     const msgJson = await msgRes.json();
     const message = msgJson.data;
 
     if (!message || message.is_deleted) {
-      return NextResponse.json({ error: "Message not found or deleted." }, { status: 404 });
+      return json({ error: "Message not found or deleted." }, 404);
     }
 
     const convRes = await fetch(
@@ -103,28 +99,26 @@ export async function POST(
 
     if (!convRes.ok) {
       if (convRes.status === 404) {
-        return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+        return json({ error: "Conversation not found." }, 404);
       }
       console.error(`Conversation lookup failed for #${message.conversation_id}: ${convRes.status}`);
-      return NextResponse.json(
-        { error: "The conversation could not be read. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The conversation could not be read. Please try again." }, 502);
     }
 
     const convJson = await convRes.json();
     const conv = convJson.data;
 
     if (!conv) {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+      return json({ error: "Conversation not found." }, 404);
     }
 
     if (conv.client_id !== userId && conv.freelancer_id !== userId) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      return json({ error: "Forbidden." }, 403);
     }
 
     if (conv.status === "BLOCKED") {
-      return NextResponse.json({ error: "Conversation is blocked." }, { status: 403 });
+      return json({ error: "Conversation is blocked." }, 403);
     }
 
     // 2. Check all reactions by this user on this message
@@ -138,10 +132,8 @@ export async function POST(
     // grouped read-back below would then count the user twice.
     if (!userReactionsRes.ok) {
       console.error(`Reaction lookup failed for message #${numMessageId}: ${userReactionsRes.status}`);
-      return NextResponse.json(
-        { error: "Failed to read existing reactions." },
-        { status: 502 }
-      );
+      return json(
+        { error: "Failed to read existing reactions." }, 502);
     }
 
     const userReactionsJson = (await userReactionsRes.json().catch(() => null)) as {
@@ -168,10 +160,8 @@ export async function POST(
 
       if (deleteOutcomes.some((ok) => !ok)) {
         console.error("Reaction delete failed for message:", numMessageId);
-        return NextResponse.json(
-          { error: "Failed to remove reaction." },
-          { status: 502 }
-        );
+        return json(
+          { error: "Failed to remove reaction." }, 502);
       }
     } else if (userReactions.length > 0) {
       // User switched reaction: update first reaction in-place via PATCH to eliminate zero-reaction gaps
@@ -188,10 +178,8 @@ export async function POST(
 
       if (!patchRes?.ok) {
         console.error("Reaction patch failed for message:", numMessageId);
-        return NextResponse.json(
-          { error: "Failed to update reaction." },
-          { status: 502 }
-        );
+        return json(
+          { error: "Failed to update reaction." }, 502);
       }
 
       // Clean up any extraneous duplicate rows if present
@@ -222,10 +210,8 @@ export async function POST(
           `Reaction insert failed (${insertRes?.status ?? "no response"}):`,
           insertRes ? await insertRes.text().catch(() => "") : ""
         );
-        return NextResponse.json(
-          { error: "Failed to add reaction." },
-          { status: 502 }
-        );
+        return json(
+          { error: "Failed to add reaction." }, 502);
       }
     }
 
@@ -320,16 +306,14 @@ export async function POST(
         "Your reaction was saved, but the reaction list could not be re-read, so it may look out of date until the thread is refreshed.";
     }
 
-    return NextResponse.json({
+    return json({
       message_id: numMessageId,
       reactions: reactionGroups,
       ...(readBackWarning ? { warning: readBackWarning } : {}),
     });
   } catch (err: unknown) {
     console.error("POST /api/shared/messaging/messages/[messageId]/reactions error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }
