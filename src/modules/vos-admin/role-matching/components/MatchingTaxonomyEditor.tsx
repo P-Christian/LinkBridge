@@ -18,7 +18,6 @@ import {
   SlidersHorizontal,
   ShieldAlert,
   Power,
-  Ban,
   AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -969,7 +968,7 @@ export function MatchingTaxonomyEditor() {
           <div className="py-2 text-xs space-y-2 text-muted-foreground">
             <p>
               Are you sure you want to permanently delete category{" "}
-              <strong className="text-foreground">"{deleteCatTarget?.category_name}"</strong> (#{deleteCatTarget?.category_id})?
+              <strong className="text-foreground">&quot;{deleteCatTarget?.category_name}&quot;</strong> (#{deleteCatTarget?.category_id})?
             </p>
             <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
               <strong>Data Safeguard:</strong> This permanently deletes the category. If active standard roles or job postings reference this category, deletion will be blocked by system safeguards.
@@ -1011,7 +1010,7 @@ export function MatchingTaxonomyEditor() {
           <div className="py-2 text-xs space-y-2 text-muted-foreground">
             <p>
               Are you sure you want to permanently delete standard role{" "}
-              <strong className="text-foreground">"{deleteRoleTarget?.role_name}"</strong> (#{deleteRoleTarget?.role_id})?
+              <strong className="text-foreground">&quot;{deleteRoleTarget?.role_name}&quot;</strong> (#{deleteRoleTarget?.role_id})?
             </p>
             <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
               <strong>Data Safeguard:</strong> This permanently deletes the standard role. If mapped skills, search keywords, or job postings reference this role, deletion will be blocked by system safeguards.

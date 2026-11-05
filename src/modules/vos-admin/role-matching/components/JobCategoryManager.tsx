@@ -269,7 +269,7 @@ export function JobCategoryManager() {
             <p>
               Are you sure you want to permanently delete the category{" "}
               <strong className="text-foreground">
-                "{deleteTarget?.category_name}"
+                &quot;{deleteTarget?.category_name}&quot;
               </strong>{" "}
               (#{deleteTarget?.category_id})?
             </p>

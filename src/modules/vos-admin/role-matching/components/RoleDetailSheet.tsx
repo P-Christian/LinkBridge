@@ -18,7 +18,7 @@ import {
   Bot,
   RefreshCw,
   Power,
-  Ban,
+
   AlertTriangle,
   X,
 } from "lucide-react";
@@ -1528,7 +1528,7 @@ export function RoleDetailSheet({
             <p>
               Are you sure you want to permanently delete the skill mapping{" "}
               <strong className="text-foreground">
-                "{deleteSkillTarget?.skill_name}"
+                &quot;{deleteSkillTarget?.skill_name}&quot;
               </strong>?
             </p>
             <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
@@ -1575,11 +1575,11 @@ export function RoleDetailSheet({
             <p>
               Are you sure you want to permanently delete the keyword/synonym{" "}
               <strong className="text-foreground">
-                "{deleteKeywordTarget?.alias_name}"
+                &quot;{deleteKeywordTarget?.alias_name}&quot;
               </strong>?
             </p>
             <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
-              <strong>Data Safeguard:</strong> This removes this search alias/synonym from the role's lexical index.
+              <strong>Data Safeguard:</strong> This removes this search alias/synonym from the role&apos;s lexical index.
             </p>
           </div>
           <div className="flex items-center justify-end sm:gap-2 gap-2 pt-2">

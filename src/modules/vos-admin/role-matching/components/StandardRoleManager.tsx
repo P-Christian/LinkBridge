@@ -180,9 +180,8 @@ export function StandardRoleManager() {
               sortedRoles.map((r) => (
                 <tr
                   key={r.role_id}
-                  className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors ${
-                    r.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
-                  }`}
+                  className={`hover:bg-zinc-50 dark:hover:bg-zinc-800/40 transition-colors ${r.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
+                    }`}
                 >
                   <td className="p-4 font-mono text-zinc-400">#{r.role_id}</td>
                   <td className="p-4 font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
@@ -217,11 +216,10 @@ export function StandardRoleManager() {
                         size="sm"
                         onClick={() => handleToggleActive(r)}
                         title={r.is_active !== false ? "Deactivate (Mark Inactive)" : "Activate (Mark Active)"}
-                        className={`h-7 px-2 text-[11px] font-semibold gap-1 rounded-lg ${
-                          r.is_active !== false
+                        className={`h-7 px-2 text-[11px] font-semibold gap-1 rounded-lg ${r.is_active !== false
                             ? "text-zinc-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
                             : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                        }`}
+                          }`}
                       >
                         <Power className="h-3 w-3" />
                         {r.is_active !== false ? "Deactivate" : "Activate"}
@@ -264,7 +262,7 @@ export function StandardRoleManager() {
             <p>
               Are you sure you want to permanently delete standard role{" "}
               <strong className="text-foreground">
-                "{deleteTarget?.role_name}"
+                &quot;{deleteTarget?.role_name}&quot;
               </strong>{" "}
               (#{deleteTarget?.role_id})?
             </p>
@@ -348,11 +346,10 @@ export function StandardRoleManager() {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsActiveInput(!isActiveInput)}
-                className={`h-8 text-xs font-semibold gap-1.5 ${
-                  isActiveInput
+                className={`h-8 text-xs font-semibold gap-1.5 ${isActiveInput
                     ? "text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:border-emerald-800"
                     : "text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:border-amber-800"
-                }`}
+                  }`}
               >
                 <Power className="h-3.5 w-3.5" />
                 {isActiveInput ? "Active" : "Inactive"}
