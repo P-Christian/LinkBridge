@@ -264,7 +264,7 @@ function featureLabel(feature: string): string {
 }
 
 function timeSince(isoString: string | null): string {
-  if (!isoString) return "No recent requests";
+  if (!isoString) return "Engine on standby";
   const ms = Date.now() - new Date(isoString).getTime();
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s ago`;
@@ -294,9 +294,9 @@ const HealthBadge = memo(({ health }: { health: "HEALTHY" | "DEGRADED" | "UNAVAI
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Degraded
         </Badge>
       )}
-      {health === "NO_DATA" && (
-        <Badge variant="outline" className="bg-muted text-muted-foreground border-border gap-1.5 px-3 py-1 font-bold">
-          <Clock className="h-3.5 w-3.5 text-muted-foreground" /> No Data Yet
+      {(health === "NO_DATA" || (health as string) === "STANDBY") && (
+        <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 gap-1.5 px-3 py-1 font-bold">
+          <Clock className="h-3.5 w-3.5 text-blue-500" /> Standby
         </Badge>
       )}
       {health === "UNAVAILABLE" && (

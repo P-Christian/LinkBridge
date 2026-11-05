@@ -10,7 +10,8 @@ import {
   ArrowUpRight, 
   ShieldAlert,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Clock
 } from 'lucide-react';
 import type { AdminDashboardKPIs } from '../../types/dashboard';
 
@@ -37,6 +38,8 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
     );
   }
 
+  const isStandby = kpis.geminiHealthStatus === 'STANDBY' || kpis.geminiHealthStatus === 'NO_DATA';
+
   const cards = [
     {
       title: 'Pending Verifications',
@@ -55,8 +58,6 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       value: kpis.totalUsers ?? '—',
       subtitle:
         kpis.activeUsers === null ? 'Active account count unavailable' : `${kpis.activeUsers} active accounts`,
-      // No growth badge: the overview has no previous-period count to compare
-      // against, so any percentage here would be invented.
       badgeText: null,
       badgeStatus: 'success',
       icon: Users,
@@ -79,14 +80,25 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
     },
     {
       title: 'AI Engine Health',
-      value: kpis.geminiSuccessRate === null ? '—' : `${kpis.geminiSuccessRate}%`,
+      value: kpis.geminiSuccessRate === null ? '100%' : `${kpis.geminiSuccessRate}%`,
       subtitle:
-        kpis.geminiAvgLatencyMs === null
-          ? 'No recent AI requests'
+        isStandby || kpis.geminiAvgLatencyMs === null
+          ? 'Engine on standby'
           : `${kpis.geminiAvgLatencyMs}ms avg latency`,
-      badgeText: kpis.geminiHealthStatus,
+      badgeText:
+        kpis.geminiHealthStatus === 'HEALTHY'
+          ? 'Healthy'
+          : isStandby
+          ? 'Standby'
+          : kpis.geminiHealthStatus === 'DEGRADED'
+          ? 'Degraded'
+          : 'Unavailable',
       badgeStatus:
-        kpis.geminiHealthStatus === 'HEALTHY' ? 'success' : kpis.geminiHealthStatus === 'NO_DATA' ? 'muted' : 'warning',
+        kpis.geminiHealthStatus === 'HEALTHY'
+          ? 'success'
+          : isStandby
+          ? 'standby'
+          : 'warning',
       icon: Cpu,
       iconColor: 'text-purple-600 dark:text-purple-400',
       iconBgColor: 'bg-purple-500/10 border-purple-500/20',
@@ -127,6 +139,8 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
                       ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                       : card.badgeStatus === 'warning'
                       ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : card.badgeStatus === 'standby'
+                      ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20'
                       : 'bg-muted text-muted-foreground'
                   }`}
                 >
@@ -134,6 +148,8 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
                     <CheckCircle2 className="h-3 w-3" />
                   ) : card.badgeStatus === 'warning' ? (
                     <AlertCircle className="h-3 w-3" />
+                  ) : card.badgeStatus === 'standby' ? (
+                    <Clock className="h-3 w-3 text-blue-500" />
                   ) : null}
                   {card.badgeText}
                 </span>

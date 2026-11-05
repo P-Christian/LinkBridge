@@ -1672,6 +1672,16 @@ export async function transitionApplicationStage({
       });
     }
 
+    // 11. Interview status synchronization upon candidate hire:
+    // When an applicant reaches a HIRED stage, automatically resolve pending/open interviews.
+    if (toStage.stage_type === "HIRED" || dbStatus === "HIRED") {
+      await syncInterviewsOnCandidateHire({
+        applicationId,
+        changedByUserId: changedByUserId ?? null,
+        nowPH,
+      });
+    }
+
     return {
       success: true,
       moved: true,
@@ -1691,3 +1701,176 @@ export async function transitionApplicationStage({
   }
 }
 
+interface SyncInterviewsOnHireParams {
+  applicationId: number;
+  changedByUserId?: number | null;
+  nowPH: string;
+}
+
+/**
+ * Automatically synchronize interview schedules when a candidate is hired.
+ * - Concluded/past active interviews: marks candidate attendance as ATTENDED and completes the interview session.
+ * - Future upcoming interviews: cancels single-candidate sessions (or removes candidate from active queues).
+ */
+export async function syncInterviewsOnCandidateHire({
+  applicationId,
+  changedByUserId,
+  nowPH,
+}: SyncInterviewsOnHireParams): Promise<void> {
+  try {
+    // 1. Fetch all interview application junction records for this candidate
+    const junctionRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_eq]=${applicationId}&fields=interview_application_id,interview_id,attendance_status,candidate_notes&limit=-1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+
+    if (!junctionRes.ok) {
+      console.error(
+        `[job-pipeline.service] syncInterviewsOnCandidateHire: Failed to fetch interview applications for app ${applicationId} (${junctionRes.status})`
+      );
+      return;
+    }
+
+    const junctionRows = (await junctionRes.json()).data as Array<{
+      interview_application_id: number;
+      interview_id: number;
+      attendance_status: string;
+      candidate_notes?: string | null;
+    }>;
+
+    if (!Array.isArray(junctionRows) || junctionRows.length === 0) {
+      return;
+    }
+
+    const ACTIVE_STATUSES = new Set(["SCHEDULED", "CONFIRMED", "RESCHEDULED"]);
+    const nowMs = Date.now();
+
+    for (const j of junctionRows) {
+      if (!j.interview_id) continue;
+
+      // 2. Fetch parent interview details
+      const parentRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}?fields=interview_id,interview_status,scheduled_at,duration_minutes`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!parentRes.ok) continue;
+      const parentIv = (await parentRes.json()).data;
+      if (!parentIv) continue;
+
+      const parentStatus = String(parentIv.interview_status || "").toUpperCase();
+      const isParentActive = ACTIVE_STATUSES.has(parentStatus);
+      const isCandidatePending = String(j.attendance_status || "").toUpperCase() === "PENDING";
+
+      // If interview is already completed/cancelled and candidate attendance is not pending, skip
+      if (!isParentActive && !isCandidatePending) {
+        continue;
+      }
+
+      // Check whether scheduled time has passed or is in the future
+      let isPast = true;
+      if (parentIv.scheduled_at) {
+        const d = new Date(String(parentIv.scheduled_at).replace(" ", "T"));
+        if (!isNaN(d.getTime())) {
+          isPast = d.getTime() <= nowMs;
+        }
+      }
+
+      if (isPast) {
+        // --- PAST INTERVIEW ---
+        // 1. Mark candidate attendance as ATTENDED if still pending
+        if (isCandidatePending) {
+          await fetch(`${DIRECTUS_BASE}/items/vs_interview_application/${j.interview_application_id}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              attendance_status: "ATTENDED",
+              candidate_notes: j.candidate_notes || "Attended — candidate hired.",
+            }),
+          }).catch((err) =>
+            console.error("[job-pipeline.service] Failed to update interview application attendance:", err)
+          );
+        }
+
+        // 2. Check all candidates in this interview; if none are pending, close the interview as COMPLETED
+        if (isParentActive) {
+          const allRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id,attendance_status&limit=-1`,
+            { headers: getHeaders(), cache: "no-store" }
+          );
+          if (allRes.ok) {
+            const allCandidates = (await allRes.json()).data ?? [];
+            const allResolved = allCandidates.every(
+              (c: { interview_application_id: number; attendance_status: string }) =>
+                c.interview_application_id === j.interview_application_id ||
+                String(c.attendance_status || "").toUpperCase() !== "PENDING"
+            );
+            if (allResolved) {
+              await fetch(`${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}`, {
+                method: "PATCH",
+                headers: getHeaders(),
+                body: JSON.stringify({
+                  interview_status: "COMPLETED",
+                  updated_by_user_id: changedByUserId ?? undefined,
+                  updated_at: nowPH,
+                }),
+              }).catch((err) =>
+                console.error("[job-pipeline.service] Failed to complete past interview session:", err)
+              );
+            }
+          }
+        }
+      } else {
+        // --- FUTURE / UPCOMING INTERVIEW ---
+        // Candidate is already hired, so future interview should be cancelled
+        // Check if other candidates are scheduled on the same interview session (e.g. group interview)
+        const allRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id&limit=-1`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        const allCandidates = allRes.ok ? ((await allRes.json()).data ?? []) : [];
+        const hasOtherCandidates = allCandidates.some(
+          (c: { interview_application_id: number }) => c.interview_application_id !== j.interview_application_id
+        );
+
+        if (!hasOtherCandidates && isParentActive) {
+          // Single-candidate session: Cancel the entire interview
+          await fetch(`${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              interview_status: "CANCELLED",
+              cancel_reason: "Candidate hired",
+              updated_by_user_id: changedByUserId ?? undefined,
+              updated_at: nowPH,
+            }),
+          }).catch((err) =>
+            console.error("[job-pipeline.service] Failed to cancel future interview session:", err)
+          );
+
+          await fetch(`${DIRECTUS_BASE}/items/vs_interview_application/${j.interview_application_id}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              candidate_notes: "Cancelled — candidate hired.",
+            }),
+          }).catch((err) =>
+            console.error("[job-pipeline.service] Failed to annotate cancelled junction record:", err)
+          );
+        } else {
+          // Multi-candidate session: Do not cancel the session for others, annotate this candidate
+          await fetch(`${DIRECTUS_BASE}/items/vs_interview_application/${j.interview_application_id}`, {
+            method: "PATCH",
+            headers: getHeaders(),
+            body: JSON.stringify({
+              candidate_notes: "Cancelled for this candidate — candidate hired.",
+            }),
+          }).catch((err) =>
+            console.error("[job-pipeline.service] Failed to annotate multi-candidate junction record:", err)
+          );
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[job-pipeline.service] syncInterviewsOnCandidateHire unexpected error:", err);
+  }
+}

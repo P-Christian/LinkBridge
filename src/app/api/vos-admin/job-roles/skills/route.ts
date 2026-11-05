@@ -22,7 +22,7 @@ function toPositiveId(value: unknown): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
-const MAPPING_COLUMNS = ["role_id", "skill_id", "importance_weight", "is_required"] as const;
+const MAPPING_COLUMNS = ["role_id", "skill_id", "importance_weight", "is_required", "is_active"] as const;
 
 function pickMappingColumns(body: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -148,7 +148,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    const formatted = rawMappings.map((m: { id: number; role_id: unknown; skill_id: unknown; importance_weight?: number; is_required?: boolean }) => {
+    const formatted = rawMappings.map((m: { id: number; role_id: unknown; skill_id: unknown; importance_weight?: number; is_required?: boolean; is_active?: unknown }) => {
       const rId = typeof m.role_id === "object" && m.role_id !== null ? (m.role_id as { role_id: number }).role_id : Number(m.role_id);
       const sId = typeof m.skill_id === "object" && m.skill_id !== null ? (m.skill_id as { id: number }).id : Number(m.skill_id);
       const rName = typeof m.role_id === "object" && m.role_id !== null ? (m.role_id as { role_name: string }).role_name : rolesMap.get(rId);
@@ -162,6 +162,7 @@ export async function GET(req: NextRequest) {
         skill_name: sName || `Skill #${sId}`,
         importance_weight: Number(m.importance_weight ?? 1.0),
         is_required: Boolean(m.is_required),
+        is_active: m.is_active !== false && m.is_active !== 0 && m.is_active !== "false",
       };
     });
 

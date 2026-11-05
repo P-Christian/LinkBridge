@@ -118,6 +118,30 @@ export async function DELETE(req: NextRequest) {
     const categoryId = toPositiveId(searchParams.get("id"));
     if (!categoryId) return NextResponse.json({ error: "Category ID required." }, { status: 400 });
 
+    // Safeguard dependency checks before hard deletion
+    const [rolesCheckRes, jobsCheckRes] = await Promise.all([
+      fetch(`${DIRECTUS_BASE}/items/vs_role_title?filter[category_id][_eq]=${categoryId}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_job_posting?filter[category_id][_eq]=${categoryId}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+    ]);
+
+    const rolesCount = (await rolesCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const jobsCount = (await jobsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+
+    if (rolesCount > 0 || jobsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete: This category is referenced by ${rolesCount > 0 ? "active standard roles" : "job postings"}. Deactivate (set to Inactive) instead to preserve data integrity.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category/${categoryId}`, {
       method: "DELETE",
       headers: getHeaders(),
