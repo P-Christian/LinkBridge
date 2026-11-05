@@ -124,9 +124,10 @@ export async function middleware(req: NextRequest) {
         const userRoleName = typeof payload.role_name === 'string' ? payload.role_name.toUpperCase() : "";
         const pathLower = pathname.toLowerCase();
 
-        // Exclude suspended page and logout routes from redirection checks
+        // Exclude suspended page, appeal API, and logout routes from redirection checks
         if (
             pathLower !== "/vos-sync/suspended" &&
+            !pathLower.startsWith("/api/account/appeal") &&
             !pathLower.startsWith("/api/auth/logout") &&
             pathLower !== "/logout"
         ) {

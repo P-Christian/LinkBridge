@@ -9,17 +9,18 @@ import { AccountStatusDetailModal } from "./AccountStatusDetailModal";
 import { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { ShieldAlert, ShieldCheck, AlertOctagon, Eye, AlertTriangle } from "lucide-react";
+import { ShieldAlert, ShieldCheck, AlertOctagon, Eye, AlertTriangle, Search } from "lucide-react";
 
 export function AccountStatusManagementPage() {
   const { users, total, loading, fetchUsers, fetchUserDetail, changeStatus, resolveAppealCase } = useAccountStatus();
-  
+
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [page, setPage] = useState<number>(1);
   const [limit, setLimit] = useState<number>(10);
-  
+
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [detailOpen, setDetailOpen] = useState<boolean>(false);
 
@@ -95,10 +96,26 @@ export function AccountStatusManagementPage() {
       header: "Account Status",
       cell: ({ row }) => {
         const u = row.original;
+        const openCase = u.cases?.find((c) => c.state === "OPEN");
+        const caseLabel = openCase
+          ? openCase.type === "REACTIVATION_REQUEST"
+            ? "Reactivation Req ⏳"
+            : openCase.type === "RESTORE_ACCOUNT"
+            ? "Restoration Req ⏳"
+            : "Pending Appeal ⏳"
+          : null;
+
         return (
-          <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(u.status)}`}>
-            {u.status.replace("_", " ")}
-          </span>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${getStatusColor(u.status)}`}>
+              {u.status.replace("_", " ")}
+            </span>
+            {caseLabel && (
+              <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                {caseLabel}
+              </span>
+            )}
+          </div>
         );
       }
     },
@@ -211,13 +228,25 @@ export function AccountStatusManagementPage() {
       <Card className="p-6 bg-white dark:bg-zinc-900 border dark:border-zinc-800 shadow-sm rounded-xl">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
           <h2 className="text-xl font-semibold">User Account States</h2>
-          <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <div className="relative w-full sm:w-[260px]">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+              <Input
+                placeholder="Search name or email..."
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setPage(1);
+                }}
+                className="pl-9 bg-white dark:bg-zinc-900 dark:border-zinc-800 h-10 text-sm"
+              />
+            </div>
             <SearchableSelect
               value={statusFilter}
               onValueChange={(val) => { setStatusFilter(val); setPage(1); }}
               options={statusDropdownOptions}
               placeholder="Filter by Status"
-              triggerClassName="w-full sm:w-[200px] bg-white dark:bg-zinc-900 dark:border-zinc-800"
+              triggerClassName="w-full sm:w-[200px] bg-white dark:bg-zinc-900 dark:border-zinc-800 h-10"
             />
           </div>
         </div>
