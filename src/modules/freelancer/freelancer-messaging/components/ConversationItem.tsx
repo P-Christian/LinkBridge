@@ -23,7 +23,7 @@ interface Props {
   onArchive: (conversationId: number, nextArchived: boolean) => void;
 }
 
-function formatTime(dateStr: string | null | undefined): string {
+export function formatTime(dateStr: string | null | undefined): string {
   if (!dateStr) return "";
 
   const [datePart, timePart = "00:00:00"] = dateStr.replace("T", " ").split(" ");
@@ -90,7 +90,7 @@ function formatTime(dateStr: string | null | undefined): string {
   return `${months[month - 1]} ${day}`;
 }
 
-function getInitials(name: string): string {
+export function getInitials(name: string): string {
   return name
     .split(" ")
     .slice(0, 2)
