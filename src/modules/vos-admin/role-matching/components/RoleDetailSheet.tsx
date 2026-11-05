@@ -17,6 +17,10 @@ import {
   Check,
   Bot,
   RefreshCw,
+  Power,
+
+  AlertTriangle,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +30,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   StandardRole,
@@ -76,6 +88,7 @@ export function RoleDetailSheet({
   onEditSkill,
   onRemoveSkill,
   onAddKeyword,
+  onEditKeyword,
   onRemoveKeyword,
 }: RoleDetailSheetProps) {
   // Active Tab
@@ -167,6 +180,84 @@ export function RoleDetailSheet({
     [keywords, role]
   );
 
+  // Search & Pagination States
+  const [skillSearch, setSkillSearch] = useState("");
+  const [skillPage, setSkillPage] = useState(1);
+  const [kwSearch, setKwSearch] = useState("");
+  const [kwPage, setKwPage] = useState(1);
+  const pageSize = 10;
+
+  // Deletion Target States for Confirmation Dialog
+  const [deleteSkillTarget, setDeleteSkillTarget] = useState<RoleSkillMapping | null>(null);
+  const [deleteKeywordTarget, setDeleteKeywordTarget] = useState<SearchKeyword | null>(null);
+  const [isDeletingItem, setIsDeletingItem] = useState(false);
+
+  // Filtered & Inactive-Last Sorted Skills
+  const filteredAndSortedSkills = useMemo(() => {
+    let list = roleSkills;
+    if (skillSearch.trim()) {
+      const q = skillSearch.toLowerCase().trim();
+      list = list.filter((s) => (s.skill_name || "").toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => {
+      const aActive = a.is_active !== false;
+      const bActive = b.is_active !== false;
+      if (aActive === bActive) return Number(b.importance_weight ?? 1) - Number(a.importance_weight ?? 1);
+      return aActive ? -1 : 1;
+    });
+  }, [roleSkills, skillSearch]);
+
+  const totalSkillPages = Math.max(1, Math.ceil(filteredAndSortedSkills.length / pageSize));
+  const safeSkillPage = Math.min(skillPage, totalSkillPages);
+  const paginatedSkills = useMemo(() => {
+    const start = (safeSkillPage - 1) * pageSize;
+    return filteredAndSortedSkills.slice(start, start + pageSize);
+  }, [filteredAndSortedSkills, safeSkillPage, pageSize]);
+
+  // Filtered & Inactive-Last Sorted Keywords
+  const filteredAndSortedKeywords = useMemo(() => {
+    let list = roleKeywords;
+    if (kwSearch.trim()) {
+      const q = kwSearch.toLowerCase().trim();
+      list = list.filter((k) => (k.alias_name || "").toLowerCase().includes(q));
+    }
+    return [...list].sort((a, b) => {
+      const aActive = a.is_active !== false;
+      const bActive = b.is_active !== false;
+      if (aActive === bActive) return Number(b.match_weight ?? 1) - Number(a.match_weight ?? 1);
+      return aActive ? -1 : 1;
+    });
+  }, [roleKeywords, kwSearch]);
+
+  const totalKwPages = Math.max(1, Math.ceil(filteredAndSortedKeywords.length / pageSize));
+  const safeKwPage = Math.min(kwPage, totalKwPages);
+  const paginatedKeywords = useMemo(() => {
+    const start = (safeKwPage - 1) * pageSize;
+    return filteredAndSortedKeywords.slice(start, start + pageSize);
+  }, [filteredAndSortedKeywords, safeKwPage, pageSize]);
+
+  const handleConfirmDeleteSkill = async () => {
+    if (!deleteSkillTarget) return;
+    setIsDeletingItem(true);
+    const ok = await onRemoveSkill(deleteSkillTarget.id);
+    setIsDeletingItem(false);
+    if (ok) {
+      toast.success(`Skill "${deleteSkillTarget.skill_name}" deleted.`);
+      setDeleteSkillTarget(null);
+    }
+  };
+
+  const handleConfirmDeleteKeyword = async () => {
+    if (!deleteKeywordTarget) return;
+    setIsDeletingItem(true);
+    const ok = await onRemoveKeyword(deleteKeywordTarget.alias_id);
+    setIsDeletingItem(false);
+    if (ok) {
+      toast.success(`Keyword "${deleteKeywordTarget.alias_name}" deleted.`);
+      setDeleteKeywordTarget(null);
+    }
+  };
+
   if (!role) return null;
 
   // ── Role Settings Save ──────────────────────────────────────────────────────
@@ -184,6 +275,20 @@ export function RoleDetailSheet({
       category_id: catIdInput,
     });
     setRoleSaving(false);
+  };
+
+  const handleToggleRoleActive = async () => {
+    if (!role) return;
+    const updated = role.is_active === false;
+    setRoleSaving(true);
+    const ok = await onUpdateRole({
+      role_id: role.role_id,
+      is_active: updated,
+    });
+    setRoleSaving(false);
+    if (ok) {
+      toast.success(`Role marked as ${updated ? "Active" : "Inactive"}.`);
+    }
   };
 
   // ── Add Single Skill ────────────────────────────────────────────────────────
@@ -467,7 +572,7 @@ export function RoleDetailSheet({
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-2xl rounded-2xl overflow-hidden p-0 gap-0 max-h-[85vh] flex flex-col">
+      <DialogContent className="sm:max-w-4xl rounded-2xl overflow-hidden p-0 gap-0 max-h-[90vh] flex flex-col">
         {/* Header */}
         <DialogHeader className="px-6 py-4 border-b flex flex-row items-center justify-between gap-4 shrink-0 bg-zinc-50/80 dark:bg-zinc-900/80">
           <div className="flex items-center gap-3 min-w-0">
@@ -475,9 +580,21 @@ export function RoleDetailSheet({
               <Briefcase className="h-5 w-5" />
             </div>
             <div className="min-w-0">
-              <DialogTitle className="text-base font-bold truncate text-zinc-900 dark:text-zinc-100">
-                {role.role_name}
-              </DialogTitle>
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-base font-bold truncate text-zinc-900 dark:text-zinc-100">
+                  {role.role_name}
+                </DialogTitle>
+                <span
+                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                    role.is_active !== false
+                      ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                      : "bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400"
+                  }`}
+                >
+                  <Power className="h-2.5 w-2.5" />
+                  {role.is_active !== false ? "Active" : "Inactive"}
+                </span>
+              </div>
               <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
                 <span>{role.category_name}</span>
                 <span>·</span>
@@ -486,6 +603,24 @@ export function RoleDetailSheet({
                 </span>
               </p>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={roleSaving}
+              onClick={handleToggleRoleActive}
+              className={`h-8 px-3 text-xs font-bold gap-1.5 rounded-xl transition-all ${
+                role.is_active !== false
+                  ? "text-zinc-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-border"
+                  : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800"
+              }`}
+            >
+              <Power className="h-3.5 w-3.5" />
+              {role.is_active !== false ? "Deactivate" : "Activate"}
+            </Button>
           </div>
         </DialogHeader>
 
@@ -550,10 +685,31 @@ export function RoleDetailSheet({
                 transition={{ duration: 0.14 }}
                 className="space-y-4"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    Core competencies required or preferred for matching candidates to this role.
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Search core skills..."
+                      value={skillSearch}
+                      onChange={(e) => {
+                        setSkillSearch(e.target.value);
+                        setSkillPage(1);
+                      }}
+                      className="pl-8 pr-7 h-8 text-xs rounded-xl"
+                    />
+                    {skillSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSkillSearch("");
+                          setSkillPage(1);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Button
                       size="sm"
@@ -575,72 +731,158 @@ export function RoleDetailSheet({
                   </div>
                 </div>
 
-                {roleSkills.length === 0 ? (
+                {filteredAndSortedSkills.length === 0 ? (
                   <div className="p-8 text-center bg-muted/30 rounded-xl border border-dashed text-muted-foreground">
-                    No skills mapped yet. Click &quot;Add Skill&quot; or &quot;AI Suggest&quot; to add core competencies.
+                    {skillSearch ? "No skills match your search query." : "No skills mapped yet. Click \"Add Skill\" or \"AI Suggest\" to add core competencies."}
                   </div>
                 ) : (
-                  <div className="divide-y divide-border border rounded-xl overflow-hidden bg-background">
-                    <AnimatePresence>
-                      {roleSkills.map((s) => {
-                        const pct = Math.round(Number(s.importance_weight ?? 1.0) * 100);
-                        return (
-                          <motion.div
-                            layout
-                            key={s.id}
-                            initial={{ opacity: 0, y: 3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.12 }}
-                            className="p-3 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="font-semibold text-foreground text-xs truncate">
-                                {s.skill_name || `Skill #${s.skill_id}`}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => onEditSkill({ id: s.id, is_required: !s.is_required })}
-                                title={`Click to change to ${s.is_required ? "Preferred" : "Required"}`}
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold transition-all cursor-pointer hover:opacity-80 active:scale-95 select-none ${
-                                  s.is_required
-                                    ? "bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900/60"
-                                    : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
-                                }`}
-                              >
-                                {s.is_required ? "Required" : "Preferred"}
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-3 shrink-0">
-                              {/* Importance slider indicator */}
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${pct}%` }}
-                                    transition={{ duration: 0.25, ease: "easeOut" }}
-                                    className="h-full bg-violet-600 rounded-full"
-                                  />
-                                </div>
-                                <span className="font-mono text-[11px] font-bold text-foreground w-8 text-right">
-                                  {pct}%
+                  <div className="border rounded-xl overflow-hidden bg-background">
+                    <div className="divide-y divide-border">
+                      <AnimatePresence>
+                        {paginatedSkills.map((s) => {
+                          const pct = Math.round(Number(s.importance_weight ?? 1.0) * 100);
+                          return (
+                            <motion.div
+                              layout
+                              key={s.id}
+                              initial={{ opacity: 0, y: 3 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              transition={{ duration: 0.12 }}
+                              className={`p-3 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors ${
+                                s.is_active === false ? "opacity-60 bg-muted/20" : ""
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-semibold text-foreground text-xs truncate">
+                                  {s.skill_name || `Skill #${s.skill_id}`}
                                 </span>
+                                <button
+                                  type="button"
+                                  onClick={() => onEditSkill({ id: s.id, is_required: !s.is_required })}
+                                  title={`Click to change to ${s.is_required ? "Preferred" : "Required"}`}
+                                  className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold transition-all cursor-pointer hover:opacity-80 active:scale-95 select-none ${
+                                    s.is_required
+                                      ? "bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-900/60"
+                                      : "bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-700"
+                                  }`}
+                                >
+                                  {s.is_required ? "Required" : "Preferred"}
+                                </button>
+                                {s.is_active === false && (
+                                  <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-200/80 dark:bg-zinc-800">
+                                    Inactive
+                                  </span>
+                                )}
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => onRemoveSkill(s.id)}
-                                className="p-1 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                                title="Remove Skill"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                {/* Importance slider indicator */}
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-16 sm:w-20 h-2 bg-muted rounded-full overflow-hidden">
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${pct}%` }}
+                                      transition={{ duration: 0.25, ease: "easeOut" }}
+                                      className="h-full bg-violet-600 rounded-full"
+                                    />
+                                  </div>
+                                  <span className="font-mono text-[11px] font-bold text-foreground w-8 text-right">
+                                    {pct}%
+                                  </span>
+                                </div>
+
+                                {/* Active / Inactive Toggle Button beside trash */}
+                                <button
+                                  type="button"
+                                  onClick={() => onEditSkill({ id: s.id, is_active: s.is_active === false })}
+                                  className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                                    s.is_active !== false
+                                      ? "text-zinc-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-border"
+                                      : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800"
+                                  }`}
+                                  title={s.is_active !== false ? "Deactivate Skill" : "Activate Skill"}
+                                >
+                                  <Power className="h-3 w-3" />
+                                  <span className="hidden sm:inline">{s.is_active !== false ? "Deactivate" : "Activate"}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteSkillTarget(s)}
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                  title="Delete Skill"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Skills Pagination Footer */}
+                    {filteredAndSortedSkills.length > pageSize && (
+                      <div className="px-3 py-2 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/20">
+                        <div>
+                          Showing {(safeSkillPage - 1) * pageSize + 1} to{" "}
+                          {Math.min(safeSkillPage * pageSize, filteredAndSortedSkills.length)} of{" "}
+                          {filteredAndSortedSkills.length} skills
+                        </div>
+                        <Pagination className="mx-0 w-auto justify-end">
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (safeSkillPage > 1) setSkillPage((p) => p - 1);
+                                }}
+                                className={safeSkillPage <= 1 ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                              />
+                            </PaginationItem>
+                            {Array.from({ length: totalSkillPages }, (_, i) => i + 1)
+                              .filter((p) => p === 1 || p === totalSkillPages || Math.abs(p - safeSkillPage) <= 1)
+                              .map((page, idx, arr) => {
+                                const prev = arr[idx - 1];
+                                return (
+                                  <React.Fragment key={page}>
+                                    {prev && page - prev > 1 && (
+                                      <PaginationItem>
+                                        <span className="px-1.5 text-muted-foreground">…</span>
+                                      </PaginationItem>
+                                    )}
+                                    <PaginationItem>
+                                      <PaginationLink
+                                        href="#"
+                                        isActive={page === safeSkillPage}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setSkillPage(page);
+                                        }}
+                                        className="cursor-pointer h-7 w-7 text-xs"
+                                      >
+                                        {page}
+                                      </PaginationLink>
+                                    </PaginationItem>
+                                  </React.Fragment>
+                                );
+                              })}
+                            <PaginationItem>
+                              <PaginationNext
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (safeSkillPage < totalSkillPages) setSkillPage((p) => p + 1);
+                                }}
+                                className={safeSkillPage >= totalSkillPages ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -656,10 +898,31 @@ export function RoleDetailSheet({
                 transition={{ duration: 0.14 }}
                 className="space-y-4"
               >
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-xs text-muted-foreground">
-                    Synonyms, abbreviations, and job search phrases mapped to this role with relevance weights.
-                  </p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative w-full sm:w-72">
+                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                    <Input
+                      placeholder="Search keywords & synonyms..."
+                      value={kwSearch}
+                      onChange={(e) => {
+                        setKwSearch(e.target.value);
+                        setKwPage(1);
+                      }}
+                      className="pl-8 pr-7 h-8 text-xs rounded-xl"
+                    />
+                    {kwSearch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setKwSearch("");
+                          setKwPage(1);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-xs"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <Button
                       size="sm"
@@ -681,65 +944,151 @@ export function RoleDetailSheet({
                   </div>
                 </div>
 
-                {roleKeywords.length === 0 ? (
+                {filteredAndSortedKeywords.length === 0 ? (
                   <div className="p-8 text-center bg-muted/30 rounded-xl border border-dashed text-muted-foreground">
-                    No keywords mapped yet. Click &quot;Add Keyword&quot; or &quot;AI Suggest&quot; to add search aliases.
+                    {kwSearch ? "No keywords match your search query." : "No keywords mapped yet. Click \"Add Keyword\" or \"AI Suggest\" to add search aliases."}
                   </div>
                 ) : (
-                  <div className="divide-y divide-border border rounded-xl overflow-hidden bg-background">
-                    <AnimatePresence>
-                      {roleKeywords.map((kw) => {
-                        const matchPct = Math.round(Number(kw.match_weight ?? 1.0) * 100);
-                        return (
-                          <motion.div
-                            layout
-                            key={kw.alias_id}
-                            initial={{ opacity: 0, y: 3 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            transition={{ duration: 0.12 }}
-                            className="p-3 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors"
-                          >
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span className="font-semibold text-foreground text-xs truncate">
-                                {kw.alias_name}
-                              </span>
-                              {Boolean(kw.is_primary) && (
-                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
-                                  Primary
+                  <div className="border rounded-xl overflow-hidden bg-background">
+                    <div className="divide-y divide-border">
+                      <AnimatePresence>
+                        {paginatedKeywords.map((kw) => {
+                          const matchPct = Math.round(Number(kw.match_weight ?? 1.0) * 100);
+                          return (
+                            <motion.div
+                              layout
+                              key={kw.alias_id}
+                              initial={{ opacity: 0, y: 3 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.95 }}
+                              transition={{ duration: 0.12 }}
+                              className={`p-3 flex items-center justify-between gap-3 hover:bg-muted/30 transition-colors ${
+                                kw.is_active === false ? "opacity-60 bg-muted/20" : ""
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="font-semibold text-foreground text-xs truncate">
+                                  {kw.alias_name}
                                 </span>
-                              )}
-                            </div>
-
-                            <div className="flex items-center gap-3 shrink-0">
-                              {/* Match weight bar */}
-                              <div className="flex items-center gap-1.5">
-                                <div className="w-20 h-2 bg-muted rounded-full overflow-hidden">
-                                  <motion.div
-                                    initial={{ width: 0 }}
-                                    animate={{ width: `${matchPct}%` }}
-                                    transition={{ duration: 0.25, ease: "easeOut" }}
-                                    className="h-full bg-emerald-600 rounded-full"
-                                  />
-                                </div>
-                                <span className="font-mono text-[11px] font-bold text-foreground w-8 text-right">
-                                  {matchPct}%
-                                </span>
+                                {Boolean(kw.is_primary) && (
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300">
+                                    Primary
+                                  </span>
+                                )}
+                                {kw.is_active === false && (
+                                  <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold uppercase tracking-wider text-zinc-500 bg-zinc-200/80 dark:bg-zinc-800">
+                                    Inactive
+                                  </span>
+                                )}
                               </div>
 
-                              <button
-                                type="button"
-                                onClick={() => onRemoveKeyword(kw.alias_id)}
-                                className="p-1 text-muted-foreground hover:text-destructive transition-colors cursor-pointer"
-                                title="Remove Keyword"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          </motion.div>
-                        );
-                      })}
-                    </AnimatePresence>
+                              <div className="flex items-center gap-2.5 shrink-0">
+                                {/* Match weight bar */}
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-16 sm:w-20 h-2 bg-muted rounded-full overflow-hidden">
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${matchPct}%` }}
+                                      transition={{ duration: 0.25, ease: "easeOut" }}
+                                      className="h-full bg-emerald-600 rounded-full"
+                                    />
+                                  </div>
+                                  <span className="font-mono text-[11px] font-bold text-foreground w-8 text-right">
+                                    {matchPct}%
+                                  </span>
+                                </div>
+
+                                {/* Active / Inactive Toggle Button beside trash */}
+                                <button
+                                  type="button"
+                                  onClick={() => onEditKeyword && onEditKeyword({ alias_id: kw.alias_id, is_active: kw.is_active === false })}
+                                  className={`px-2 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer ${
+                                    kw.is_active !== false
+                                      ? "text-zinc-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-border"
+                                      : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800"
+                                  }`}
+                                  title={kw.is_active !== false ? "Deactivate Keyword" : "Activate Keyword"}
+                                >
+                                  <Power className="h-3 w-3" />
+                                  <span className="hidden sm:inline">{kw.is_active !== false ? "Deactivate" : "Activate"}</span>
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteKeywordTarget(kw)}
+                                  className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                                  title="Delete Keyword"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
+                            </motion.div>
+                          );
+                        })}
+                      </AnimatePresence>
+                    </div>
+
+                    {/* Keywords Pagination Footer */}
+                    {filteredAndSortedKeywords.length > pageSize && (
+                      <div className="px-3 py-2 border-t border-border flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-muted-foreground bg-muted/20">
+                        <div>
+                          Showing {(safeKwPage - 1) * pageSize + 1} to{" "}
+                          {Math.min(safeKwPage * pageSize, filteredAndSortedKeywords.length)} of{" "}
+                          {filteredAndSortedKeywords.length} keywords
+                        </div>
+                        <Pagination className="mx-0 w-auto justify-end">
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (safeKwPage > 1) setKwPage((p) => p - 1);
+                                }}
+                                className={safeKwPage <= 1 ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                              />
+                            </PaginationItem>
+                            {Array.from({ length: totalKwPages }, (_, i) => i + 1)
+                              .filter((p) => p === 1 || p === totalKwPages || Math.abs(p - safeKwPage) <= 1)
+                              .map((page, idx, arr) => {
+                                const prev = arr[idx - 1];
+                                return (
+                                  <React.Fragment key={page}>
+                                    {prev && page - prev > 1 && (
+                                      <PaginationItem>
+                                        <span className="px-1.5 text-muted-foreground">…</span>
+                                      </PaginationItem>
+                                    )}
+                                    <PaginationItem>
+                                      <PaginationLink
+                                        href="#"
+                                        isActive={page === safeKwPage}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setKwPage(page);
+                                        }}
+                                        className="cursor-pointer h-7 w-7 text-xs"
+                                      >
+                                        {page}
+                                      </PaginationLink>
+                                    </PaginationItem>
+                                  </React.Fragment>
+                                );
+                              })}
+                            <PaginationItem>
+                              <PaginationNext
+                                href="#"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  if (safeKwPage < totalKwPages) setKwPage((p) => p + 1);
+                                }}
+                                className={safeKwPage >= totalKwPages ? "pointer-events-none opacity-40 cursor-not-allowed" : "cursor-pointer"}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
                   </div>
                 )}
               </motion.div>
@@ -788,6 +1137,32 @@ export function RoleDetailSheet({
                     placeholder="Select experience level"
                     triggerClassName="h-9 text-xs w-full"
                   />
+                </div>
+
+                <div className="flex items-center justify-between p-3.5 rounded-xl border border-border bg-muted/40">
+                  <div className="space-y-0.5">
+                    <label className="text-xs font-bold text-foreground">Role Status</label>
+                    <p className="text-[11px] text-muted-foreground">
+                      {role.is_active !== false
+                        ? "Active: Included in match simulation and candidate scoring."
+                        : "Inactive: Excluded from matching and sorted to the bottom."}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={roleSaving}
+                    onClick={handleToggleRoleActive}
+                    className={`h-8 px-3 text-xs font-bold gap-1.5 rounded-xl ${
+                      role.is_active !== false
+                        ? "text-amber-700 border-amber-300 dark:text-amber-400 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40"
+                        : "text-emerald-700 border-emerald-300 dark:text-emerald-400 dark:border-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                    }`}
+                  >
+                    <Power className="h-3.5 w-3.5" />
+                    {role.is_active !== false ? "Deactivate Role" : "Activate Role"}
+                  </Button>
                 </div>
 
                 <Button
@@ -1136,6 +1511,100 @@ export function RoleDetailSheet({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Delete Skill Confirmation Modal */}
+      <Dialog
+        open={Boolean(deleteSkillTarget)}
+        onOpenChange={(open) => !open && setDeleteSkillTarget(null)}
+      >
+        <DialogContent className="sm:max-w-md sm:gap-2 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Confirm Skill Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-xs space-y-2 text-muted-foreground">
+            <p>
+              Are you sure you want to permanently delete the skill mapping{" "}
+              <strong className="text-foreground">
+                &quot;{deleteSkillTarget?.skill_name}&quot;
+              </strong>?
+            </p>
+            <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
+              <strong>Data Safeguard:</strong> This operation deletes the skill mapping from this role. Candidates requiring this skill will no longer match against this requirement.
+            </p>
+          </div>
+          <div className="flex items-center justify-end sm:gap-2 gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeletingItem}
+              onClick={() => setDeleteSkillTarget(null)}
+              className="h-9 px-3 rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeletingItem}
+              onClick={handleConfirmDeleteSkill}
+              className="h-9 px-3 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {isDeletingItem ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Delete Skill
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Keyword Confirmation Modal */}
+      <Dialog
+        open={Boolean(deleteKeywordTarget)}
+        onOpenChange={(open) => !open && setDeleteKeywordTarget(null)}
+      >
+        <DialogContent className="sm:max-w-md sm:gap-2 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-destructive flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-rose-600" />
+              Confirm Keyword Deletion
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 text-xs space-y-2 text-muted-foreground">
+            <p>
+              Are you sure you want to permanently delete the keyword/synonym{" "}
+              <strong className="text-foreground">
+                &quot;{deleteKeywordTarget?.alias_name}&quot;
+              </strong>?
+            </p>
+            <p className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200/60 text-amber-800 dark:text-amber-300 text-[11px]">
+              <strong>Data Safeguard:</strong> This removes this search alias/synonym from the role&apos;s lexical index.
+            </p>
+          </div>
+          <div className="flex items-center justify-end sm:gap-2 gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={isDeletingItem}
+              onClick={() => setDeleteKeywordTarget(null)}
+              className="h-9 px-3 rounded-xl text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              disabled={isDeletingItem}
+              onClick={handleConfirmDeleteKeyword}
+              className="h-9 px-3 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white"
+            >
+              {isDeletingItem ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              Delete Keyword
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

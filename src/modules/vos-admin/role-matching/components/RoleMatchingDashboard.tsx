@@ -219,22 +219,22 @@ export function MatchingIntelligenceDashboard() {
             </Link>
           </motion.div>
 
-          {/* Match Test Studio */}
+          {/* Taxonomy Coverage */}
           <motion.div
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             whileHover={{ y: -3 }}
             transition={{ duration: 0.18, delay: 0.21 }}
           >
-            <Link href="/vos-sync/vos-admin/job-roles/tester" className="block h-full">
-              <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
+            <Link href="/vos-sync/vos-admin/job-roles/taxonomy" className="block h-full">
+              <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
                 <div>
                   <Activity className="h-6 w-6 text-emerald-600 mb-3" />
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-indigo-600 transition-colors flex items-center justify-between">
-                    Match Test Studio <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-600 transition-colors flex items-center justify-between">
+                    Taxonomy Coverage <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </h4>
                   <p className="text-xs text-zinc-500 mt-1">
-                    Test and validate role classification, keyword matching, and skill similarity scores in real-time.
+                    Inspect role-to-skill coverage, weight distributions, and live taxonomy health across all active domains.
                   </p>
                 </div>
               </div>

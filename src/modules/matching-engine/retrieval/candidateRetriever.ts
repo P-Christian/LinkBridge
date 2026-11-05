@@ -206,36 +206,18 @@ export function retrieveCandidatePool(
   // Sort candidate pool by Layer 1 retrieval score
   results.sort((a, b) => b.retrievalScore - a.retrievalScore);
 
-  console.log(
-    `[talent-search] 🔍 Layer 1 evaluation breakdown (${profiles.length} total profiles evaluated, all retained for Layer 2 scoring):`
-  );
-  const matched = results.filter((r) => r.retrievalScore > 0);
-  const unmatched = results.filter((r) => r.retrievalScore === 0);
+  // The retention line below names no candidate: the per-candidate breakdown used
+  // to be printed here and was reprinted, with more signal, one layer later. It is
+  // the caller's job now, and printing the same 35 people twice per search made the
+  // trace unreadable rather than informative. The line also reports the threshold
+  // that was actually applied rather than asserting that everything was kept.
+  if (process.env.NODE_ENV !== "production") {
+    const matched = results.filter((r) => r.retrievalScore > 0);
 
-  if (matched.length > 0) {
-    for (const r of matched) {
-      const titles = r.candidate.titles.filter(Boolean).slice(0, 2).join(", ") || r.candidate.headline || "None";
-      console.log(
-        `  🎯 [MATCH] ID #${r.candidate.id} ${r.candidate.name} (Score: ${r.retrievalScore}) — Reason: ${r.retrievalReason} | Title: "${titles}"`
-      );
-    }
-  } else {
-    console.log(`  ℹ️  No explicit Layer 1 matches; retaining all profiles for Layer 2 engine scoring.`);
-  }
-
-  if (unmatched.length > 0) {
-    const limitLog = unmatched.length <= 40 ? unmatched.length : 15;
-    for (let i = 0; i < limitLog; i++) {
-      const u = unmatched[i];
-      const titles = u.candidate.titles.filter(Boolean).slice(0, 2).join(", ") || u.candidate.headline || "None";
-      const skills = u.candidate.skills.slice(0, 4).join(", ") || "No skills";
-      console.log(
-        `  ⚪ [LOW/NO MATCH] ID #${u.candidate.id} ${u.candidate.name} (Score: 0) | Titles: [${titles}] | Skills: [${skills}]`
-      );
-    }
-    if (unmatched.length > limitLog) {
-      console.log(`  ... and ${unmatched.length - limitLog} more profiles with score 0.`);
-    }
+    console.log(
+      `[talent-search] Layer 1: ${profiles.length} profiles evaluated, ${results.length} retained ` +
+        `(threshold ${_minRetrievalThreshold}, ${matched.length} scored above 0)`
+    );
   }
 
   return results;

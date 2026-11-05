@@ -6,6 +6,7 @@ import React from "react";
 import { Search, MessageSquare, RefreshCw, Archive } from "lucide-react";
 import { Conversation } from "../types";
 import ConversationItem from "./ConversationItem";
+import ConversationGroupItem, { FreelancerConversationGroup } from "./ConversationGroupItem";
 import { cn } from "@/lib/utils";
 import {
   Tooltip,
@@ -47,22 +48,61 @@ export default function ConversationList({
     (c) => (c.unread_count ?? 0) > 0 && c.conversation_id !== activeConversationId
   ).length;
 
-  const filtered = conversations.filter((c) => {
-    if (
-      filterTab === "UNREAD" &&
-      (c.unread_count ?? 0) === 0 &&
-      c.conversation_id !== activeConversationId
-    ) {
-      return false;
+  const filtered = React.useMemo(() => {
+    return conversations.filter((c) => {
+      if (
+        filterTab === "UNREAD" &&
+        (c.unread_count ?? 0) === 0 &&
+        c.conversation_id !== activeConversationId
+      ) {
+        return false;
+      }
+      const q = searchQuery.toLowerCase().trim();
+      if (!q) return true;
+      return (
+        c.company_name?.toLowerCase().includes(q) ||
+        c.other_party_name?.toLowerCase().includes(q) ||
+        c.job_title?.toLowerCase().includes(q) ||
+        c.last_message_preview?.toLowerCase().includes(q)
+      );
+    });
+  }, [conversations, filterTab, activeConversationId, searchQuery]);
+
+  const grouped = React.useMemo(() => {
+    const map = new Map<number, FreelancerConversationGroup>();
+
+    for (const conv of filtered) {
+      const gid = conv.client_id;
+      let group = map.get(gid);
+      if (!group) {
+        group = {
+          groupId: gid,
+          companyName: conv.company_name || conv.other_party_name || "Unknown Company",
+          otherPartyAvatar: conv.other_party_avatar,
+          latestTimestamp: conv.last_message_at,
+          totalUnread: 0,
+          items: [],
+        };
+        map.set(gid, group);
+      }
+      group.items.push(conv);
+      group.totalUnread += conv.unread_count ?? 0;
+      if (
+        conv.last_message_at &&
+        (!group.latestTimestamp ||
+          new Date(conv.last_message_at.replace(" ", "T")).getTime() >
+            new Date(group.latestTimestamp.replace(" ", "T")).getTime())
+      ) {
+        group.latestTimestamp = conv.last_message_at;
+      }
     }
-    const q = searchQuery.toLowerCase();
-    if (!q) return true;
-    return (
-      c.other_party_name?.toLowerCase().includes(q) ||
-      c.job_title?.toLowerCase().includes(q) ||
-      c.last_message_preview?.toLowerCase().includes(q)
-    );
-  });
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = a.latestTimestamp ? new Date(a.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      const timeB = b.latestTimestamp ? new Date(b.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [filtered]);
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -193,16 +233,27 @@ export default function ConversationList({
             </div>
           </div>
         ) : (
-          filtered.map((conv) => (
-            <ConversationItem
-              key={conv.conversation_id}
-              conversation={conv}
-              isActive={conv.conversation_id === activeConversationId}
-              currentUserId={currentUserId}
-              onSelect={onSelect}
-              onArchive={onArchive}
-            />
-          ))
+          grouped.map((group) =>
+            group.items.length === 1 ? (
+              <ConversationItem
+                key={group.items[0].conversation_id}
+                conversation={group.items[0]}
+                isActive={group.items[0].conversation_id === activeConversationId}
+                currentUserId={currentUserId}
+                onSelect={onSelect}
+                onArchive={onArchive}
+              />
+            ) : (
+              <ConversationGroupItem
+                key={`group-${group.groupId}`}
+                group={group}
+                activeConversationId={activeConversationId}
+                searchQuery={searchQuery}
+                onSelect={onSelect}
+                onArchive={onArchive}
+              />
+            )
+          )
         )}
       </div>
     </div>

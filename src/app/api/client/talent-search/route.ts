@@ -3,314 +3,109 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
-import {
-  runMatchingEngine,
-  normalizeRawCandidate,
-  MatchMode,
-  MatchContext,
-  MatchResult,
-  cleanText,
-  analyzeQuery,
-  retrieveCandidatePool,
-  isSchoolQuery,
-  matchSchool,
-} from "@/modules/matching-engine";
-import { expandQueryWithGemini, shouldExpandWithGemini } from "@/lib/gemini/queryUnderstanding";
-import { rerankCandidatesWithGemini } from "@/lib/gemini/aiReranker";
-import { orderEducation } from "@/modules/client/education/order-education";
-import { DirectusError, directusItems, directusItemsWhereIn } from "@/lib/server/directus";
+import { analyzeQuery, retrieveCandidatePool, type NormalizedProfile } from "@/modules/matching-engine";
+import { DirectusError } from "@/lib/server/directus";
 import { toId } from "@/lib/server/route";
+import {
+  buildRankingKey,
+  getRankedSearch,
+  setRankedSearch,
+} from "./search-ranking-cache";
+import {
+  MAX_SCAN_ROWS,
+  readCompanyJobPosting,
+  readJobSkillRows,
+  readMostRecentlyWrittenProfile,
+  readProfilesByUserIds,
+  scanRoleAliasRows,
+  scanRoleSkillRows,
+  scanSearchableProfiles,
+  type JobPostingRow,
+} from "@/modules/client/talent-search/services/talent-search.repo";
+import {
+  debugLog,
+  getIntParam,
+  getListParam,
+  layerLog,
+  newestWriteMs,
+} from "@/modules/client/talent-search/services/talent-search.helpers";
+import {
+  buildRoleSkillsMap,
+  expandEffectiveSkills,
+  resolveRoleTaxonomy,
+  type ResolvedTaxonomyContext,
+} from "@/modules/client/talent-search/services/talent-search.taxonomy";
+import {
+  buildTalentRecord,
+  normalizeCandidate,
+  type CandidateRows,
+  type NormalizedCandidateItem,
+  type RecordContext,
+  type TalentResult,
+} from "@/modules/client/talent-search/services/talent-search.record";
+import { rerankTalents, understandQuery } from "@/modules/client/talent-search/services/talent-search.ai";
+import {
+  applyExperienceFilter,
+  applyPreScoringFilters,
+  buildMatchContext,
+  loadCandidates,
+  requiredExperienceYears,
+  resolveEngineMode,
+  sortTalents,
+  toSkillNames,
+  type SearchAdmissions,
+} from "@/modules/client/talent-search/services/talent-search.service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Row ceiling for every Directus read in this route. The profile corpus and the
- * taxonomy tables are scanned whole — truncating them would silently change
- * which candidates are findable — so this sits far above current data volume and
- * only exists to stop an unbounded `limit=-1` read from exhausting memory.
+ * Talent search: read the corpus, retrieve, score, filter, rank, page.
+ *
+ * This handler owns only the request, the cache branch and the trace. Every read
+ * lives in `talent-search.repo.ts`, every pipeline step in the sibling service
+ * modules, so a warm page and the cold search that ranked it go through the same
+ * functions with the same arguments.
  */
-const MAX_SCAN_ROWS = 10_000;
-
-interface TalentProfileRow {
-  profile_id: number;
-  user_id: number;
-  profile_headline?: string;
-  professional_summary?: string;
-}
-
-/** Rows attached to every candidate profile by the bulk reads below. */
-interface BulkUserRow {
-  user_id: number;
-  user_fname: string;
-  user_lname: string;
-  user_email: string;
-  user_city?: string;
-  user_province?: string;
-  profile_image_url?: string;
-}
-
-interface BulkSkillRow {
-  user_id: number;
-  skill_id?: { skill_name?: string };
-}
-
-interface BulkWorkRow {
-  user_id: number;
-  company_name: string;
-  job_title: string;
-  job_description?: string;
-  start_date?: string;
-  end_date?: string;
-  is_current_role?: boolean;
-  employment_type?: string;
-  location?: string;
-}
-
-interface BulkCertRow {
-  user_id: number;
-  certificate_name: string;
-  issuing_organization?: string;
-}
-
-interface BulkSocialRow {
-  user_id: number;
-  platform_name: string;
-  profile_url: string;
-}
-
-interface JobPostingRow {
-  job_id: number;
-  job_title?: string;
-  job_location?: string;
-  experience_level?: string;
-}
-
-/** Query text, AI payloads and candidate names stay out of production logs. */
-function debugLog(...args: unknown[]): void {
-  if (process.env.NODE_ENV !== "production") console.log(...args);
-}
-
-function maskEmail(email?: string | null): string {
-  if (!email || typeof email !== "string") return "";
-  const parts = email.trim().split("@");
-  if (parts.length !== 2) return "***";
-  const [name, domain] = parts;
-  if (name.length <= 2) return `${name.slice(0, 1)}***@${domain}`;
-  return `${name.slice(0, 2)}***@${domain}`;
-}
-
-/**
- * Skills, location and school filters arrive as repeated query params so a
- * single value may itself contain a comma.
- */
-function getListParam(searchParams: URLSearchParams, name: string): string[] {
-  return searchParams.getAll(name).map((value) => value.trim()).filter(Boolean);
-}
-
-/**
- * Paging params arrive as free text, and `Math.max(1, Number("abc"))` is NaN —
- * which sliced the result to nothing and returned `page: null`.
- */
-function getIntParam(searchParams: URLSearchParams, name: string, fallback: number): number {
-  const value = Number(searchParams.get(name));
-  return Number.isSafeInteger(value) && value > 0 ? value : fallback;
-}
-
-/**
- * PSGC registers places as "City of Cebu", while profiles free-type "Cebu City".
- * Matching the bare name too keeps a clicked suggestion from returning nothing.
- */
-function locationMatchVariants(location: string): string[] {
-  const lowered = location.toLowerCase();
-  const bare = lowered.replace(/^(?:city|municipality|province) of /, "");
-  return bare === lowered ? [lowered] : [lowered, bare];
-}
-
-// ── DB-Backed Taxonomy Types ──────────────────────────────────────────────────
-
-export interface RoleSkillMappingRow {
-  role_id: { role_id: number };
-  skill_id: { id: number; skill_name: string };
-  importance_weight: number;
-  is_required: number;
-}
-
-export interface RoleTaxonomyAliasRow {
-  alias_id: number;
-  alias_name: string;
-  normalized_alias: string;
-  match_weight: number;
-  role_id: {
-    role_id: number;
-    role_name: string;
-    category_id?: {
-      category_id: number;
-      category_code: string;
-      category_name: string;
-    };
-  };
-}
-
-export interface ResolvedTaxonomyContext {
-  keyword: string;
-  resolved_role: string | null;
-  resolved_role_id: number | null;
-  category_code: string | null;
-  category_name: string | null;
-  matched_alias: string | null;
-  match_weight: number;
-  expanded_aliases: string[];
-}
-
-function resolveRoleTaxonomy(
-  keyword: string,
-  dbAliases: RoleTaxonomyAliasRow[]
-): ResolvedTaxonomyContext {
-  const original = (keyword || "").trim();
-  const cleanedKey = cleanText(original);
-  if (!cleanedKey) {
-    return {
-      keyword: "",
-      resolved_role: null,
-      resolved_role_id: null,
-      category_code: null,
-      category_name: null,
-      matched_alias: null,
-      match_weight: 1.0,
-      expanded_aliases: [],
-    };
-  }
-
-  // 1. Exact normalized alias match (using cleanText to strip hyphens, underscores, dots, etc.)
-  const exactAlias = dbAliases.find((a) => cleanText(a.normalized_alias) === cleanedKey);
-  // 2. Partial containment match — also compare space-stripped versions (e.g. "webdeveloper" vs "web developer")
-  const cleanedKeyNoSpaces = cleanedKey.replace(/\s+/g, "");
-  const partialAlias =
-    exactAlias ??
-    dbAliases.find((a) => {
-      const norm = cleanText(a.normalized_alias);
-      const normNoSpaces = norm.replace(/\s+/g, "");
-      return (
-        norm &&
-        (cleanedKey.includes(norm) ||
-          norm.includes(cleanedKey) ||
-          cleanedKeyNoSpaces === normNoSpaces ||
-          cleanedKeyNoSpaces.includes(normNoSpaces) ||
-          normNoSpaces.includes(cleanedKeyNoSpaces))
-      );
-    });
-
-  if (partialAlias && partialAlias.role_id) {
-    const matched = partialAlias;
-    const roleName = matched.role_id.role_name;
-    const roleId = matched.role_id.role_id;
-    const catCode = matched.role_id.category_id?.category_code ?? null;
-    const catName = matched.role_id.category_id?.category_name ?? null;
-
-    // Expand all aliases in the same role OR same category for broader matching
-    const expanded = dbAliases
-      .filter(
-        (a) =>
-          a.role_id?.role_id === roleId ||
-          (catCode && a.role_id?.category_id?.category_code === catCode)
-      )
-      .map((a) => cleanText(a.normalized_alias));
-
-    return {
-      keyword,
-      resolved_role: roleName,
-      resolved_role_id: roleId,
-      category_code: catCode,
-      category_name: catName,
-      matched_alias: matched.alias_name,
-      match_weight: Number(matched.match_weight ?? 1.0),
-      expanded_aliases: Array.from(new Set([cleanedKey, ...expanded])).filter(Boolean),
-    };
-  }
-
-  // No DB match — no category inflation, just use the raw keyword
-  return {
-    keyword,
-    resolved_role: null,
-    resolved_role_id: null,
-    category_code: null,
-    category_name: null,
-    matched_alias: keyword,
-    match_weight: 1.0,
-    expanded_aliases: [cleanedKey],
-  };
-}
-
-export interface TalentEducationBulkRow {
-  user_id: number;
-  employee_education_id?: number;
-  education_status?: string;
-  school_id?: { school_name?: string; school_id?: number };
-  school_course_id?: { course_name?: string };
-  start_date?: string;
-  end_date?: string;
-}
-
-export interface TalentResult {  user_id: number;
-  profile_id: number;
-  name: string;
-  email: string;
-  profile_image_url: string | null;
-  headline: string | null;
-  summary: string | null;
-  location: string;
-  skills: string[];
-  experience_years: number;
-  relevant_experience_years: number;
-  work_experience: Array<{
-    company_name: string;
-    job_title: string;
-    start_date: string | null;
-    end_date: string | null;
-    is_current_role: boolean;
-    employment_type: string | null;
-  }>;
-  education: Array<{
-    id: number | null;
-    school_name: string | null;
-    school_id: number | null;
-    course_name: string | null;
-    education_status: string | null;
-    start_date: string | null;
-    end_date: string | null;
-  }>;
-  education_count: number;
-  availability_status: string;
-  is_saved: boolean;
-  match_score: number | null;
-  ranking_score: number | null;
-  match_result: MatchResult | null;
-  match_breakdown: {
-    mode: MatchMode;
-    overallScore: number;
-    rankingScore: number;
-    confidence: MatchResult["confidence"];
-    sections: MatchResult["compatibility"]["sections"];
-    explanation: MatchResult["explanation"];
-    evidence: MatchResult["evidence"];
-  } | null;
-  ai_explanation: string | null;
-}
-
 export async function GET(req: NextRequest) {
   try {
+    // One structured line per search says where the time went and how many
+    // candidates survived each hand-off. Durations and counts only: query text,
+    // candidate names and profile data never enter this line.
+    const startedAt = Date.now();
+    const stageMs: Record<string, number> = {};
+    const counts: Record<string, number | string | boolean> = {};
+    let lastMark = startedAt;
+    const mark = (stage: string): void => {
+      const now = Date.now();
+      stageMs[stage] = (stageMs[stage] ?? 0) + (now - lastMark);
+      lastMark = now;
+    };
+    const emitTrace = (): void => {
+      console.log(
+        JSON.stringify({
+          event: "talent_search",
+          total_ms: Date.now() - startedAt,
+          stage_ms: stageMs,
+          ...counts,
+        })
+      );
+    };
+
     const session = await authenticateRequest(req);
     if (!session) {
+      layerLog("AUTH", "❌ no session — 401");
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
     if (!isClientSession(session)) {
+      layerLog("AUTH", `❌ session is not a client/employer account — 403`, { userId: session.userId });
       return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
-    const { isVerified, verification_status, companyId } = await checkCompanyVerificationStatus(userId);
+    const { isVerified, verification_status, companyId, readFailed } = await checkCompanyVerificationStatus(userId);
     if (!isVerified || !companyId) {
+      layerLog("AUTH", `❌ company is not verified — search refused`, { userId, verification_status, readFailed });
       return NextResponse.json(
         {
           error: `Restricted: Your company verification status is ${verification_status}. Talent Search is only available to verified companies.`,
@@ -320,6 +115,7 @@ export async function GET(req: NextRequest) {
         { status: 403 }
       );
     }
+    mark("auth");
 
     const { searchParams } = new URL(req.url);
     const keyword = (searchParams.get("keyword") || "").trim();
@@ -334,269 +130,75 @@ export async function GET(req: NextRequest) {
     // caller could append their own filter segments — including replacing the
     // `company_id` scope that keeps one employer out of another's postings.
     const requestedJobId = toId(searchParams.get("job_id")) ?? 0;
+    counts.job_match = requestedJobId > 0;
+
+    layerLog("REQUEST", keyword ? `keyword="${keyword}"` : "no keyword", {
+      skills: requestedSkills.length,
+      locations: locations.length,
+      schools: schoolFilters.length,
+      experience: experienceLevel || null,
+      job: requestedJobId || null,
+      page,
+      limit,
+    });
+
+    // Anything this run has to admit to the recruiter: a truncated scan, an
+    // optional section that failed to load. A non-empty list also makes the
+    // ranking uncacheable — see the write at the end of the handler.
+    const admissions: SearchAdmissions = { warnings: [], degradedSections: [] };
+    const { warnings, degradedSections } = admissions;
 
     // ────────────────────────────────────────────
-    // 1. Fetch profiles + DB Taxonomy aliases in parallel
-    // ────────────────────────────────────────────
-    // Taxonomy rows feed the matcher. Reading them as `[]` when Directus was
-    // unreachable made every role, alias and skill requirement vanish, and the
-    // recruiter was told the market had no matching talent.
-    const [profiles, dbAliases, dbRoleSkills] = await Promise.all([
-      directusItems<TalentProfileRow>("vs_job_seeker_profile", {
-        query:
-          `filter[profile_visibility][_in]=Public,Recruiters Only` +
-          `&fields=profile_id,user_id,profile_headline,professional_summary,profile_visibility` +
-          `&limit=${MAX_SCAN_ROWS}`,
-      }),
-      directusItems<RoleTaxonomyAliasRow>("vs_role_title_alias", {
-        query:
-          `fields=alias_id,alias_name,normalized_alias,match_weight,role_id.role_id,role_id.role_name,role_id.category_id.category_id,role_id.category_id.category_code,role_id.category_id.category_name` +
-          `&limit=${MAX_SCAN_ROWS}`,
-      }),
-      directusItems<RoleSkillMappingRow>("vs_role_skill_mapping", {
-        query:
-          `fields=role_id.role_id,skill_id.id,skill_id.skill_name,importance_weight,is_required` +
-          `&limit=${MAX_SCAN_ROWS}`,
-      }),
-    ]);
-
-    // The scan ceiling is a memory guard, not a licence to search a partial
-    // index. If a read came back full, talent beyond the first MAX_SCAN_ROWS is
-    // invisible to this run, and a "no matches" list would be read as the market
-    // being empty rather than as a truncated scan.
-    const scanTruncated =
-      profiles.length >= MAX_SCAN_ROWS ||
-      dbAliases.length >= MAX_SCAN_ROWS ||
-      dbRoleSkills.length >= MAX_SCAN_ROWS;
-    const scanWarnings = scanTruncated
-      ? [
-          `This search could only read the first ${MAX_SCAN_ROWS} profile and taxonomy rows, so results may be incomplete.`,
-        ]
-      : [];
-
-    // ────────────────────────────────────────────
-    // Gemini Layer A: Query Understanding (runs BEFORE taxonomy + retrieval)
-    // Converts natural language to canonical role keyword for matching
-    // e.g. "I need someone who builds websites with React" → "React Developer"
-    // ────────────────────────────────────────────
-    let geminiQueryIntent = null;
-    let matchKeyword = keyword; // effective keyword used for matching (may be Gemini-resolved)
-
-    const isSchoolSearch = isSchoolQuery(keyword);
-
-    if (keyword && !isSchoolSearch && shouldExpandWithGemini(keyword)) {
-      debugLog(`[talent-search] 🤖 Gemini Layer A: expanding query "${keyword}"`);
-      geminiQueryIntent = await expandQueryWithGemini(keyword, { userId: userId ?? undefined, companyId: companyId ?? undefined }).catch(() => null);
-
-      if (geminiQueryIntent) {
-        debugLog(`[talent-search] 🤖 Gemini Layer A result:`, JSON.stringify(geminiQueryIntent));
-      } else {
-        console.log(`[talent-search] ⚠️  Gemini Layer A: failed or no API key — using raw keyword`);
-      }
-
-      // Use Gemini resolved role as effective search keyword when confidence is high enough
-      if (
-        geminiQueryIntent &&
-        geminiQueryIntent.resolved_role &&
-        (geminiQueryIntent.confidence === "HIGH" || geminiQueryIntent.confidence === "MEDIUM")
-      ) {
-        matchKeyword = geminiQueryIntent.resolved_role;
-        debugLog(`[talent-search] 🤖 Gemini Layer A: matchKeyword resolved → "${matchKeyword}"`);
-      } else {
-        debugLog(`[talent-search] ℹ️  Gemini Layer A: keeping original keyword → "${matchKeyword}"`);
-      }
-    } else if (isSchoolSearch) {
-      debugLog(`[talent-search] 🎓 School search detected — preserving original keyword "${keyword}"`);
-    } else {
-      debugLog(`[talent-search] ℹ️  Gemini Layer A: skipped (query too short or not applicable) — keyword="${keyword}"`);
-    }
-
-    // Resolve Role Taxonomy using the effective match keyword (Gemini-resolved or original)
-    const taxonomyContext = resolveRoleTaxonomy(matchKeyword, dbAliases);
-    debugLog(`[talent-search] 📚 Taxonomy resolved:`, JSON.stringify({
-      matchKeyword,
-      resolved_role: taxonomyContext.resolved_role,
-      resolved_role_id: taxonomyContext.resolved_role_id,
-      category_code: taxonomyContext.category_code,
-      aliases_count: taxonomyContext.expanded_aliases.length,
-    }));
-
-    // Build role → skill name list map from DB
-    const roleSkillsMap = new Map<number, string[]>();
-    for (const row of dbRoleSkills) {
-      const roleId = row.role_id?.role_id;
-      const skillName = row.skill_id?.skill_name;
-      if (!roleId || !skillName) continue;
-      if (!roleSkillsMap.has(roleId)) roleSkillsMap.set(roleId, []);
-      roleSkillsMap.get(roleId)!.push(skillName);
-    }
-
-    // Auto-expand requestedSkills with DB role skills when user specified no explicit skills
-    // and the keyword resolved to a known DB role
-    let effectiveRequestedSkills = requestedSkills;
-    if (requestedSkills.length === 0 && taxonomyContext.resolved_role_id !== null) {
-      const roleId = taxonomyContext.resolved_role_id;
-      const roleSkills = roleSkillsMap.get(roleId) ?? [];
-      if (roleSkills.length > 0) {
-        effectiveRequestedSkills = roleSkills;
-      }
-    }
-
-    // Merge Gemini inferred skills if query understanding enriched the query
-    if (geminiQueryIntent && geminiQueryIntent.inferred_skills.length > 0 && requestedSkills.length === 0) {
-      effectiveRequestedSkills = Array.from(
-        new Set([...effectiveRequestedSkills, ...geminiQueryIntent.inferred_skills])
-      );
-    }
-    console.log(`[talent-search] 🎯 Effective skills for scoring (${effectiveRequestedSkills.length}):`, effectiveRequestedSkills.slice(0, 10));
-
-    if (profiles.length === 0) {
-      return NextResponse.json({
-        search_mode: "browse",
-        search_context: taxonomyContext,
-        talents: [],
-        total: 0,
-        page,
-        limit,
-        warnings: scanWarnings,
-      });
-    }
-
-    const profileUserIds = profiles.map((p) => p.user_id);
-
-    // ────────────────────────────────────────────
-    // 2. Bulk fetch associated data in parallel
+    // 1. The job posting, and whether it is the caller's
     //
-    // The id lists are read in batches. One `_in=` request carrying every
-    // profile id exceeds what the transport accepts long before the corpus is
-    // exhausted, and each of these reads used to answer `[]` when it failed —
-    // the candidates then carried no skills, history or education, so the
-    // matcher scored real people at zero.
+    // This read is scoped to the caller's company. An id belonging to someone
+    // else (or a deleted posting) used to fall straight through to an unscoped
+    // browse: the recruiter asked to match talent to one posting and got the
+    // whole market ranked as if it had. It runs before anything else, because
+    // the ranked-id cache below is keyed on this job id and `vs_job_skills_map`
+    // is filtered by job id alone — which is only safe once this has proved
+    // ownership.
     // ────────────────────────────────────────────
-    const [users, skillRows, workRows, eduRows, certRows, socialRows, savedRows, jobRows] =
-      await Promise.all([
-        // vs_user — basic info + location
-        directusItemsWhereIn<BulkUserRow>("vs_user", "user_id", profileUserIds,
-          "user_id,user_fname,user_lname,user_email,user_city,user_province,profile_image_url"),
-        // vs_user_skills_map — skills
-        directusItemsWhereIn<BulkSkillRow>("vs_user_skills_map", "user_id", profileUserIds,
-          "user_id,skill_id.skill_name"),
-        // vs_work_experience
-        directusItemsWhereIn<BulkWorkRow>("vs_work_experience", "user_id", profileUserIds,
-          "user_id,company_name,job_title,job_description,start_date,end_date,is_current_role,employment_type,location"),
-        // vs_employee_education with school join
-        directusItemsWhereIn<TalentEducationBulkRow>("vs_employee_education", "user_id", profileUserIds,
-          "user_id,employee_education_id,education_status,school_id.school_name,school_id.school_id,school_course_id.course_name,start_date,end_date"),
-        // vs_certifications
-        directusItemsWhereIn<BulkCertRow>("vs_certifications", "user_id", profileUserIds,
-          "user_id,certificate_name,issuing_organization"),
-        // vs_user_social_links
-        directusItemsWhereIn<BulkSocialRow>("vs_user_social_links", "user_id", profileUserIds,
-          "user_id,platform_name,profile_url"),
-        // vs_saved_applicant — which of these are already saved by this company
-        companyId
-          ? directusItems<{ applicant_user_id: number }>("vs_saved_applicant", {
-              query: `filter[company_id][_eq]=${companyId}&fields=applicant_user_id&limit=${MAX_SCAN_ROWS}`,
-            })
-          : Promise.resolve([] as { applicant_user_id: number }[]),
-        // vs_job_posting — if job_id provided for AI match (strictly scoped to caller's company)
-        requestedJobId && companyId
-          ? directusItems<JobPostingRow>("vs_job_posting", {
-              query:
-                `filter[job_id][_eq]=${requestedJobId}&filter[company_id][_eq]=${companyId}` +
-                `&fields=job_id,job_title,job_location,experience_level&limit=1`,
-            })
-          : Promise.resolve([] as JobPostingRow[]),
-      ]);
-
-    const savedUserIds = new Set<number>();
-    savedRows.forEach((s) => savedUserIds.add(s.applicant_user_id));
-
-    // The job read above is scoped to the caller's company. An id belonging to
-    // someone else (or a deleted posting) used to fall straight through to an
-    // unscoped browse: the recruiter asked to match talent to one posting and
-    // got the whole market ranked as if it had.
-    const jobData = jobRows[0] ?? null;
-    if (requestedJobId && !jobData) {
-      return NextResponse.json(
-        {
-          error: "That job posting is no longer available on your account.",
-          talents: [],
-          total: 0,
-          page,
-          limit,
-        },
-        { status: 404 }
-      );
-    }
-
-    // Job skills for match
+    let jobData: JobPostingRow | null = null;
     let jobSkills: string[] = [];
     if (requestedJobId) {
-      const jobSkillRows = await directusItems<{ skill_id?: { skill_name?: string } }>(
-        "vs_job_skills_map",
-        {
-          query: `filter[job_id][_eq]=${requestedJobId}&fields=skill_id.skill_name&limit=${MAX_SCAN_ROWS}`,
-        }
-      );
-      jobSkills = jobSkillRows
-        .map((r) => r.skill_id?.skill_name ?? "")
-        .filter(Boolean);
+      const jobRows = await readCompanyJobPosting(requestedJobId, companyId);
+      jobData = jobRows[0] ?? null;
+      if (!jobData) {
+        layerLog("JOB", `❌ job ${requestedJobId} is not a posting of company ${companyId} — 404, nothing was searched or cached`);
+        mark("job");
+        emitTrace();
+        return NextResponse.json(
+          {
+            error: "That job posting is no longer available on your account.",
+            talents: [],
+            total: 0,
+            page,
+            limit,
+          },
+          { status: 404 }
+        );
+      }
+
+      jobSkills = toSkillNames(await readJobSkillRows(requestedJobId));
+      layerLog("JOB", `ownership proven, matching against posting "${jobData.job_title}"`, {
+        jobId: jobData.job_id,
+        jobSkills: jobSkills.length,
+        postingLevel: jobData.experience_level ?? null,
+      });
+    } else {
+      layerLog("JOB", "no job_id — this is not a posting match, so no match percentage is shown");
     }
+    mark("job");
+    counts.job_skills = jobSkills.length;
 
     // ────────────────────────────────────────────
-    // 3. Build lookup maps
+    // 2. What both paths must agree on
+    //
+    // A warm page and the search that ranked it must produce identical records,
+    // so everything the scoring depends on except the candidate's own rows is
+    // resolved here, before the cache branches.
     // ────────────────────────────────────────────
-    const usersMap = new Map(users.map((u) => [u.user_id, u]));
-
-    const skillsMap = new Map<number, string[]>();
-    for (const row of skillRows) {
-      const name = row.skill_id?.skill_name;
-      if (!name) continue;
-      if (!skillsMap.has(row.user_id)) skillsMap.set(row.user_id, []);
-      skillsMap.get(row.user_id)!.push(name);
-    }
-
-    const workMap = new Map<number, typeof workRows>();
-    for (const row of workRows) {
-      if (!workMap.has(row.user_id)) workMap.set(row.user_id, []);
-      workMap.get(row.user_id)!.push(row);
-    }
-
-    const eduMap = new Map<number, typeof eduRows>();
-    for (const row of eduRows) {
-      if (!eduMap.has(row.user_id)) eduMap.set(row.user_id, []);
-      eduMap.get(row.user_id)!.push(row);
-    }
-
-    const certsMap = new Map<number, typeof certRows>();
-    for (const row of certRows) {
-      if (!certsMap.has(row.user_id)) certsMap.set(row.user_id, []);
-      certsMap.get(row.user_id)!.push(row);
-    }
-
-    const socialMap = new Map<number, typeof socialRows>();
-    for (const row of socialRows) {
-      if (!socialMap.has(row.user_id)) socialMap.set(row.user_id, []);
-      socialMap.get(row.user_id)!.push(row);
-    }
-
-    // ────────────────────────────────────────────
-    // 4. Build talent records + compute compatibility
-    // ────────────────────────────────────────────
-    const expLevelRange: Record<string, [number, number]> = {
-      ENTRY: [0, 2],
-      JUNIOR: [0, 3],
-      MID: [2, 6],
-      SENIOR: [5, 99],
-      MANAGER: [7, 99],
-      EXECUTIVE: [10, 99],
-    };
-
-    const requiredExpYears = jobData?.experience_level
-      ? (expLevelRange[jobData.experience_level.toUpperCase()]?.[0] ?? 0)
-      : 0;
-
     const hasSearchCriteria = Boolean(
       keyword ||
         requestedSkills.length > 0 ||
@@ -607,287 +209,457 @@ export async function GET(req: NextRequest) {
     );
 
     const searchMode: "browse" | "search" = hasSearchCriteria ? "search" : "browse";
+    const engineMode = resolveEngineMode({
+      jobId: requestedJobId,
+      keyword,
+      skills: requestedSkills,
+      hasSearchCriteria,
+    });
+    const requiredExperience = requiredExperienceYears(jobData);
 
-    let activeEngineMode: MatchMode = MatchMode.BROWSE;
-    if (requestedJobId && keyword) {
-      activeEngineMode = MatchMode.HYBRID;
-    } else if (requestedJobId) {
-      activeEngineMode = MatchMode.JOB_MATCH;
-    } else if (requestedSkills.length > 0) {
-      activeEngineMode = MatchMode.SKILL_MATCH;
-    } else if (keyword) {
-      activeEngineMode = MatchMode.ROLE_SIMILARITY;
-    } else if (hasSearchCriteria) {
-      activeEngineMode = MatchMode.HYBRID;
-    }
-
-    const matchContext: MatchContext = {
-      mode: activeEngineMode,
-      keyword: matchKeyword, // Use Gemini-resolved role keyword for scoring
-      requestedSkills: requestedJobId ? jobSkills : effectiveRequestedSkills,
-      jobId: requestedJobId || undefined,
-      // The engine takes a single location; multi-tag matching happens in the
-      // post-filter below.
-      location: locations[0] ?? "",
-      requiredExperience: requiredExpYears,
-      taxonomyContext,
-    };
-
-    // Layer 1: High-Recall Candidate Retrieval Filter (Jaro-Winkler, Levenshtein, Token Overlap, Taxonomy Expansion)
-    const normalizedProfilesMap = new Map();
-    const normalizedProfilesList = [];
-
-    for (const profile of profiles) {
-      const user = usersMap.get(profile.user_id);
-      if (!user) continue;
-
-      const skills = skillsMap.get(profile.user_id) ?? [];
-      const work = workMap.get(profile.user_id) ?? [];
-      const edu = eduMap.get(profile.user_id) ?? [];
-      const certs = certsMap.get(profile.user_id) ?? [];
-      const social = socialMap.get(profile.user_id) ?? [];
-      const location = [user.user_city, user.user_province].filter(Boolean).join(", ");
-
-      const normalized = normalizeRawCandidate({
-        user_id: profile.user_id,
-        name: `${user.user_fname} ${user.user_lname}`.trim(),
-        email: user.user_email,
-        headline: profile.profile_headline,
-        summary: profile.professional_summary,
-        location,
-        // Derived exactly as the talent-profile route does it — there is no
-        // availability column. Left out, the normalizer defaulted everyone to
-        // "AVAILABLE" and the card told the employer a working candidate was free.
-        availability_status: work.some((w) => w.is_current_role) ? "EMPLOYED" : "AVAILABLE",
-        skills,
-        work_experience: work,
-        education: edu.map((e) => ({
-          id: e.employee_education_id ?? null,
-          status: e.education_status ?? null,
-          school_name: e.school_id?.school_name,
-          course_name: e.school_course_id?.course_name,
-          start_date: e.start_date,
-          end_date: e.end_date,
-        })),
-        certifications: certs,
-        social_links: social,
+    const matchContextFor = (
+      effectiveSkills: string[],
+      matchKw: string,
+      taxonomy: ResolvedTaxonomyContext
+    ) =>
+      buildMatchContext({
+        engineMode,
+        jobId: requestedJobId,
+        jobSkills,
+        locations,
+        requiredExperience,
+        effectiveSkills,
+        matchKeyword: matchKw,
+        taxonomy,
       });
 
-      normalizedProfilesMap.set(profile.user_id, { profile, user, skills, work, edu, certs, social, normalized });
-      normalizedProfilesList.push(normalized);
-    }
-
-    const analyzedQuery = analyzeQuery(matchKeyword);
-    console.log(`[talent-search] 🔍 Layer 1: scanning ${normalizedProfilesList.length} total profiles...`);
-    const retrievedPool = retrieveCandidatePool(normalizedProfilesList, analyzedQuery, taxonomyContext, 0, keyword, effectiveRequestedSkills);
-    console.log(`[talent-search] ✅ Layer 1 pool: ${retrievedPool.length} candidates retained for Layer 2 scoring`);
-
-    // Layer 2: Run Matching Engine & Final Scoring on Retrieved Candidate Pool
-    const allTalents: TalentResult[] = (retrievedPool
-      .map(({ candidate }) => {
-        const item = normalizedProfilesMap.get(candidate.id);
-        if (!item) return null;
-
-        const { profile, user, work, edu, normalized } = item;
-
-        // Run VOS Sync Matching Engine Pipeline
-        const engineResult = runMatchingEngine(normalized, matchContext);
-
-        // Find relevant exp years from experience evaluator trace/evidence
-        const expEvidence = engineResult.evidence.find((e) => e.type === "EXPERIENCE");
-        const relYearsMatch = expEvidence?.value.match(/([\d\.]+)\s*yrs/);
-        const relYears = relYearsMatch ? Number(relYearsMatch[1]) : 0;
-
-        // Match score percentage & badges are shown ONLY when matching against a specific Job Posting (requestedJobId)
-        const showMatchScore = Boolean(requestedJobId);
-
-        // Full education history in shared deterministic order; compact
-        // surfaces preview from this array and expose the remainder via
-        // education_count instead of dropping rows here.
-        const orderedEdu = orderEducation<TalentEducationBulkRow>(edu, {
-          status: (e) => e.education_status,
-          endDate: (e) => e.end_date,
-          startDate: (e) => e.start_date,
-          id: (e) => e.employee_education_id,
-        });
-
-        return {
-          user_id: profile.user_id,
-          profile_id: profile.profile_id,
-          name: normalized.name,
-          email: maskEmail(normalized.email),
-          profile_image_url: user.profile_image_url ?? null,
-          headline: normalized.headline,
-          summary: normalized.summary,
-          location: normalized.location,
-          skills: normalized.skills,
-          experience_years: Number(
-            (
-              work.reduce((acc: number, w: { start_date?: string; end_date?: string; is_current_role?: boolean }) => {
-                if (!w.start_date) return acc;
-                const s = new Date(w.start_date);
-                const e = w.is_current_role ? new Date() : w.end_date ? new Date(w.end_date) : new Date();
-                return acc + Math.max((e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()), 0);
-              }, 0) / 12
-            ).toFixed(1)
-          ),
-          relevant_experience_years: relYears,
-          work_experience: work.slice(0, 3).map((w: { company_name?: string; job_title?: string; start_date?: string; end_date?: string; is_current_role?: boolean; employment_type?: string }) => ({
-            company_name: w.company_name,
-            job_title: w.job_title,
-            start_date: w.start_date ?? null,
-            end_date: w.end_date ?? null,
-            is_current_role: w.is_current_role ?? false,
-            employment_type: w.employment_type ?? null,
-          })),
-          education: orderedEdu.map((e) => ({
-            id: e.employee_education_id ?? null,
-            school_name: e.school_id?.school_name ?? null,
-            school_id: e.school_id?.school_id ?? null,
-            course_name: e.school_course_id?.course_name ?? null,
-            education_status: e.education_status ?? null,
-            start_date: e.start_date ?? null,
-            end_date: e.end_date ?? null,
-          })),
-          education_count: edu.length,
-          availability_status: normalized.availability,
-          is_saved: savedUserIds.has(profile.user_id),
-          match_score: showMatchScore ? engineResult.compatibility.score : null,
-          ranking_score: searchMode === "search" ? engineResult.ranking.score : null,
-          match_result: showMatchScore ? engineResult : null,
-          match_breakdown: showMatchScore ? {
-            mode: engineResult.mode,
-            overallScore: engineResult.compatibility.score,
-            rankingScore: engineResult.ranking.score,
-            confidence: engineResult.confidence,
-            sections: engineResult.compatibility.sections,
-            explanation: engineResult.explanation,
-            evidence: engineResult.evidence,
-          } : null,
-          ai_explanation: null as string | null,
-        };
-      })
-      .filter((t): t is TalentResult => t !== null)) as TalentResult[];
-
-    console.log(`[talent-search] ✅ Layer 2 scored: ${allTalents.length} candidates after engine scoring`);
-    for (const t of allTalents) {
-      console.log(
-        `  🎯 [Layer 2 Candidate] ID #${t.user_id} ${t.name} | Ranking Score: ${t.ranking_score ?? "N/A"} | Match Score: ${t.match_score ?? "N/A"} | Relevant Exp: ${t.relevant_experience_years} yrs`
-      );
-    }
-
-    // ────────────────────────────────────────────
-    // 5. Explicit sidebar filters (skills, location, experience, school)
-    // NOTE: Keyword-based post-filtering is intentionally removed.
-    //       Layer 1 (retrieval) and Layer 2 (scoring) already determine relevance.
-    //       A second keyword gate here would reject valid candidates whose title/summary
-    //       differs from the query but whose skills and experience are highly relevant.
-    // ────────────────────────────────────────────
-    let filtered = allTalents;
-    console.log(`[talent-search] ✅ Layer 2 candidates entering ranking: ${filtered.length}`);
-
-    // Filter by user-specified skills only (not expanded DB role skills — those are for scoring only)
-    if (requestedSkills.length > 0 && !requestedJobId) {
-      console.log(`[talent-search] 🏷️ Filtering by requested skills: [${requestedSkills.join(", ")}]`);
-    }
-    if (requestedSkills.length > 0 && !requestedJobId) {
-      filtered = filtered.filter((t) => {
-        const lowerSkills = t.skills.map((s: string) => s.toLowerCase());
-        return requestedSkills.some((rs) => lowerSkills.includes(rs.toLowerCase()));
-      });
-    }
-
-    if (locations.length > 0) {
-      const variants = locations.map(locationMatchVariants);
-      filtered = filtered.filter((t) => {
-        const talentLocation = t.location.toLowerCase();
-        return variants.some((group) => group.some((v) => talentLocation.includes(v)));
-      });
-    }
-
-    if (experienceLevel) {
-      const [minYears, maxYears] = expLevelRange[experienceLevel.toUpperCase()] ?? [0, 99];
-      filtered = filtered.filter(
-        (t) => t.relevant_experience_years >= minYears && t.relevant_experience_years <= maxYears
-      );
-    }
-
-    if (schoolFilters.length > 0) {
-      filtered = filtered.filter((t) =>
-        t.education.some((e) =>
-          schoolFilters.some(
-            (school) =>
-              String(e.school_id) === school ||
-              (e.school_name && matchSchool(school, e.school_name).matched)
-          )
-        )
-      );
-    }
-
-    // Sort mode logic
-    if (searchMode === "search") {
-      filtered.sort((a, b) => (b.ranking_score ?? b.match_score ?? 0) - (a.ranking_score ?? a.match_score ?? 0));
-    } else {
-      // Browse mode sorting: profile completeness + experience + profile_id desc
-      filtered.sort((a, b) => {
-        const aCompleteness = (a.skills.length > 0 ? 10 : 0) + a.experience_years;
-        const bCompleteness = (b.skills.length > 0 ? 10 : 0) + b.experience_years;
-        return bCompleteness - aCompleteness || b.profile_id - a.profile_id;
-      });
-    }
-
-    const total = filtered.length;
-    console.log(`[talent-search] 🏁 Final ranked candidates (${total} total, page ${page}, limit ${limit}):`);
-    filtered.slice(0, 5).forEach((t, i) => {
-      console.log(`  #${i + 1} ID #${t.user_id} ${t.name} (Headline: "${t.headline || 'None'}", Ranking: ${t.ranking_score ?? t.match_score ?? 0})`);
+    layerLog("MODE", `engine ${engineMode}, list ordered as ${searchMode}`, {
+      requiredExperience,
+      engineLocation: locations[0] ?? null,
+      skillsTakenFromPosting: requestedJobId ? jobSkills.length : 0,
     });
 
     // ────────────────────────────────────────────
-    // 6. Gemini Layer B: AI Reranking (job match mode only, top 50)
-    // Note: Layer B semantic reranking requires both an active job posting (requestedJobId)
-    // and a search query prompt (keyword) to semantically measure relevance against the prompt.
-    // When no search keyword is provided, candidates remain ordered deterministically by Layer 2 ranking_score.
+    // 3. Ranked-id cache
+    //
+    // The order a search produces does not depend on which page is being asked
+    // for, so a page turn used to re-run everything for it: ~300 batched reads,
+    // the six evaluators on every candidate, and a Gemini rerank call. A hit
+    // reads the page's rows and re-scores them with the engine inputs captured
+    // when the ranking was written — rebuilding those from the 10 000-row
+    // taxonomy scans and Layer A would cost what the cache just saved.
     // ────────────────────────────────────────────
-    let aiReranked = false;
-    if (requestedJobId && keyword && filtered.length > 1) {
-      console.log(`[talent-search] 🤖 Gemini Layer B: reranking top ${Math.min(filtered.length, 50)} candidates for job ${requestedJobId}...`);
-      const rerankInput = filtered.slice(0, 50).map((t) => ({
-        id: t.user_id,
-        title: t.headline,
-        skills: t.skills,
-        summary: t.summary,
-      }));
-      const { ranked_ids, used_ai } = await rerankCandidatesWithGemini(keyword, rerankInput, { userId: userId ?? undefined, companyId: companyId ?? undefined });
-      if (used_ai && ranked_ids.length > 0) {
-        aiReranked = true;
-        const rankMap = new Map(ranked_ids.map((id, idx) => [id, idx]));
-        const top50Reranked = filtered
-          .slice(0, 50)
-          .sort((a, b) => (rankMap.get(a.user_id) ?? 99) - (rankMap.get(b.user_id) ?? 99));
-        filtered = [...top50Reranked, ...filtered.slice(50)];
-        console.log(`[talent-search] 🤖 Gemini Layer B: ✅ reranked ${ranked_ids.length} candidates`);
+    const rankingKey = buildRankingKey({
+      jobId: requestedJobId,
+      keyword,
+      skills: requestedSkills,
+      locations,
+      schools: schoolFilters,
+      experienceLevel,
+    });
+
+    let ranked = getRankedSearch(rankingKey);
+    if (ranked) {
+      // Coarse invalidation on top of the entry's max age: the newest write to
+      // any profile row. It catches a freelancer editing their own profile, and
+      // nothing else — the attached tables carry no timestamp — so the max age
+      // stays the real bound.
+      const rankedAt = ranked.newestProfileWrite;
+      const [newest] = await readMostRecentlyWrittenProfile();
+      const newestWrite = newest?.updated_at ? Date.parse(newest.updated_at) : NaN;
+      if (!Number.isNaN(newestWrite) && rankedAt !== null && newestWrite > rankedAt) {
+        layerLog("CACHE", "❌ discarded: a profile row was written after this ranking was made", {
+          coveredWritesUpTo: rankedAt === null ? null : new Date(rankedAt).toISOString(),
+          newestWriteNow: new Date(newestWrite).toISOString(),
+        });
+        ranked = null;
       } else {
-        console.log(`[talent-search] ⚠️  Gemini Layer B: rerank failed or skipped — keeping Layer 2 order`);
+        layerLog("CACHE", `hit — reusing the order this same search produced`, {
+          ageMs: Date.now() - ranked.savedAt,
+          ranked: ranked.ids.length,
+          total: ranked.total,
+          mode: ranked.mode,
+          aiReranked: ranked.aiReranked,
+          matchKeyword: ranked.matchKeyword,
+          role: ranked.taxonomy.resolved_role,
+          effectiveSkills: ranked.effectiveSkills.length,
+        });
       }
+    } else {
+      layerLog("CACHE", "miss — this search scans, retrieves, scores and ranks from scratch");
     }
+    mark("cache");
+    counts.cache = ranked ? "hit" : "miss";
+
+    if (ranked) {
+      const start = (page - 1) * limit;
+      const pageIds = ranked.ids.slice(start, start + limit);
+      layerLog("SLICE", `page ${page} is positions ${start + 1}-${start + pageIds.length} of the stored order`, {
+        pageIds: pageIds.length,
+        of: ranked.ids.length,
+      });
+
+      // Re-read visibility: a candidate who went private since the ranking was
+      // written must not appear on a warm page.
+      const pageRows = await readProfilesByUserIds(pageIds);
+      const visible = new Set(pageRows.map((r) => r.user_id));
+      const hidden = pageIds.filter((id) => !visible.has(id));
+      if (hidden.length > 0) {
+        layerLog("SLICE", `⚠️ ${hidden.length} id(s) in this page are no longer searchable — private or deleted since the ranking was written`, {
+          userIds: hidden.join(","),
+        });
+      }
+
+      const { candidates, savedUserIds } = await loadCandidates(pageRows, companyId, admissions);
+      layerLog("ATTACH", `seven bulk reads for ${pageRows.length} profiles only`, {
+        saved: savedUserIds.size,
+        degradedSections: degradedSections.length,
+      });
+      const recordContext: RecordContext = {
+        matchContext: matchContextFor(ranked.effectiveSkills, ranked.matchKeyword, ranked.taxonomy),
+        showMatchScore: Boolean(requestedJobId),
+        rankingEnabled: ranked.mode === "search",
+        savedUserIds,
+      };
+      layerLog("SKIP", "no corpus scan, no Layer A, no taxonomy, no Layer 1, no filters, no Layer B — the stored order decided all of that");
+
+      const warmTalents = pageIds
+        .map((id) => candidates.get(id))
+        .filter((rows): rows is CandidateRows => Boolean(rows))
+        .map((rows) => buildTalentRecord(rows, normalizeCandidate(rows), recordContext));
+      for (const t of warmTalents) {
+        debugLog(`[talent-search] WARM       │ #${t.user_id} ${t.name} | rank ${t.ranking_score ?? "N/A"} | match ${t.match_score ?? "N/A"} | ${t.availability_status} | saved=${t.is_saved}`);
+      }
+
+      // Honest stages only: retrieval and scoring did not run for this request,
+      // so the line reports what was hydrated and what visibility dropped.
+      counts.hydrated = candidates.size;
+      counts.hidden_since_ranking = pageIds.length - candidates.size;
+      counts.after_filter = ranked.total;
+      counts.mode = ranked.mode;
+      counts.ai_reranked = ranked.aiReranked;
+      counts.cached_age_ms = Date.now() - ranked.savedAt;
+      counts.warnings = warnings.length;
+      counts.page = page;
+      counts.limit = limit;
+      mark("attach");
+      emitTrace();
+      layerLog("RESPONSE", `${warmTalents.length} talent cards from cache, page ${page}`, {
+        total: ranked.total,
+        mode: ranked.mode,
+        warnings: warnings.length,
+        ms: Date.now() - startedAt,
+      });
+
+      return NextResponse.json({
+        search_mode: ranked.mode,
+        search_context: ranked.mode === "search" ? ranked.taxonomy : null,
+        talents: warmTalents,
+        total: ranked.total,
+        page,
+        limit,
+        ai_reranked: ranked.aiReranked,
+        warnings,
+      });
+    }
+
+    // ────────────────────────────────────────────
+    // 4. Cold path: scan the corpus + DB taxonomy aliases
+    //
+    // Taxonomy rows feed the matcher. Reading them as `[]` when Directus was
+    // unreachable made every role, alias and skill requirement vanish, and the
+    // recruiter was told the market had no matching talent.
+    // ────────────────────────────────────────────
+    const [profiles, dbAliases, dbRoleSkills] = await Promise.all([
+      scanSearchableProfiles(),
+      scanRoleAliasRows(),
+      scanRoleSkillRows(),
+    ]);
+
+    // The scan ceiling is a memory guard, not a licence to search a partial
+    // index. If a read came back full, talent beyond the first MAX_SCAN_ROWS is
+    // invisible to this run, and a "no matches" list would be read as the market
+    // being empty rather than as a truncated scan.
+    const scanTruncated =
+      profiles.length >= MAX_SCAN_ROWS ||
+      dbAliases.length >= MAX_SCAN_ROWS ||
+      dbRoleSkills.length >= MAX_SCAN_ROWS;
+    if (scanTruncated) {
+      layerLog("INGEST", `❗ a scan hit the ${MAX_SCAN_ROWS}-row ceiling — talent beyond it is invisible to this run`, {
+        profiles: profiles.length,
+        aliases: dbAliases.length,
+        roleSkillRows: dbRoleSkills.length,
+      });
+      warnings.push(
+        `This search could only read the first ${MAX_SCAN_ROWS} profile and taxonomy rows, so results may be incomplete.`
+      );
+    } else {
+      layerLog("INGEST", "scanned the corpus and both taxonomy tables whole", {
+        profiles: profiles.length,
+        aliases: dbAliases.length,
+        roleSkillRows: dbRoleSkills.length,
+      });
+    }
+    mark("ingest");
+    counts.corpus = profiles.length;
+    if (scanTruncated) counts.truncated = true;
+
+    // Gemini Layer A: query understanding. Runs before taxonomy + retrieval, so
+    // everything downstream scores against the resolved role.
+    const query = await understandQuery({ keyword, userId, companyId });
+    mark("layer_a");
+    counts.layer_a = query.outcome;
+    counts.layer_a_rewrote = query.rewrote;
+    layerLog("LAYER_A", query.intent ? `AI intent ${query.outcome}` : "no AI intent — raw keyword used", {
+      raw: `"${keyword}"`,
+      matched: `"${query.matchKeyword}"`,
+      confidence: query.intent?.confidence ?? null,
+      inferredSkills: query.intent?.inferred_skills.length ?? 0,
+    });
+
+    // Resolve Role Taxonomy using the effective match keyword (Gemini-resolved or original)
+    const taxonomy = resolveRoleTaxonomy(query.matchKeyword, dbAliases);
+    layerLog("TAXONOMY", taxonomy.resolved_role ? `matched alias "${taxonomy.matched_alias}" → role ${taxonomy.resolved_role}` : "no DB role for this keyword — matching on the raw text only", {
+      roleId: taxonomy.resolved_role_id,
+      category: taxonomy.category_code,
+      matchWeight: taxonomy.match_weight,
+      expandedAliases: taxonomy.expanded_aliases.length,
+    });
+
+    // Build role → skill name list map from DB, once: this walks every
+    // `vs_role_skill_mapping` row.
+    const roleSkillsMap = buildRoleSkillsMap(dbRoleSkills);
+
+    // Auto-expand the requested skills with the resolved role's DB skills, plus
+    // Gemini's inferred skills — but only when the recruiter named none.
+    const effectiveSkills = expandEffectiveSkills({
+      requestedSkills,
+      taxonomy,
+      roleSkillsMap,
+      inferredSkills: query.intent?.inferred_skills ?? [],
+    });
+    layerLog(
+      "SKILLS",
+      effectiveSkills.length
+        ? `${effectiveSkills.length} skills scored against: ${effectiveSkills.slice(0, 10).join(", ")}${effectiveSkills.length > 10 ? " …" : ""}`
+        : "no skills to score against",
+      {
+        recruiterSelected: requestedSkills.length,
+        fromRole: taxonomy.resolved_role_id === null ? 0 : (roleSkillsMap.get(taxonomy.resolved_role_id) ?? []).length,
+        fromAi: query.intent?.inferred_skills.length ?? 0,
+      }
+    );
+    mark("taxonomy");
+    counts.effective_skills = effectiveSkills.length;
+
+    if (profiles.length === 0) {
+      emitTrace();
+      layerLog("RESPONSE", "❗ the corpus scan returned no visible profile at all — empty list, nothing cached", { ms: Date.now() - startedAt });
+      return NextResponse.json({
+        search_mode: "browse",
+        search_context: taxonomy,
+        talents: [],
+        total: 0,
+        page,
+        limit,
+        warnings,
+      });
+    }
+
+    // ────────────────────────────────────────────
+    // 5. Attach the corpus, normalize it, retrieve
+    // ────────────────────────────────────────────
+    const { candidates, savedUserIds } = await loadCandidates(profiles, companyId, admissions);
+    layerLog("ATTACH", `seven bulk reads joined ${candidates.size} candidates`, {
+      scanned: profiles.length,
+      noUserRow: profiles.length - candidates.size,
+      savedByCompany: savedUserIds.size,
+      degradedSections: degradedSections.length,
+    });
+    mark("attach");
+    counts.attached = candidates.size;
+
+    const normalizedProfilesMap = new Map<number, NormalizedCandidateItem>();
+    const normalizedProfilesList: NormalizedProfile[] = [];
+
+    for (const rows of candidates.values()) {
+      const normalized = normalizeCandidate(rows);
+      normalizedProfilesMap.set(rows.profile.user_id, { ...rows, normalized });
+      normalizedProfilesList.push(normalized);
+    }
+    layerLog("NORMALIZE", "profiles shaped for the evaluators", {
+      with: normalizedProfilesList.length,
+      noSkills: normalizedProfilesList.filter((p) => p.skills.length === 0).length,
+      noWorkHistory: normalizedProfilesList.filter((p) => p.workHistory.length === 0).length,
+      employed: normalizedProfilesList.filter((p) => p.availability === "EMPLOYED").length,
+      avgCompleteness: normalizedProfilesList.length === 0
+        ? null
+        : Math.round(normalizedProfilesList.reduce((a, p) => a + p.profileCompletenessScore, 0) / normalizedProfilesList.length),
+    });
+    mark("normalize");
+    counts.normalized = normalizedProfilesList.length;
+
+    // Layer 1: high-recall retrieval (fuzzy, token overlap, taxonomy expansion)
+    const analyzedQuery = analyzeQuery(query.matchKeyword);
+    const retrievedPool = retrieveCandidatePool(
+      normalizedProfilesList,
+      analyzedQuery,
+      taxonomy,
+      0,
+      keyword,
+      effectiveSkills
+    );
+    mark("layer_1");
+    counts.layer_1 = retrievedPool.length;
+    if (retrievedPool.length > 0) {
+      const reasons = new Map<string, number>();
+      for (const r of retrievedPool) reasons.set(r.retrievalReason, (reasons.get(r.retrievalReason) ?? 0) + 1);
+      layerLog("LAYER_1", `threshold 0 keeps every candidate — the score decides order, not membership`, {
+        retrieved: retrievedPool.length,
+        of: normalizedProfilesList.length,
+        scored: retrievedPool.filter((r) => r.retrievalScore > 0).length,
+        top: Math.max(...retrievedPool.map((r) => r.retrievalScore)),
+        why: [...reasons].map(([k, v]) => `${k}×${v}`).join(" "),
+      });
+    } else {
+      layerLog("LAYER_1", "retrieval returned nothing", { of: normalizedProfilesList.length });
+    }
+
+    const { pool, removed } = applyPreScoringFilters({
+      pool: retrievedPool,
+      items: normalizedProfilesMap,
+      requestedSkills,
+      jobId: requestedJobId,
+      locations,
+      schoolFilters,
+    });
+    layerLog(
+      "PREFILTER",
+      `${retrievedPool.length} → ${pool.length} after the sidebar filters${Object.keys(removed).length ? "" : " (none were set)"}`,
+      removed
+    );
+    mark("prefilter");
+    counts.prefilter = pool.length;
+
+    // Layer 2: the six evaluators, run only on what survived the filters.
+    const sharedContext: RecordContext = {
+      matchContext: matchContextFor(effectiveSkills, query.matchKeyword, taxonomy),
+      showMatchScore: Boolean(requestedJobId),
+      rankingEnabled: searchMode === "search",
+      savedUserIds,
+    };
+
+    const allTalents: TalentResult[] = pool
+      .map(({ candidate, retrievalScore, retrievalReason }) => {
+        const item = normalizedProfilesMap.get(candidate.id);
+        if (!item) return null;
+        // Layer 1's verdict rides along for the development line only. Nothing
+        // that produces a score reads it, which is the defect TS-10 fixes.
+        return buildTalentRecord(item, item.normalized, {
+          ...sharedContext,
+          retrieval: { score: retrievalScore, reason: retrievalReason },
+        });
+      })
+      .filter((t): t is TalentResult => t !== null);
+
+    mark("layer_2");
+    counts.layer_2 = allTalents.length;
+
+    // ────────────────────────────────────────────
+    // 6. Rank
+    // ────────────────────────────────────────────
+    let filtered = applyExperienceFilter(allTalents, experienceLevel);
+    if (experienceLevel) {
+      layerLog("FILTER", `experience_level=${experienceLevel} cut the scored list`, {
+        kept: filtered.length,
+        of: allTalents.length,
+        dropped: allTalents.length - filtered.length,
+      });
+    }
+    sortTalents(filtered, searchMode);
+    layerLog("RANK", `ordered by ${searchMode === "search" ? "ranking_score, then match_score" : "profile completeness + experience, then newest profile_id"}`, {
+      total: filtered.length,
+    });
+
+    const total = filtered.length;
+    mark("rank");
+    counts.after_filter = total;
+    filtered.slice(0, 5).forEach((t, i) => {
+      debugLog(`[talent-search] RANK       │ #${i + 1} ${t.user_id} ${t.name} "${t.headline || "no headline"}" → ${t.ranking_score ?? t.match_score ?? 0}`);
+    });
+
+    const rerank = await rerankTalents({
+      keyword,
+      jobId: requestedJobId,
+      userId,
+      companyId,
+      talents: filtered,
+    });
+    filtered = rerank.talents;
+    counts.layer_b = rerank.outcome;
+    mark("layer_b");
+    layerLog(
+      "LAYER_B",
+      rerank.outcome === "reranked"
+        ? "AI reordered the head of the list; the tail kept its Layer 2 rank"
+        : rerank.outcome === "skipped"
+          ? "AI rerank failed or was declined — the deterministic Layer 2 order stands"
+          : "not applicable — needs a keyword and more than one candidate",
+      { jobId: requestedJobId || null, keyword: keyword || null, candidates: total, aiReranked: rerank.aiReranked }
+    );
 
     const paginated = filtered.slice((page - 1) * limit, page * limit);
 
-    // ────────────────────────────────────────────
-    // 7. Gemini Layer C: Match Explanations (Lazy execution on drawer open)
-    // Note: Layer C match explanations are handled lazily via POST /api/client/talent-search/explain
-    // when a candidate profile drawer is opened by the recruiter, preventing unnecessary Gemini API calls on page turns.
-    // ────────────────────────────────────────────
+    // Store the order, never the rows. A degraded or truncated run is not
+    // written: page turns would then keep serving the outage's ranking until the
+    // entry aged out, long after Directus recovered.
+    if (warnings.length === 0) {
+      setRankedSearch(rankingKey, {
+        ids: filtered.map((t) => t.user_id),
+        total,
+        mode: searchMode,
+        aiReranked: rerank.aiReranked,
+        taxonomy,
+        matchKeyword: query.matchKeyword,
+        effectiveSkills,
+        newestProfileWrite: newestWriteMs(profiles),
+        savedAt: Date.now(),
+      });
+      counts.cached = true;
+      layerLog("CACHE", "stored this order — the next page of the same search skips everything above", {
+        ids: total,
+        matchKeyword: query.matchKeyword,
+        effectiveSkills: effectiveSkills.length,
+      });
+    } else {
+      counts.cached = false;
+      layerLog("CACHE", `❌ NOT stored — a degraded or truncated run is never cached, so page turns recompute`, { warnings: warnings.length });
+    }
+
+    counts.mode = searchMode;
+    counts.ai_reranked = rerank.aiReranked;
+    counts.degraded = degradedSections.length;
+    counts.warnings = warnings.length;
+    counts.page = page;
+    counts.limit = limit;
+    emitTrace();
+    layerLog("RESPONSE", `${paginated.length} talent cards, page ${page} of ${total}`, {
+      mode: searchMode,
+      ai_reranked: rerank.aiReranked,
+      degradedSections: degradedSections.length,
+      warnings: warnings.length,
+      ms: Date.now() - startedAt,
+    });
 
     return NextResponse.json({
       search_mode: searchMode,
-      search_context: searchMode === "search" ? taxonomyContext : null,
+      search_context: searchMode === "search" ? taxonomy : null,
       talents: paginated,
       total,
       page,
       limit,
-      ai_reranked: aiReranked,
-      warnings: scanWarnings,
+      ai_reranked: rerank.aiReranked,
+      warnings,
     });
   } catch (err: unknown) {
     console.error("[talent-search GET] Error:", err);
@@ -895,11 +667,13 @@ export async function GET(req: NextRequest) {
     // reads above reject on failure so this is the only place an outage can
     // surface, and it must not be shaped like a successful empty search.
     if (err instanceof DirectusError) {
+      layerLog("ERROR", "❌ a required Directus read failed — 502, deliberately NOT an empty search", { detail: err.message });
       return NextResponse.json(
         { error: "Talent search is unavailable right now. Please try again.", talents: [], total: 0 },
         { status: 502 }
       );
     }
+    layerLog("ERROR", "❌ unexpected failure — 500", { detail: err instanceof Error ? err.message : String(err) });
     return NextResponse.json({ error: "Failed to search talent profiles." }, { status: 500 });
   }
 }

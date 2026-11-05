@@ -38,6 +38,7 @@ export interface SearchKeyword {
   normalized_alias: string;
   match_weight: number;
   is_primary: boolean;
+  is_active?: boolean;
   alias_type?: AliasType;
   created_at?: string;
   updated_at?: string;
@@ -57,6 +58,7 @@ export interface RoleSkillMapping {
   skill_name?: string;
   importance_weight: number;
   is_required: boolean;
+  is_active?: boolean;
   created_at?: string;
 }
 

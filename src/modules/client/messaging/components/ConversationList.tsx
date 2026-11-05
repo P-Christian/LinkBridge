@@ -6,6 +6,7 @@ import React from "react";
 import { Search, MessageSquare, RefreshCw, Archive, X } from "lucide-react";
 import { Conversation } from "../types";
 import ConversationItem from "./ConversationItem";
+import ConversationGroupItem, { ClientConversationGroup } from "./ConversationGroupItem";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "unread";
@@ -64,6 +65,42 @@ export default function ConversationList({
       }),
     [conversations, filter, q, activeConversationId]
   );
+
+  const grouped = React.useMemo(() => {
+    const map = new Map<number, ClientConversationGroup>();
+
+    for (const conv of filtered) {
+      const gid = conv.freelancer_id;
+      let group = map.get(gid);
+      if (!group) {
+        group = {
+          groupId: gid,
+          otherPartyName: conv.other_party_name || "Unknown Candidate",
+          otherPartyAvatar: conv.other_party_avatar,
+          latestTimestamp: conv.last_message_at,
+          totalUnread: 0,
+          items: [],
+        };
+        map.set(gid, group);
+      }
+      group.items.push(conv);
+      group.totalUnread += conv.unread_count ?? 0;
+      if (
+        conv.last_message_at &&
+        (!group.latestTimestamp ||
+          new Date(conv.last_message_at.replace(" ", "T")).getTime() >
+            new Date(group.latestTimestamp.replace(" ", "T")).getTime())
+      ) {
+        group.latestTimestamp = conv.last_message_at;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = a.latestTimestamp ? new Date(a.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      const timeB = b.latestTimestamp ? new Date(b.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [filtered]);
 
   const unreadConversations = conversations.filter(
     (c) => (c.unread_count ?? 0) > 0 && c.conversation_id !== activeConversationId
@@ -225,16 +262,27 @@ export default function ConversationList({
             )}
           </div>
         ) : (
-          filtered.map((conv) => (
-            <ConversationItem
-              key={conv.conversation_id}
-              conversation={conv}
-              isActive={conv.conversation_id === activeConversationId}
-              searchQuery={searchQuery}
-              onSelect={onSelect}
-              onArchive={onArchive}
-            />
-          ))
+          grouped.map((group) =>
+            group.items.length === 1 ? (
+              <ConversationItem
+                key={group.items[0].conversation_id}
+                conversation={group.items[0]}
+                isActive={group.items[0].conversation_id === activeConversationId}
+                searchQuery={searchQuery}
+                onSelect={onSelect}
+                onArchive={onArchive}
+              />
+            ) : (
+              <ConversationGroupItem
+                key={`group-${group.groupId}`}
+                group={group}
+                activeConversationId={activeConversationId}
+                searchQuery={searchQuery}
+                onSelect={onSelect}
+                onArchive={onArchive}
+              />
+            )
+          )
         )}
       </div>
     </div>
