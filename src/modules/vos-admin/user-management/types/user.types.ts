@@ -119,6 +119,7 @@ export interface UserManagementKPIs {
   pendingCount: number;
   approvedCount: number;
   rejectedCount: number;
+  notSubmittedCount: number;
 }
 
 export interface UserWithVerification extends VsUser {

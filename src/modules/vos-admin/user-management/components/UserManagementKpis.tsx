@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Users, Clock, CheckCircle2, XCircle, FileQuestion } from "lucide-react";
 import { UserManagementKPIs } from "../types/user.types";
 import { KpiValue } from "@/components/shared/KpiValue";
 
@@ -56,10 +56,19 @@ export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
       bgColor: "bg-rose-500/10",
       borderColor: currentFilter === "rejected" ? "border-rose-500" : "border-border",
     },
+    {
+      id: "not_submitted",
+      title: "Not Submitted",
+      value: kpis.notSubmittedCount,
+      icon: FileQuestion,
+      color: "text-zinc-500",
+      bgColor: "bg-zinc-500/10",
+      borderColor: currentFilter === "not_submitted" ? "border-zinc-500" : "border-border",
+    },
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
       {cards.map((card) => {
         const Icon = card.icon;
         return (

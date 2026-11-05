@@ -143,10 +143,14 @@ export const UserManagementTable: React.FC<UserManagementTableProps> = ({
 
               const profileObj = getJobSeekerProfile(user);
 
-              // Calculate completion percent
-              const completionPercent = user.role_id === 1 && profileObj
+              // Calculate completion percent; if user has submitted verification documents pending review, ensure progress reflects pending submissions (minimum 10% per pending doc) so 0% does not contradict 'Pending Review'
+              const rawCompletion = user.role_id === 1 && profileObj
                 ? Number(profileObj.profile_completion_percent || 0)
                 : null;
+              const pendingDocsCount = (user.verifications || []).filter(v => v.status === 'pending').length;
+              const completionPercent = rawCompletion !== null && rawCompletion === 0 && pendingDocsCount > 0
+                ? Math.min(30, pendingDocsCount * 10)
+                : rawCompletion;
 
               const completionColor =
                 completionPercent !== null && completionPercent >= 90
@@ -241,9 +245,11 @@ export const UserManagementTable: React.FC<UserManagementTableProps> = ({
                   <TableCell className="py-4 pr-6 pl-4 text-right">
                     {(() => {
                       const hasPendingDocuments = (user.verifications || []).some(v => v.status === 'pending');
+                      const isActionableReview = status === 'pending' || hasPendingDocuments;
+
                       return (
                         <Button
-                          variant="default"
+                          variant={isActionableReview ? "default" : "outline"}
                           size="sm"
                           onClick={() => onSelectUser(user)}
                           className="h-8 px-3 gap-1.5 text-xs font-semibold shadow-xs transition-all hover:scale-102 active:scale-98 relative"
@@ -255,7 +261,7 @@ export const UserManagementTable: React.FC<UserManagementTableProps> = ({
                             </span>
                           )}
                           <Eye className="h-3.5 w-3.5" />
-                          Review & Verify
+                          {isActionableReview ? "Review & Verify" : "View Details"}
                         </Button>
                       );
                     })()}

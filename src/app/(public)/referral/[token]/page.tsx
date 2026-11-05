@@ -5,6 +5,9 @@ import { cookies } from "next/headers";
 import { getReferralByToken } from "@/modules/freelancer/freelancer-referrals/services/referral.service";
 import ReferralLandingClient from "./ReferralLandingClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 interface Props {
   params: Promise<{ token: string }>;
 }

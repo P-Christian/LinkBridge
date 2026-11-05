@@ -32,6 +32,8 @@ import {
   Youtube,
   Bookmark,
   Share2,
+  AlertCircle,
+  ArrowRight,
 } from "lucide-react";
 import { PublicJobPosting, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS } from "../types";
 import ReferModal from "../../freelancer/freelancer-referrals/components/ReferModal";
@@ -46,6 +48,7 @@ interface Props {
   appliedJobIds?: number[];
   bookmarkedJobIds?: number[];
   onToggleBookmark?: (jobId: number) => void;
+  referralInfo?: { referrer_name: string; expires_at: string | null } | null;
 }
 
 function formatSalary(job: PublicJobPosting): string {
@@ -152,8 +155,27 @@ function renderFormattedContent(text: string | null | undefined) {
   );
 }
 
-export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = [], bookmarkedJobIds = [], onToggleBookmark }: Props) {
+export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = [], bookmarkedJobIds = [], onToggleBookmark, referralInfo }: Props) {
   const [referModalOpen, setReferModalOpen] = React.useState(false);
+  const [profileCompletion, setProfileCompletion] = React.useState<number | null>(null);
+  const [now] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (open) {
+      fetch("/api/freelancer/profile")
+        .then((res) => res.json())
+        .then((json) => {
+          const profile = json?.data;
+          if (profile) {
+            const profileObj = profile.job_seeker_profile || profile.vs_job_seeker_profile;
+            const record = Array.isArray(profileObj) ? profileObj[0] : profileObj;
+            const percent = typeof record?.profile_completion_percent === "number" ? record.profile_completion_percent : 0;
+            setProfileCompletion(percent);
+          }
+        })
+        .catch((err) => console.error("Error checking profile completion in JobDetailSheet:", err));
+    }
+  }, [open]);
 
   if (!job) return null;
 
@@ -162,6 +184,16 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
   const companyUrl = job.company_code
     ? `/companies/${job.company_code}`
     : `/companies?search=${encodeURIComponent(job.company_name ?? "")}`;
+
+  const countdown = (() => {
+    if (!referralInfo?.expires_at) return null;
+    const diff = new Date(referralInfo.expires_at).getTime() - now;
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (days <= 0) return { label: "Expired", isUrgent: true };
+    if (days === 1) return { label: "Expires tomorrow", isUrgent: true };
+    if (days <= 3) return { label: `${days}d left`, isUrgent: true };
+    return { label: `${days}d left`, isUrgent: false };
+  })();
 
   // Employer-supplied socials must pass a scheme allowlist before reaching an href.
   const facebookUrl = safeUrl(job.company_facebook);
@@ -241,7 +273,20 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
           </div>
 
           {/* Quick meta */}
-          <div className="flex flex-wrap gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3 items-center">
+            {referralInfo && (
+              <Badge
+                variant="outline"
+                className="bg-primary/10 text-primary border-primary/25 text-xs font-semibold px-2.5 py-1 gap-1.5 rounded-full"
+              >
+                <span>👥 Referred by {referralInfo.referrer_name}</span>
+                {countdown && (
+                  <span className={countdown.isUrgent ? "text-amber-600 dark:text-amber-400 font-bold ml-1" : "text-muted-foreground ml-1"}>
+                    · ⏳ {countdown.label}
+                  </span>
+                )}
+              </Badge>
+            )}
             <span className="inline-flex items-center gap-1 text-sm md:text-xs text-muted-foreground bg-muted/60 px-2.5 py-1 rounded-full">
               <MapPin className="h-3 w-3" /> {job.job_location}
             </span>
@@ -448,39 +493,72 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
           </div>
         </ScrollArea>
 
-        {/* Sticky Apply Button */}
-        <div className="px-6 py-4 border-t bg-background shrink-0 flex gap-3 max-md:flex-wrap">
-          {onToggleBookmark && (
+        {/* Sticky Apply Button and Requirements */}
+        <div className="px-6 py-4 border-t bg-background shrink-0 flex flex-col gap-3">
+          {profileCompletion !== null && profileCompletion < 100 && (
+            <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-3.5 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/25 space-y-2">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h5 className="text-xs font-bold text-amber-950 dark:text-amber-200">
+                    Profile Completion Required to Apply ({profileCompletion}%)
+                  </h5>
+                  <p className="text-[11px] text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
+                    You must complete your profile before applying. This job is saved in your bookmarks.
+                  </p>
+                  <div className="pt-1">
+                    <a
+                      href="/vos-sync/freelancer/profile"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline"
+                    >
+                      Complete Profile Now <ArrowRight className="h-3 w-3" />
+                    </a>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="flex gap-3 max-md:flex-wrap">
+            {onToggleBookmark && (
+              <Button
+                variant="outline"
+                className={`h-10 px-4 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${
+                  isBookmarked 
+                    ? "border-primary text-primary hover:bg-primary/5" 
+                    : "text-foreground border-zinc-200 dark:border-zinc-800"
+                }`}
+                onClick={() => onToggleBookmark(job.job_id)}
+              >
+                <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-current" : ""}`} />
+                {isBookmarked ? "Saved" : "Save Job"}
+              </Button>
+            )}
             <Button
               variant="outline"
-              className={`h-10 px-4 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${
-                isBookmarked 
-                  ? "border-primary text-primary hover:bg-primary/5" 
-                  : "text-foreground border-zinc-200 dark:border-zinc-800"
-              }`}
-              onClick={() => onToggleBookmark(job.job_id)}
+              className="h-10 px-4 rounded-xl font-medium gap-2 text-foreground border-zinc-200 dark:border-zinc-800 max-md:min-h-11"
+              onClick={() => setReferModalOpen(true)}
             >
-              <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-current" : ""}`} />
-              {isBookmarked ? "Saved" : "Save Job"}
+              <Share2 className="h-4 w-4" />
+              Refer
             </Button>
-          )}
-          <Button
-            variant="outline"
-            className="h-10 px-4 rounded-xl font-medium gap-2 text-foreground border-zinc-200 dark:border-zinc-800 max-md:min-h-11"
-            onClick={() => setReferModalOpen(true)}
-          >
-            <Share2 className="h-4 w-4" />
-            Refer
-          </Button>
-          <Button
-            id="job-detail-apply-btn"
-            onClick={() => onApply(job)}
-            disabled={alreadyApplied}
-            className="flex-1 h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium gap-2 border-0 shadow-sm disabled:bg-zinc-100 disabled:text-zinc-400 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600 max-md:min-h-11"
-          >
-            <Send className="h-4 w-4" />
-            {alreadyApplied ? "Already Applied" : "Apply Now"}
-          </Button>
+            <Button
+              id="job-detail-apply-btn"
+              onClick={() => onApply(job)}
+              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 100)}
+              title={
+                profileCompletion !== null && profileCompletion < 100
+                  ? "You must complete your profile (100%) before applying"
+                  : alreadyApplied
+                  ? "Already Applied"
+                  : "Apply Now"
+              }
+              className="flex-1 h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium gap-2 border-0 shadow-sm disabled:bg-zinc-100 disabled:text-zinc-400 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600 disabled:cursor-not-allowed max-md:min-h-11"
+            >
+              <Send className="h-4 w-4" />
+              {alreadyApplied ? "Already Applied" : "Apply Now"}
+            </Button>
+          </div>
         </div>
 
         {/* Refer Modal */}

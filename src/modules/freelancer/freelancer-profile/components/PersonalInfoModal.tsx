@@ -31,6 +31,7 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
     const [selectedCityCode, setSelectedCityCode] = useState("");
     const [locationError, setLocationError] = useState<string | null>(null);
     const [socialLinkErrors, setSocialLinkErrors] = useState<Record<number, string>>({});
+    const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
     useEffect(() => {
         if (isOpen && data) {
@@ -174,9 +175,41 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
             };
         });
 
-        if (Object.keys(errors).length > 0) {
-            setSocialLinkErrors(errors);
-            toast.error("Please fix invalid social profile URLs before applying changes.");
+        const newFieldErrors: Record<string, string> = {};
+        if (!formData.user_fname || !formData.user_fname.trim()) {
+            newFieldErrors.user_fname = "First name is required";
+        }
+        if (!formData.user_lname || !formData.user_lname.trim()) {
+            newFieldErrors.user_lname = "Last name is required";
+        }
+        if (!formData.user_contact || !formData.user_contact.trim()) {
+            newFieldErrors.user_contact = "Contact number is required";
+        }
+        if (!formData.user_bday || !formData.user_bday.trim()) {
+            newFieldErrors.user_bday = "Birthday is required";
+        }
+        if (!formData.gender || !formData.gender.trim()) {
+            newFieldErrors.gender = "Gender is required";
+        }
+        if (!formData.user_province || !formData.user_province.trim()) {
+            newFieldErrors.user_province = "Province is required";
+        }
+        if (!formData.user_city || !formData.user_city.trim()) {
+            newFieldErrors.user_city = "City/Municipality is required";
+        }
+
+        const hasFieldErrors = Object.keys(newFieldErrors).length > 0;
+        const hasSocialErrors = Object.keys(errors).length > 0;
+
+        if (hasFieldErrors || hasSocialErrors) {
+            if (hasFieldErrors) {
+                setFormErrors(newFieldErrors);
+                toast.error("Please fill in all mandatory fields before applying changes.");
+            }
+            if (hasSocialErrors) {
+                setSocialLinkErrors(errors);
+                toast.error("Please fix invalid social profile URLs before applying changes.");
+            }
             return;
         }
 
@@ -188,6 +221,13 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        if (formErrors[name]) {
+            setFormErrors(prev => {
+                const copy = { ...prev };
+                delete copy[name];
+                return copy;
+            });
+        }
     };
 
     const handleBirthdayChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -204,6 +244,13 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
         }
 
         setFormData(prev => ({ ...prev, user_bday: val }));
+        if (formErrors.user_bday) {
+            setFormErrors(prev => {
+                const copy = { ...prev };
+                delete copy.user_bday;
+                return copy;
+            });
+        }
     };
 
     const handleProvinceSelect = (code: string, name: string) => {
@@ -216,6 +263,13 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
             user_city: "",
             user_brgy: ""
         }));
+        if (formErrors.user_province) {
+            setFormErrors(prev => {
+                const copy = { ...prev };
+                delete copy.user_province;
+                return copy;
+            });
+        }
     };
 
     const handleCitySelect = (code: string, name: string) => {
@@ -225,6 +279,13 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
             user_city: name,
             user_brgy: ""
         }));
+        if (formErrors.user_city) {
+            setFormErrors(prev => {
+                const copy = { ...prev };
+                delete copy.user_city;
+                return copy;
+            });
+        }
     };
 
     const handleBarangaySelect = (_code: string, name: string) => {
@@ -258,8 +319,15 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="user_fname"
                                     value={formData.user_fname || ""}
                                     onChange={handleChange}
-                                    className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
+                                        formErrors.user_fname
+                                            ? "border-destructive focus-visible:ring-destructive"
+                                            : "border-input focus-visible:ring-ring"
+                                    }`}
                                 />
+                                {formErrors.user_fname && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_fname}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Middle Name</label>
@@ -278,8 +346,15 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="user_lname"
                                     value={formData.user_lname || ""}
                                     onChange={handleChange}
-                                    className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
+                                        formErrors.user_lname
+                                            ? "border-destructive focus-visible:ring-destructive"
+                                            : "border-input focus-visible:ring-ring"
+                                    }`}
                                 />
+                                {formErrors.user_lname && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_lname}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Suffix</label>
@@ -327,8 +402,15 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="user_contact"
                                     value={formData.user_contact || ""}
                                     onChange={handleChange}
-                                    className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
+                                        formErrors.user_contact
+                                            ? "border-destructive focus-visible:ring-destructive"
+                                            : "border-input focus-visible:ring-ring"
+                                    }`}
                                 />
+                                {formErrors.user_contact && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_contact}</p>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -346,8 +428,15 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     max={todayString}
                                     value={formData.user_bday ? formData.user_bday.slice(0, 10) : ""}
                                     onChange={handleBirthdayChange}
-                                    className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
+                                        formErrors.user_bday
+                                            ? "border-destructive focus-visible:ring-destructive"
+                                            : "border-input focus-visible:ring-ring"
+                                    }`}
                                 />
+                                {formErrors.user_bday && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_bday}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Gender *</label>
@@ -355,13 +444,20 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="gender"
                                     value={formData.gender || ""}
                                     onChange={handleChange}
-                                    className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 ${
+                                        formErrors.gender
+                                            ? "border-destructive focus-visible:ring-destructive"
+                                            : "border-input focus-visible:ring-ring"
+                                    }`}
                                 >
                                     <option value="">Select Gender</option>
                                     <option value="Male">Male</option>
                                     <option value="Female">Female</option>
                                     <option value="Other">Other</option>
                                 </select>
+                                {formErrors.gender && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.gender}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Civil Status</label>
@@ -432,24 +528,34 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Province *</label>
-                                <SearchableAddressSelect
-                                    options={provinces}
-                                    value={selectedProvinceCode}
-                                    onChange={handleProvinceSelect}
-                                    placeholder="Select Province"
-                                    searchPlaceholder="Search province..."
-                                />
+                                <div className={formErrors.user_province ? "rounded-md ring-1 ring-destructive" : ""}>
+                                    <SearchableAddressSelect
+                                        options={provinces}
+                                        value={selectedProvinceCode}
+                                        onChange={handleProvinceSelect}
+                                        placeholder="Select Province"
+                                        searchPlaceholder="Search province..."
+                                    />
+                                </div>
+                                {formErrors.user_province && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_province}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">City/Municipality *</label>
-                                <SearchableAddressSelect
-                                    options={cities}
-                                    value={selectedCityCode}
-                                    onChange={handleCitySelect}
-                                    placeholder="Select City/Municipality"
-                                    searchPlaceholder="Search city/municipality..."
-                                    disabled={!selectedProvinceCode || cities.length === 0}
-                                />
+                                <div className={formErrors.user_city ? "rounded-md ring-1 ring-destructive" : ""}>
+                                    <SearchableAddressSelect
+                                        options={cities}
+                                        value={selectedCityCode}
+                                        onChange={handleCitySelect}
+                                        placeholder="Select City/Municipality"
+                                        searchPlaceholder="Search city/municipality..."
+                                        disabled={!selectedProvinceCode || cities.length === 0}
+                                    />
+                                </div>
+                                {formErrors.user_city && (
+                                    <p className="text-xs text-destructive font-medium">{formErrors.user_city}</p>
+                                )}
                             </div>
                             <div className="space-y-2">
                                 <label className="text-sm font-medium text-foreground">Barangay</label>
