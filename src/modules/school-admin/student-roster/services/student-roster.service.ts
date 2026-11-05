@@ -203,7 +203,21 @@ export async function inviteStudentService(
     });
   }
 
-  const cleanOrigin = originUrl.replace(/\/$/, '');
+  let effectiveOrigin = originUrl?.trim() || '';
+  if (!effectiveOrigin || effectiveOrigin.includes('localhost') || effectiveOrigin.includes('127.0.0.1')) {
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o && !o.includes('localhost') && !o.includes('127.0.0.1'));
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
+    if (appUrl?.trim()) {
+      effectiveOrigin = appUrl.trim();
+    } else if (allowedOrigins.length > 0) {
+      effectiveOrigin = allowedOrigins[0];
+    }
+  }
+
+  const cleanOrigin = (effectiveOrigin || originUrl).replace(/\/$/, '');
   const invitationUrl = `${cleanOrigin}/student-register?token=${tokenRecord.token}`;
 
   // Dispatch Invitation Email

@@ -14,7 +14,6 @@ import {
   Shield,
   Server,
   ArrowRight,
-  Code,
   Building2,
   Briefcase,
   FileText,
@@ -61,22 +60,39 @@ export function AuditDetailModal({ record, isOpen, onClose }: AuditDetailModalPr
   const newVals = record.new_values || {};
   const allKeys = Array.from(new Set([...Object.keys(oldVals), ...Object.keys(newVals)]));
 
-  const diffItems = allKeys.map((key) => {
-    const oldV = oldVals[key];
-    const newV = newVals[key];
-    let status: 'added' | 'removed' | 'changed' | 'unchanged' = 'unchanged';
+  const diffItems = allKeys
+    .map((key) => {
+      const oldV = oldVals[key];
+      const newV = newVals[key];
+      let status: 'added' | 'removed' | 'changed' | 'unchanged' = 'unchanged';
 
-    if (oldV === undefined && newV !== undefined) status = 'added';
-    else if (oldV !== undefined && newV === undefined) status = 'removed';
-    else if (JSON.stringify(oldV) !== JSON.stringify(newV)) status = 'changed';
+      if (oldV === undefined && newV !== undefined) status = 'added';
+      else if (oldV !== undefined && newV === undefined) status = 'removed';
+      else if (JSON.stringify(oldV) !== JSON.stringify(newV)) status = 'changed';
 
-    return {
-      key,
-      oldVal: oldV !== undefined ? (typeof oldV === 'object' ? JSON.stringify(oldV) : String(oldV)) : null,
-      newVal: newV !== undefined ? (typeof newV === 'object' ? JSON.stringify(newV) : String(newV)) : null,
-      status,
-    };
-  }).filter((item) => item.status !== 'unchanged');
+      // Normalize string display
+      const formatVal = (val: unknown) => {
+        if (val === undefined || val === null) return null;
+        if (Array.isArray(val)) return val.join(", ");
+        if (typeof val === "object") return JSON.stringify(val);
+        return String(val);
+      };
+
+      return {
+        key,
+        oldVal: formatVal(oldV),
+        newVal: formatVal(newV),
+        status,
+      };
+    })
+    .filter((item) => {
+      if (item.status === 'unchanged') return false;
+      // Filter out redundant empty-to-null additions
+      if ((item.oldVal === null || item.oldVal === "<none>") && (item.newVal === null || item.newVal === "null")) {
+        return false;
+      }
+      return true;
+    });
 
   // Dynamic Actor Information
   const actorType = (record.actor_type || 'USER').toUpperCase();
@@ -138,12 +154,9 @@ export function AuditDetailModal({ record, isOpen, onClose }: AuditDetailModalPr
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
-          <TabsList className="grid grid-cols-3 w-full bg-muted">
+          <TabsList className="grid grid-cols-2 w-full bg-muted">
             <TabsTrigger value="overview" className="text-xs font-medium">Overview</TabsTrigger>
-            <TabsTrigger value="diff" className="text-xs font-medium">
-              State Diff ({diffItems.length})
-            </TabsTrigger>
-            <TabsTrigger value="raw" className="text-xs font-medium">Raw JSON</TabsTrigger>
+            <TabsTrigger value="diff" className="text-xs font-medium">State Diff</TabsTrigger>
           </TabsList>
 
           {/* Overview Tab */}
@@ -293,58 +306,78 @@ export function AuditDetailModal({ record, isOpen, onClose }: AuditDetailModalPr
                 <p className="text-sm font-medium text-muted-foreground">No state changes recorded for this event.</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                {diffItems.map((item) => {
-                  let bg = "bg-muted/40 border-border";
-                  let badgeColor = "bg-muted text-muted-foreground";
+              <div className="border border-border rounded-xl bg-card overflow-hidden shadow-xs">
+                <div className="p-3 bg-muted/40 border-b border-border flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Entity State Modifications
+                  </span>
+                  <span className="text-[11px] text-muted-foreground font-mono">
+                    {diffItems.length} field{diffItems.length === 1 ? "" : "s"} updated
+                  </span>
+                </div>
+                <div className="divide-y divide-border/60 max-h-[420px] overflow-y-auto">
+                  {diffItems.map((item) => {
+                    let badgeColor = "bg-muted text-muted-foreground";
+                    let statusLabel = item.status.toUpperCase();
 
-                  if (item.status === 'added') {
-                    bg = "bg-emerald-500/10 border-emerald-500/20";
-                    badgeColor = "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300";
-                  } else if (item.status === 'removed') {
-                    bg = "bg-destructive/10 border-destructive/20";
-                    badgeColor = "bg-destructive/20 text-destructive";
-                  } else if (item.status === 'changed') {
-                    bg = "bg-amber-500/10 border-amber-500/20";
-                    badgeColor = "bg-amber-500/20 text-amber-700 dark:text-amber-300";
-                  }
+                    if (item.status === 'added') {
+                      badgeColor = "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+                      statusLabel = "SET";
+                    } else if (item.status === 'removed') {
+                      badgeColor = "bg-destructive/15 text-destructive";
+                      statusLabel = "CLEARED";
+                    } else if (item.status === 'changed') {
+                      badgeColor = "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+                      statusLabel = "MODIFIED";
+                    }
 
-                  return (
-                    <div key={item.key} className={`p-3 rounded-xl border ${bg} text-xs`}>
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="font-mono font-bold text-foreground">{item.key}</span>
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider ${badgeColor}`}>
-                          {item.status}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 font-mono text-[11px] bg-card p-2.5 rounded-lg border border-border">
-                        <div className="space-y-0.5">
-                          <span className="text-[10px] text-muted-foreground uppercase font-sans">Old Value</span>
-                          <p className="text-destructive break-all">{item.oldVal ?? "<none>"}</p>
-                        </div>
-                        <div className="space-y-0.5 sm:border-l sm:border-border sm:pl-2">
-                          <span className="text-[10px] text-muted-foreground uppercase font-sans flex items-center gap-1">
-                            <ArrowRight className="h-3 w-3 text-muted-foreground" /> New Value
+                    // Format human-friendly key label
+                    const formatKey = (rawKey: string) => {
+                      const mapping: Record<string, string> = {
+                        account_status: "Account Status",
+                        reason_code: "Policy Reason Code",
+                        duration: "Restriction Duration",
+                        expires_at: "Expiration Timestamp",
+                        restrictions: "Prohibited Capabilities",
+                        verification_status: "Verification Status",
+                        school_status: "School Status",
+                        internal_notes: "Internal Notes",
+                      };
+                      return mapping[rawKey] || rawKey.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+                    };
+
+                    return (
+                      <div key={item.key} className="p-3.5 hover:bg-muted/15 transition-colors">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-foreground">
+                            {formatKey(item.key)}
                           </span>
-                          <p className="text-emerald-600 dark:text-emerald-400 break-all">{item.newVal ?? "<none>"}</p>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded uppercase tracking-wider ${badgeColor}`}>
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 font-mono text-xs bg-muted/20 p-2.5 rounded-lg border border-border/50">
+                          <div className="space-y-0.5">
+                            <span className="text-[10px] text-muted-foreground uppercase font-sans">Previous State</span>
+                            <p className="text-destructive font-medium break-all">
+                              {item.oldVal ?? "<none>"}
+                            </p>
+                          </div>
+                          <div className="space-y-0.5 sm:border-l sm:border-border sm:pl-3">
+                            <span className="text-[10px] text-muted-foreground uppercase font-sans flex items-center gap-1">
+                              <ArrowRight className="h-3 w-3 text-muted-foreground" /> New State
+                            </span>
+                            <p className="text-emerald-600 dark:text-emerald-400 font-semibold break-all">
+                              {item.newVal ?? "<none>"}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </TabsContent>
-
-          {/* Raw JSON Tab */}
-          <TabsContent value="raw" className="pt-4">
-            <div className="p-4 rounded-xl bg-zinc-950 text-zinc-100 font-mono text-xs max-h-[400px] overflow-auto">
-              <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-800 text-[11px] text-zinc-400 font-sans">
-                <span className="flex items-center gap-1"><Code className="h-3.5 w-3.5" /> Full Event Payload</span>
-                <span>JSON</span>
-              </div>
-              <pre>{JSON.stringify(record, null, 2)}</pre>
-            </div>
           </TabsContent>
         </Tabs>
       </DialogContent>
