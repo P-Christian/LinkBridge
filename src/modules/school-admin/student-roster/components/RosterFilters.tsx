@@ -50,6 +50,12 @@ export const RosterFilters: React.FC<RosterFiltersProps> = ({
         if (trimmed !== searchQuery) {
           onSearchChange(trimmed);
         }
+      } else {
+        // Under threshold (< 3 chars, e.g. after backspacing from >= 3)
+        // Clear active query if one was previously set to prevent stale results
+        if (searchQuery !== '') {
+          onSearchChange('');
+        }
       }
     }, 400);
 

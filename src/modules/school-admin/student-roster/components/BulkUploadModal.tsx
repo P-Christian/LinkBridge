@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CreateStudentInput, createStudentSchema } from '../types/student-roster.schema';
 import { Button } from '@/components/ui/button';
-import { Download, FileSpreadsheet, Upload, X } from 'lucide-react';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Download, Upload, X } from 'lucide-react';
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -29,6 +30,11 @@ const TEMPLATE_HEADERS = [
   'course_name',
   'school_year',
   'gpa',
+];
+
+const TEMPLATE_OPTIONS = [
+  { value: 'csv', label: 'CSV (.csv)' },
+  { value: 'xlsx', label: 'Excel (.xlsx)' },
 ];
 
 export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
@@ -251,27 +257,19 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 Headers: student_number, first_name, middle_name, last_name, email, course_code, course_name, school_year, gpa
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => downloadTemplate('csv')}
-                className="text-xs h-8 bg-background border-border"
-              >
-                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />
-                CSV (.csv)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => downloadTemplate('xlsx')}
-                className="text-xs h-8 bg-background border-border"
-              >
-                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5 text-blue-500" />
-                Excel (.xlsx)
-              </Button>
+            <div className="w-full sm:w-[190px]">
+              <SearchableSelect
+                options={TEMPLATE_OPTIONS}
+                value=""
+                onValueChange={(val) => {
+                  if (val === 'csv' || val === 'xlsx') {
+                    downloadTemplate(val);
+                  }
+                }}
+                placeholder="Download Template..."
+                searchPlaceholder="Search format..."
+                triggerClassName="h-8 text-xs bg-background border-border"
+              />
             </div>
           </div>
 

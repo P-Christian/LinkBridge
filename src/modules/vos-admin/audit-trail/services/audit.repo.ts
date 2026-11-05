@@ -172,7 +172,11 @@ export async function fetchAuditLogsRepo(
   );
 
   const resourceUserIds = rawRecords
-    .filter((r) => r.resource_type?.toUpperCase() === "USER" && r.resource_id)
+    .filter((r) => {
+      const rt = r.resource_type?.toUpperCase();
+      const rc = r.event_category?.toUpperCase();
+      return (rt === "USER" || rt === "VS_USER" || rc === "USER") && r.resource_id;
+    })
     .map((r) => parseInt(String(r.resource_id), 10))
     .filter((id) => !isNaN(id) && id > 0);
 
@@ -315,7 +319,7 @@ export async function fetchAuditLogsRepo(
       resourceName = companyMap[orgId];
     } else if (record.actor_company_id && companyMap[Number(record.actor_company_id)]) {
       resourceName = companyMap[Number(record.actor_company_id)];
-    } else if (rId && userMap[rId] && (rType === "USER" || rCat === "USER")) {
+    } else if (rId && userMap[rId] && (rType === "USER" || rType === "VS_USER" || rCat === "USER")) {
       resourceName = userMap[rId].name;
     } else if (rId && jobMap[rId] && (rType === "JOB" || rCat === "JOB")) {
       resourceName = jobMap[rId];

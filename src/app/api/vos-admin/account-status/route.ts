@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     };
 
     const body = await req.json().catch(() => null);
-    const { userId, targetStatus, reasonCode, publicReason, internalNote, expiresAt, restrictions } =
+    const { userId, targetStatus, reasonCode, publicReason, internalNote, duration, expiresAt, restrictions } =
       body ?? {};
 
     if (!userId || !targetStatus || !reasonCode || !publicReason) {
@@ -107,6 +107,26 @@ export async function POST(req: NextRequest) {
     // already committed, so this is reported as a warning, not an error — an
     // error invites a retry, and a retry is a second transition.
     try {
+      const newValues: Record<string, unknown> = {
+        account_status: targetStatus,
+        reason_code: reasonCode,
+      };
+
+      if (targetStatus === "LIMITED" || targetStatus === "SUSPENDED") {
+        if (duration && duration !== "indefinite") {
+          const days = parseInt(duration, 10);
+          newValues.duration = `${days} Day${days === 1 ? "" : "s"}${expiresAt ? ` (Expires ${new Date(expiresAt).toLocaleDateString()})` : ""}`;
+        } else {
+          newValues.duration = "Indefinite / Permanent";
+        }
+      } else if (targetStatus === "BLOCKED") {
+        newValues.duration = "Permanent / Indefinite";
+      }
+
+      if (targetStatus === "LIMITED" && Array.isArray(restrictions) && restrictions.length > 0) {
+        newValues.restrictions = restrictions;
+      }
+
       await createAuditRecordStrictRepo({
         event_type: "ACCOUNT_STATUS_UPDATED",
         event_category: "USER",
@@ -114,9 +134,13 @@ export async function POST(req: NextRequest) {
         status: "SUCCESS",
         actor_type: "ADMIN",
         actor_user_id: admin.adminId,
-        resource_type: "vs_user",
+        resource_type: "USER",
         resource_id: String(targetUserId),
         reason: internalNote || `${targetStatus} status applied for reason ${reasonCode}`,
+        old_values: {
+          account_status: userDetail.status,
+        },
+        new_values: newValues,
       });
     } catch (auditErr) {
       console.error("Status transition could not be logged:", auditErr);
