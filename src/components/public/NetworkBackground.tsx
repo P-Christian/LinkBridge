@@ -23,7 +23,8 @@ import { useTheme } from "next-themes";
 const TAU = Math.PI * 2;
 const DENSITY = 22000; // px² of screen per node
 const WAVE_REACH = 420;
-const WAVE_SECONDS = 1.8;
+const WAVE_SECONDS = 3;
+const ALLOW_CARD_RIPPLE = false;
 
 type RGB = [number, number, number];
 
@@ -453,6 +454,25 @@ export function NetworkBackground({ interactive = true }: { interactive?: boolea
       }, 150);
     };
     const onDown = (e: PointerEvent) => {
+
+      // Always ignore right clicks / middle clicks
+      if (e.button !== 0) return;
+      // If cards are NOT allowed to ripple, block clicks inside cards/interactive UI
+      if (!ALLOW_CARD_RIPPLE) {
+        // Do not trigger ripple when clicking inside cards, forms, buttons, or interactive UI
+        const target = e.target as Element | null;
+        if (
+          target &&
+          typeof target.closest === "function" &&
+          target.closest(
+            "button, input, textarea, select, a, label, summary, [role='button'], [role='link'], [role='tab'], [role='dialog'], [role='menu'], [role='listbox'], [role='option'], [role='checkbox'], [role='radio'], [data-no-ripple], form, nav, header, footer, dialog, [role='dialog'], [role='region'], .card, [class*='card'], [class*='backdrop-blur'], [class*='bg-card'], [data-card]"
+          )
+        ) {
+          return;
+        }
+      }
+
+
       waves.push({ x: e.clientX, y: e.clientY, t: performance.now() / 1000 });
       if (waves.length > 3) waves.shift();
       // push nearby nodes away from the click point
