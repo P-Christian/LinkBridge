@@ -124,6 +124,7 @@ export function AccountStatusDetailModal({
       reasonCode,
       publicReason,
       internalNote,
+      duration,
       expiresAt,
       restrictions: targetStatus === "LIMITED" ? selectedRestrictions : undefined
     });

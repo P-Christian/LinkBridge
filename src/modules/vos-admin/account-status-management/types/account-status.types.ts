@@ -107,6 +107,7 @@ export interface StatusTransitionPayload {
   reasonCode: string;
   publicReason: string;
   internalNote?: string;
+  duration?: string;
   expiresAt?: string | null;
   restrictions?: string[]; // Array of restriction codes to apply (if LIMITED)
 }
