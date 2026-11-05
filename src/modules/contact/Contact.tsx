@@ -261,12 +261,12 @@ export default function Contact({ initialCompany = null }: ContactProps) {
   const supportHoursValue = `${supportDays}, ${supportTime}`;
 
   const contactCards: ContactCard[] = [
-    { icon: MapPin, label: "Office", value: officeAddress, desc: "Visit Us" , href: mapUrl },
-    { icon: Mail, label: "Email us", value: email, desc: "We reply within 24 hours.", href: `mailto:${email}` },
+    { icon: MapPin, label: "Visit Our Office", value: officeAddress, desc: "Get Directions" , href: mapUrl },
+    { icon: Mail, label: "Email us", value: email, desc: "Our team is ready to assist", href: `mailto:${email}` },
     ...(mobile
-      ? [{ icon: Smartphone, label: "Mobile", value: formatPhone(mobile), desc: "Mobile hotline", href: toTelHref(mobile) }]
+      ? [{ icon: Smartphone, label: "Call us", value: formatPhone(mobile), desc: "Mobile hotline", href: toTelHref(mobile) }]
       : []),
-    { icon: Clock, label: "Support hours", value: supportHoursValue, desc: supportTimezone },
+    { icon: Clock, label: "Business Hours", value: supportHoursValue, desc: supportTimezone },
   ];
 
   const cardClass =
