@@ -182,24 +182,29 @@ export async function loginUser(
         throw new AuthFailure(`Account is locked. Try again at ${lockUntilDate.toLocaleTimeString()}.`, "account_locked", 400);
     }
 
+    let isContainmentStatus = false;
+    let containmentStatusName = "";
+
     if (!canAuthenticate(user)) {
         const canonicalStatus = String(user.status ?? "").trim().toUpperCase();
         const legacyStatus = String(user.user_status ?? "").trim().toUpperCase();
         const currentStatus = canonicalStatus || legacyStatus;
 
-        if (currentStatus === "SUSPENDED") {
-            throw new AuthFailure("Your account has been suspended by administration. Please check your suspension notice or contact support.", "account_inactive", 403);
-        } else if (currentStatus === "BLOCKED" || user.is_blocked) {
-            throw new AuthFailure("Your account has been blocked due to administrative containment.", "account_blocked", 403);
+        // Containment statuses are allowed to authenticate into the containment portal (/vos-sync/suspended)
+        if (
+            currentStatus === "SUSPENDED" ||
+            currentStatus === "BLOCKED" ||
+            user.is_blocked ||
+            currentStatus === "DEACTIVATED" ||
+            currentStatus === "PENDING_DELETION"
+        ) {
+            isContainmentStatus = true;
+            containmentStatusName = currentStatus || "SUSPENDED";
         } else if (currentStatus === "PENDING_VERIFICATION" || currentStatus === "PENDING") {
             throw new AuthFailure("Your account is pending verification. Please wait for administrator approval.", "account_inactive", 403);
-        } else if (currentStatus === "DEACTIVATED") {
-            throw new AuthFailure("Your account has been deactivated.", "account_inactive", 403);
-        } else if (currentStatus === "PENDING_DELETION") {
-            throw new AuthFailure("Your account is currently pending deletion.", "account_inactive", 403);
+        } else {
+            throw new AuthFailure("Account is not active or verified.", "account_inactive", 403);
         }
-
-        throw new AuthFailure("Account is not active or verified.", "account_inactive", 403);
     }
 
     // Login successful
@@ -213,7 +218,9 @@ export async function loginUser(
         actor_type: user.role_id === 3 ? "ADMIN" : "USER",
         actor_user_id: user.user_id,
         organization_type: user.role_id === 2 ? "EMPLOYER" : user.role_id === 4 ? "SCHOOL" : "FREELANCER",
-        reason: "User logged in successfully",
+        reason: isContainmentStatus
+            ? `User authenticated into containment portal (Status: ${containmentStatusName})`
+            : "User logged in successfully",
     });
 
     let sessionId: string | undefined;
@@ -230,27 +237,32 @@ export async function loginUser(
         console.error("[auth.service] Failed to persist session record in vs_user_sessions:", sessionErr);
     }
 
-    const session = await issueAuthSession({
-        user_id: user.user_id,
-        user_email: user.user_email,
-        role: user.role,
-        role_id: user.role_id,
-        status: user.status,
-        user_status: user.user_status,
-        otp_verified: user.otp_verified,
-        is_blocked: user.is_blocked,
-        lock_until: user.lock_until,
-        session_id: sessionId,
-    });
+    const session = await issueAuthSession(
+        {
+            user_id: user.user_id,
+            user_email: user.user_email,
+            role: user.role,
+            role_id: user.role_id,
+            status: user.status,
+            user_status: user.user_status,
+            otp_verified: user.otp_verified,
+            is_blocked: user.is_blocked,
+            lock_until: user.lock_until,
+            session_id: sessionId,
+        },
+        { allowContainment: isContainmentStatus }
+    );
 
-    console.log(`[auth.service] User logged in: user_id=${user.user_id}, role_id=${user.role_id}, session_id=${sessionId}`);
+    const destination = isContainmentStatus ? "/vos-sync/suspended" : session.destination;
+
+    console.log(`[auth.service] User logged in: user_id=${user.user_id}, role_id=${user.role_id}, session_id=${sessionId}, destination=${destination}`);
 
     return {
         token: session.token,
         role_id: session.role_id,
         role: session.role,
         role_name: session.role_name,
-        destination: session.destination,
+        destination,
         session_id: sessionId,
     };
 }

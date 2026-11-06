@@ -83,6 +83,7 @@ export type AuthenticationOutcome =
  */
 export async function authenticateAccessTokenDetailed(
   token: string | null | undefined,
+  options?: { allowContainment?: boolean }
 ): Promise<AuthenticationOutcome> {
   if (!token?.trim()) return { status: "anonymous" };
 
@@ -104,7 +105,7 @@ export async function authenticateAccessTokenDetailed(
     if (lookup.outcome === "unavailable") return { status: "unavailable" };
     if (lookup.outcome === "missing") return { status: "denied" };
     const user = lookup.user;
-    if (!canAuthenticate(user)) return { status: "denied" };
+    if (!options?.allowContainment && !canAuthenticate(user)) return { status: "denied" };
 
     // SEC-008: middleware cannot reach `/api/*`, so revocation is enforced here
     // and every handler inherits it. A token that carries `sid` is governed by
@@ -169,8 +170,9 @@ function createDevSession(): AuthenticatedSession {
 
 export async function authenticateRequest(
   request: Request & { cookies?: { get: (name: string) => { value?: string } | undefined } },
+  options?: { allowContainment?: boolean }
 ): Promise<AuthenticatedSession | null> {
-  const outcome = await authenticateRequestDetailed(request);
+  const outcome = await authenticateRequestDetailed(request, options);
   return outcome.status === "authenticated" ? outcome.session : null;
 }
 
@@ -181,8 +183,9 @@ export async function authenticateRequest(
  */
 export async function authenticateRequestDetailed(
   request: Request & { cookies?: { get: (name: string) => { value?: string } | undefined } },
+  options?: { allowContainment?: boolean }
 ): Promise<AuthenticationOutcome> {
-  const outcome = await authenticateAccessTokenDetailed(getAccessTokenFromRequest(request));
+  const outcome = await authenticateAccessTokenDetailed(getAccessTokenFromRequest(request), options);
   if (outcome.status === "authenticated" || !isDevAuthBypassEnabled()) return outcome;
   return { status: "authenticated", session: createDevSession() };
 }

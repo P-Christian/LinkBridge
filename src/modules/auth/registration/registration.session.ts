@@ -87,9 +87,10 @@ export function resolveRoleDestination(
  * Issues an authenticated JWT session consistent with login
  */
 export async function issueAuthSession(
-  user: AuthSessionUser
+  user: AuthSessionUser,
+  options?: { allowContainment?: boolean }
 ): Promise<SessionTokenResult> {
-  if (!canAuthenticate(user)) {
+  if (!options?.allowContainment && !canAuthenticate(user)) {
     throw new RegistrationError(
       "Account is not active or verified.",
       "REGISTRATION_RESTRICTED",
