@@ -2,13 +2,13 @@
 
 import React, { useState, useEffect, useCallback, memo } from "react";
 import Link from "next/link";
-import { 
-    ServerOff, 
-    DatabaseZap, 
-    RefreshCw, 
-    WifiOff, 
-    CheckCircle2, 
-    AlertTriangle, 
+import {
+    ServerOff,
+    DatabaseZap,
+    RefreshCw,
+    WifiOff,
+    CheckCircle2,
+    AlertTriangle,
     ArrowLeft,
     ShieldAlert,
     Clock,
@@ -145,10 +145,10 @@ export const ServerDownContent = memo(function ServerDownContent({
                             <span className="text-[11px] font-bold uppercase tracking-wider text-destructive">
                                 System Outage Detected
                             </span>
-                            <h2 className="text-lg font-bold text-foreground">VOS Sync Service Monitor</h2>
+                            <h2 className="text-lg font-bold text-foreground">LinkBridge Service Monitor</h2>
                         </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2">
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-mono font-medium bg-muted text-muted-foreground border border-border">
                             {errorCode}

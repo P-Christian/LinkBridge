@@ -1672,11 +1672,21 @@ export async function transitionApplicationStage({
       });
     }
 
-    // 11. Interview status synchronization upon candidate hire:
-    // When an applicant reaches a HIRED stage, automatically resolve pending/open interviews.
-    if (toStage.stage_type === "HIRED" || dbStatus === "HIRED") {
-      await syncInterviewsOnCandidateHire({
+        // 11. Interview status synchronization upon reaching terminal stages:
+    // When an applicant reaches HIRED, REJECTED, or WITHDRAWN, automatically synchronize pending/open interviews.
+    const terminalType =
+      toStage.stage_type === "HIRED" || dbStatus === "HIRED"
+        ? "HIRED"
+        : toStage.stage_type === "REJECTED" || dbStatus === "REJECTED"
+        ? "REJECTED"
+        : toStage.stage_type === "WITHDRAWN" || dbStatus === "WITHDRAWN"
+        ? "WITHDRAWN"
+        : null;
+
+    if (terminalType) {
+      await syncInterviewsOnTerminalStage({
         applicationId,
+        terminalType,
         changedByUserId: changedByUserId ?? null,
         nowPH,
       });
@@ -1701,22 +1711,26 @@ export async function transitionApplicationStage({
   }
 }
 
-interface SyncInterviewsOnHireParams {
+export type TerminalStageType = "HIRED" | "REJECTED" | "WITHDRAWN";
+
+interface SyncInterviewsOnTerminalStageParams {
   applicationId: number;
+  terminalType: TerminalStageType;
   changedByUserId?: number | null;
   nowPH: string;
 }
 
 /**
- * Automatically synchronize interview schedules when a candidate is hired.
- * - Concluded/past active interviews: marks candidate attendance as ATTENDED and completes the interview session.
+ * Automatically synchronize interview schedules when a candidate reaches a terminal stage (HIRED, REJECTED, WITHDRAWN).
+ * - Concluded/past active interviews: marks candidate attendance and completes/closes the session to prevent false pending alerts.
  * - Future upcoming interviews: cancels single-candidate sessions (or removes candidate from active queues).
  */
-export async function syncInterviewsOnCandidateHire({
+export async function syncInterviewsOnTerminalStage({
   applicationId,
+  terminalType,
   changedByUserId,
   nowPH,
-}: SyncInterviewsOnHireParams): Promise<void> {
+}: SyncInterviewsOnTerminalStageParams): Promise<void> {
   try {
     // 1. Fetch all interview application junction records for this candidate
     const junctionRes = await fetch(
@@ -1726,7 +1740,7 @@ export async function syncInterviewsOnCandidateHire({
 
     if (!junctionRes.ok) {
       console.error(
-        `[job-pipeline.service] syncInterviewsOnCandidateHire: Failed to fetch interview applications for app ${applicationId} (${junctionRes.status})`
+        `[job-pipeline.service] syncInterviewsOnTerminalStage: Failed to fetch interview applications for app ${applicationId} (${junctionRes.status})`
       );
       return;
     }
@@ -1744,6 +1758,24 @@ export async function syncInterviewsOnCandidateHire({
 
     const ACTIVE_STATUSES = new Set(["SCHEDULED", "CONFIRMED", "RESCHEDULED"]);
     const nowMs = Date.now();
+
+    const futureCancelReasons: Record<TerminalStageType, string> = {
+      HIRED: "Candidate hired",
+      REJECTED: "Candidate application rejected",
+      WITHDRAWN: "Candidate withdrew application",
+    };
+
+    const futureSingleNotes: Record<TerminalStageType, string> = {
+      HIRED: "Cancelled — candidate hired.",
+      REJECTED: "Cancelled — candidate rejected.",
+      WITHDRAWN: "Cancelled — candidate withdrew.",
+    };
+
+    const futureGroupNotes: Record<TerminalStageType, string> = {
+      HIRED: "Cancelled for this candidate — candidate hired.",
+      REJECTED: "Cancelled for this candidate — candidate rejected.",
+      WITHDRAWN: "Cancelled for this candidate — candidate withdrew.",
+    };
 
     for (const j of junctionRows) {
       if (!j.interview_id) continue;
@@ -1777,52 +1809,114 @@ export async function syncInterviewsOnCandidateHire({
 
       if (isPast) {
         // --- PAST INTERVIEW ---
-        // 1. Mark candidate attendance as ATTENDED if still pending
-        if (isCandidatePending) {
+        if (terminalType === "WITHDRAWN") {
+          // Candidate withdrew: update junction note
           await fetch(`${DIRECTUS_BASE}/items/vs_interview_application/${j.interview_application_id}`, {
             method: "PATCH",
             headers: getHeaders(),
             body: JSON.stringify({
-              attendance_status: "ATTENDED",
-              candidate_notes: j.candidate_notes || "Attended — candidate hired.",
+              candidate_notes: j.candidate_notes || "Candidate withdrew application.",
             }),
           }).catch((err) =>
-            console.error("[job-pipeline.service] Failed to update interview application attendance:", err)
+            console.error("[job-pipeline.service] Failed to update interview application notes:", err)
           );
-        }
 
-        // 2. Check all candidates in this interview; if none are pending, close the interview as COMPLETED
-        if (isParentActive) {
-          const allRes = await fetch(
-            `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id,attendance_status&limit=-1`,
-            { headers: getHeaders(), cache: "no-store" }
-          );
-          if (allRes.ok) {
-            const allCandidates = (await allRes.json()).data ?? [];
-            const allResolved = allCandidates.every(
-              (c: { interview_application_id: number; attendance_status: string }) =>
-                c.interview_application_id === j.interview_application_id ||
-                String(c.attendance_status || "").toUpperCase() !== "PENDING"
+          if (isParentActive) {
+            // Check if single or multi-candidate
+            const allRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id,attendance_status&limit=-1`,
+              { headers: getHeaders(), cache: "no-store" }
             );
-            if (allResolved) {
+            const allCandidates = allRes.ok ? ((await allRes.json()).data ?? []) : [];
+            const otherCandidates = allCandidates.filter(
+              (c: { interview_application_id: number }) => c.interview_application_id !== j.interview_application_id
+            );
+
+            if (otherCandidates.length === 0) {
+              // Single candidate: cancel the past unresolved session
               await fetch(`${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}`, {
                 method: "PATCH",
                 headers: getHeaders(),
                 body: JSON.stringify({
-                  interview_status: "COMPLETED",
+                  interview_status: "CANCELLED",
+                  cancel_reason: "Candidate withdrew application",
                   updated_by_user_id: changedByUserId ?? undefined,
                   updated_at: nowPH,
                 }),
               }).catch((err) =>
-                console.error("[job-pipeline.service] Failed to complete past interview session:", err)
+                console.error("[job-pipeline.service] Failed to cancel withdrawn interview session:", err)
               );
+            } else {
+              // Multi-candidate: if all others are non-pending, mark completed
+              const othersResolved = otherCandidates.every(
+                (c: { attendance_status: string }) => String(c.attendance_status || "").toUpperCase() !== "PENDING"
+              );
+              if (othersResolved) {
+                await fetch(`${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}`, {
+                  method: "PATCH",
+                  headers: getHeaders(),
+                  body: JSON.stringify({
+                    interview_status: "COMPLETED",
+                    updated_by_user_id: changedByUserId ?? undefined,
+                    updated_at: nowPH,
+                  }),
+                }).catch((err) =>
+                  console.error("[job-pipeline.service] Failed to complete past multi-candidate session:", err)
+                );
+              }
+            }
+          }
+        } else {
+          // HIRED or REJECTED: Candidate sat the past interview (decision made based on or after interview)
+          const pastNote =
+            terminalType === "HIRED"
+              ? "Attended — candidate hired."
+              : "Attended — interview concluded before application rejection.";
+
+          if (isCandidatePending) {
+            await fetch(`${DIRECTUS_BASE}/items/vs_interview_application/${j.interview_application_id}`, {
+              method: "PATCH",
+              headers: getHeaders(),
+              body: JSON.stringify({
+                attendance_status: "ATTENDED",
+                candidate_notes: j.candidate_notes || pastNote,
+              }),
+            }).catch((err) =>
+              console.error("[job-pipeline.service] Failed to update interview application attendance:", err)
+            );
+          }
+
+          if (isParentActive) {
+            const allRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id,attendance_status&limit=-1`,
+              { headers: getHeaders(), cache: "no-store" }
+            );
+            if (allRes.ok) {
+              const allCandidates = (await allRes.json()).data ?? [];
+              const allResolved = allCandidates.every(
+                (c: { interview_application_id: number; attendance_status: string }) =>
+                  c.interview_application_id === j.interview_application_id ||
+                  String(c.attendance_status || "").toUpperCase() !== "PENDING"
+              );
+              if (allResolved) {
+                await fetch(`${DIRECTUS_BASE}/items/vs_interview/${j.interview_id}`, {
+                  method: "PATCH",
+                  headers: getHeaders(),
+                  body: JSON.stringify({
+                    interview_status: "COMPLETED",
+                    updated_by_user_id: changedByUserId ?? undefined,
+                    updated_at: nowPH,
+                  }),
+                }).catch((err) =>
+                  console.error("[job-pipeline.service] Failed to complete past interview session:", err)
+                );
+              }
             }
           }
         }
       } else {
         // --- FUTURE / UPCOMING INTERVIEW ---
-        // Candidate is already hired, so future interview should be cancelled
-        // Check if other candidates are scheduled on the same interview session (e.g. group interview)
+        // Candidate reached a terminal stage, so upcoming interview should be cancelled
         const allRes = await fetch(
           `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${j.interview_id}&fields=interview_application_id&limit=-1`,
           { headers: getHeaders(), cache: "no-store" }
@@ -1839,7 +1933,7 @@ export async function syncInterviewsOnCandidateHire({
             headers: getHeaders(),
             body: JSON.stringify({
               interview_status: "CANCELLED",
-              cancel_reason: "Candidate hired",
+              cancel_reason: futureCancelReasons[terminalType],
               updated_by_user_id: changedByUserId ?? undefined,
               updated_at: nowPH,
             }),
@@ -1851,7 +1945,7 @@ export async function syncInterviewsOnCandidateHire({
             method: "PATCH",
             headers: getHeaders(),
             body: JSON.stringify({
-              candidate_notes: "Cancelled — candidate hired.",
+              candidate_notes: futureSingleNotes[terminalType],
             }),
           }).catch((err) =>
             console.error("[job-pipeline.service] Failed to annotate cancelled junction record:", err)
@@ -1862,7 +1956,7 @@ export async function syncInterviewsOnCandidateHire({
             method: "PATCH",
             headers: getHeaders(),
             body: JSON.stringify({
-              candidate_notes: "Cancelled for this candidate — candidate hired.",
+              candidate_notes: futureGroupNotes[terminalType],
             }),
           }).catch((err) =>
             console.error("[job-pipeline.service] Failed to annotate multi-candidate junction record:", err)
@@ -1871,6 +1965,15 @@ export async function syncInterviewsOnCandidateHire({
       }
     }
   } catch (err) {
-    console.error("[job-pipeline.service] syncInterviewsOnCandidateHire unexpected error:", err);
+    console.error("[job-pipeline.service] syncInterviewsOnTerminalStage unexpected error:", err);
   }
+}
+
+/**
+ * Backward-compatible helper for hiring specifically.
+ */
+export async function syncInterviewsOnCandidateHire(
+  params: Omit<SyncInterviewsOnTerminalStageParams, "terminalType">
+): Promise<void> {
+  return syncInterviewsOnTerminalStage({ ...params, terminalType: "HIRED" });
 }

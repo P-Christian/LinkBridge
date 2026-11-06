@@ -1,6 +1,7 @@
 // src/app/api/freelancer/messaging/route.ts
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { safeDecryptMessage } from "@/lib/message-encryption";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
@@ -48,9 +49,9 @@ export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
     if (!session || !isFreelancerSession(session)) {
-      return NextResponse.json(
+      return json(
         { error: session ? "Forbidden: Freelancer access required." : "Unauthorized." },
-        { status: session ? 403 : 401 }
+        session ? 403 : 401
       );
     }
 
@@ -245,20 +246,18 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({ conversations: enriched });
+    return json({ conversations: enriched });
   } catch (err: unknown) {
     console.error("GET /api/freelancer/messaging error:", err);
     // A thread list whose unread counts could not be read is not a list with
     // nothing unread in it. 502 keeps the module on its error state instead of
     // rendering every conversation as fully read.
     const upstream = err instanceof DirectusError;
-    return NextResponse.json(
+    return json(
       {
         error: upstream
           ? "Conversations could not be read. Please try again."
           : safeErrorMessage(err, "Internal server error"),
-      },
-      { status: upstream ? 502 : 500 }
-    );
+      }, upstream ? 502 : 500);
   }
 }

@@ -148,7 +148,7 @@ export function evaluateAcademicCandidate(
       type: r.type,
       // Unregistered student: absence of evidence ≠ missing — use NOT_EVIDENCED
       status: "NOT_EVIDENCED" as const,
-      reason: `${r.label} experience cannot be verified — student has not registered on VOS Sync.`,
+      reason: `${r.label} experience cannot be verified — student has not registered on LinkBridge.`,
     }));
 
   return { score, curriculumItems, technicalItems, softItems, gaps };

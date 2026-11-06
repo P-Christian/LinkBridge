@@ -3,7 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
-import { analyzeQuery, retrieveCandidatePool, type NormalizedProfile } from "@/modules/matching-engine";
+import { analyzeQuery, retrieveCandidatePool, getOrLoadTaxonomy, type NormalizedProfile } from "@/modules/matching-engine";
 import { DirectusError } from "@/lib/server/directus";
 import { toId } from "@/lib/server/route";
 import {
@@ -17,8 +17,6 @@ import {
   readJobSkillRows,
   readMostRecentlyWrittenProfile,
   readProfilesByUserIds,
-  scanRoleAliasRows,
-  scanRoleSkillRows,
   scanSearchableProfiles,
   type JobPostingRow,
 } from "@/modules/client/talent-search/services/talent-search.repo";
@@ -122,7 +120,8 @@ export async function GET(req: NextRequest) {
     const requestedSkills = getListParam(searchParams, "skills");
     const locations = getListParam(searchParams, "location");
     const schoolFilters = getListParam(searchParams, "school_id");
-    const experienceLevel = searchParams.get("experience_level") || "";
+    const experienceLevels = getListParam(searchParams, "experience_level");
+    const workSetupFilters = getListParam(searchParams, "work_setup");
     const page = getIntParam(searchParams, "page", 1);
     const limit = Math.min(50, getIntParam(searchParams, "limit", 20));
     // Interpolated raw into the job reads below. A percent-encoded `&filter[…]`
@@ -136,7 +135,8 @@ export async function GET(req: NextRequest) {
       skills: requestedSkills.length,
       locations: locations.length,
       schools: schoolFilters.length,
-      experience: experienceLevel || null,
+      experience: experienceLevels.join(",") || null,
+      workSetup: workSetupFilters.join(",") || null,
       job: requestedJobId || null,
       page,
       limit,
@@ -204,7 +204,8 @@ export async function GET(req: NextRequest) {
         requestedSkills.length > 0 ||
         requestedJobId ||
         locations.length > 0 ||
-        experienceLevel ||
+        experienceLevels.length > 0 ||
+        workSetupFilters.length > 0 ||
         schoolFilters.length > 0
     );
 
@@ -240,22 +241,32 @@ export async function GET(req: NextRequest) {
     });
 
     // ────────────────────────────────────────────
-    // 3. Ranked-id cache
+    // 3. Gemini Layer A: query understanding & Ranked-id cache
     //
-    // The order a search produces does not depend on which page is being asked
-    // for, so a page turn used to re-run everything for it: ~300 batched reads,
-    // the six evaluators on every candidate, and a Gemini rerank call. A hit
-    // reads the page's rows and re-scores them with the engine inputs captured
-    // when the ranking was written — rebuilding those from the 10 000-row
-    // taxonomy scans and Layer A would cost what the cache just saved.
+    // Query understanding runs before the cache and taxonomy so that near-identical
+    // queries (e.g. "web dev", "web development", "web developer") resolve to
+    // the same canonical role keyword and share the exact same ranking cache entry.
     // ────────────────────────────────────────────
+    const query = await understandQuery({ keyword, userId, companyId });
+    mark("layer_a");
+    counts.layer_a = query.outcome;
+    counts.layer_a_rewrote = query.rewrote;
+    layerLog("LAYER_A", query.intent ? `AI intent ${query.outcome}` : "no AI intent — raw keyword used", {
+      raw: `"${keyword}"`,
+      matched: `"${query.matchKeyword}"`,
+      confidence: query.intent?.confidence ?? null,
+      inferredSkills: query.intent?.inferred_skills.length ?? 0,
+    });
+
+    const canonicalKeyword = (query.matchKeyword || keyword).trim().toLowerCase();
     const rankingKey = buildRankingKey({
       jobId: requestedJobId,
-      keyword,
+      keyword: canonicalKeyword,
       skills: requestedSkills,
       locations,
       schools: schoolFilters,
-      experienceLevel,
+      experienceLevels,
+      workSetups: workSetupFilters,
     });
 
     let ranked = getRankedSearch(rankingKey);
@@ -370,10 +381,9 @@ export async function GET(req: NextRequest) {
     // unreachable made every role, alias and skill requirement vanish, and the
     // recruiter was told the market had no matching talent.
     // ────────────────────────────────────────────
-    const [profiles, dbAliases, dbRoleSkills] = await Promise.all([
+    const [profiles, { aliases: dbAliases, roleSkills: dbRoleSkills }] = await Promise.all([
       scanSearchableProfiles(),
-      scanRoleAliasRows(),
-      scanRoleSkillRows(),
+      getOrLoadTaxonomy(),
     ]);
 
     // The scan ceiling is a memory guard, not a licence to search a partial
@@ -403,19 +413,6 @@ export async function GET(req: NextRequest) {
     mark("ingest");
     counts.corpus = profiles.length;
     if (scanTruncated) counts.truncated = true;
-
-    // Gemini Layer A: query understanding. Runs before taxonomy + retrieval, so
-    // everything downstream scores against the resolved role.
-    const query = await understandQuery({ keyword, userId, companyId });
-    mark("layer_a");
-    counts.layer_a = query.outcome;
-    counts.layer_a_rewrote = query.rewrote;
-    layerLog("LAYER_A", query.intent ? `AI intent ${query.outcome}` : "no AI intent — raw keyword used", {
-      raw: `"${keyword}"`,
-      matched: `"${query.matchKeyword}"`,
-      confidence: query.intent?.confidence ?? null,
-      inferredSkills: query.intent?.inferred_skills.length ?? 0,
-    });
 
     // Resolve Role Taxonomy using the effective match keyword (Gemini-resolved or original)
     const taxonomy = resolveRoleTaxonomy(query.matchKeyword, dbAliases);
@@ -507,31 +504,48 @@ export async function GET(req: NextRequest) {
       taxonomy,
       0,
       keyword,
-      effectiveSkills
+      effectiveSkills,
+      engineMode
     );
     mark("layer_1");
     counts.layer_1 = retrievedPool.length;
+
+    // Filter by relevance eligibility when in search mode (hybrid relevance)
+    const eligiblePool =
+      searchMode === "browse"
+        ? retrievedPool
+        : retrievedPool.filter((r) => r.eligibility?.eligible);
+
+    counts.eligible = eligiblePool.length;
+    counts.excluded_relevance = retrievedPool.length - eligiblePool.length;
+
     if (retrievedPool.length > 0) {
       const reasons = new Map<string, number>();
       for (const r of retrievedPool) reasons.set(r.retrievalReason, (reasons.get(r.retrievalReason) ?? 0) + 1);
-      layerLog("LAYER_1", `threshold 0 keeps every candidate — the score decides order, not membership`, {
-        retrieved: retrievedPool.length,
-        of: normalizedProfilesList.length,
-        scored: retrievedPool.filter((r) => r.retrievalScore > 0).length,
-        top: Math.max(...retrievedPool.map((r) => r.retrievalScore)),
-        why: [...reasons].map(([k, v]) => `${k}×${v}`).join(" "),
-      });
+      layerLog(
+        "LAYER_1",
+        `retrieval completed: ${eligiblePool.length} of ${retrievedPool.length} eligible (${retrievedPool.length - eligiblePool.length} excluded as NO_RELEVANCE)`,
+        {
+          retrieved: retrievedPool.length,
+          of: normalizedProfilesList.length,
+          eligible: eligiblePool.length,
+          scored: retrievedPool.filter((r) => r.retrievalScore > 0).length,
+          top: Math.max(...retrievedPool.map((r) => r.retrievalScore)),
+          why: [...reasons].map(([k, v]) => `${k}×${v}`).join(" "),
+        }
+      );
     } else {
       layerLog("LAYER_1", "retrieval returned nothing", { of: normalizedProfilesList.length });
     }
 
     const { pool, removed } = applyPreScoringFilters({
-      pool: retrievedPool,
+      pool: eligiblePool,
       items: normalizedProfilesMap,
       requestedSkills,
       jobId: requestedJobId,
       locations,
       schoolFilters,
+      workSetupFilters,
     });
     layerLog(
       "PREFILTER",
@@ -568,9 +582,9 @@ export async function GET(req: NextRequest) {
     // ────────────────────────────────────────────
     // 6. Rank
     // ────────────────────────────────────────────
-    let filtered = applyExperienceFilter(allTalents, experienceLevel);
-    if (experienceLevel) {
-      layerLog("FILTER", `experience_level=${experienceLevel} cut the scored list`, {
+    let filtered = applyExperienceFilter(allTalents, experienceLevels);
+    if (experienceLevels.length > 0) {
+      layerLog("FILTER", `experience_levels=${experienceLevels.join(",")} cut the scored list`, {
         kept: filtered.length,
         of: allTalents.length,
         dropped: allTalents.length - filtered.length,
@@ -589,7 +603,7 @@ export async function GET(req: NextRequest) {
     });
 
     const rerank = await rerankTalents({
-      keyword,
+      keyword: query.matchKeyword || keyword,
       jobId: requestedJobId,
       userId,
       companyId,

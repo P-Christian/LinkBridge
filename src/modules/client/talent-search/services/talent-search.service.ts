@@ -5,10 +5,11 @@ import {
   matchSchool,
   type CandidateRetrievalResult,
   type MatchContext,
-} from "@/modules/matching-engine";
+} from "../../../matching-engine";
 import {
   readCertificationRows,
   readEducationRows,
+  readJobPreferenceRows,
   readSavedApplicantRows,
   readSocialLinkRows,
   readUserRows,
@@ -77,17 +78,19 @@ export async function loadCandidates(
     }
   };
 
-  const [users, skillRows, workRows, eduRows, certRows, socialRows, savedRows] = await Promise.all([
+  const [users, skillRows, workRows, eduRows, certRows, socialRows, jobPrefRows, savedRows] = await Promise.all([
     readUserRows(userIds),
     readUserSkillRows(userIds),
     readWorkRows(userIds),
     readEducationRows(userIds),
     optionalRead("vs_certifications", readCertificationRows(userIds)),
     optionalRead("vs_user_social_links", readSocialLinkRows(userIds)),
+    optionalRead("vs_job_preferences", readJobPreferenceRows(userIds)),
     readSavedApplicantRows(companyId),
   ]);
 
   const usersMap = new Map(users.map((u) => [u.user_id, u]));
+  const jobPrefsMap = new Map(jobPrefRows.map((j) => [j.user_id, j]));
 
   const skillsByName = new Map<number, string[]>();
   for (const row of skillRows) {
@@ -105,11 +108,21 @@ export async function loadCandidates(
   const savedUserIds = new Set<number>(savedRows.map((s) => s.applicant_user_id));
 
   const candidates = new Map<number, CandidateRows>();
+  const seenIdentities = new Set<string>();
+
   for (const profile of rows) {
     const user = usersMap.get(profile.user_id);
     // A profile with no user row has no name or location to show or match on, so
     // it leaves the corpus entirely rather than scoring as blank.
     if (!user) continue;
+
+    // Deduplicate duplicate profiles sharing identical name
+    const fullName = `${(user.user_fname || "").trim().toLowerCase()} ${(user.user_lname || "").trim().toLowerCase()}`.trim();
+    if (fullName) {
+      if (seenIdentities.has(fullName)) continue;
+      seenIdentities.add(fullName);
+    }
+
     candidates.set(profile.user_id, {
       profile,
       user,
@@ -118,6 +131,7 @@ export async function loadCandidates(
       edu: eduMap.get(profile.user_id) ?? [],
       certs: certsMap.get(profile.user_id) ?? [],
       social: socialMap.get(profile.user_id) ?? [],
+      jobPreference: jobPrefsMap.get(profile.user_id) ?? null,
     });
   }
 
@@ -166,6 +180,7 @@ export function buildMatchContext(input: {
     // A posting's skills are always read fresh; the skills a keyword expands to
     // come from the cached entry, because re-deriving them is the scan this skips.
     requestedSkills: input.jobId ? input.jobSkills : input.effectiveSkills,
+    effectiveSkills: input.effectiveSkills,
     jobId: input.jobId || undefined,
     // The engine takes a single location; multi-tag matching happens in the
     // pre-scoring filters below.
@@ -197,6 +212,7 @@ export function applyPreScoringFilters(input: {
   jobId: number;
   locations: string[];
   schoolFilters: string[];
+  workSetupFilters?: string[];
 }): { pool: CandidateRetrievalResult[]; removed: Record<string, number> } {
   let pool = input.pool;
   const removed: Record<string, number> = {};
@@ -235,18 +251,34 @@ export function applyPreScoringFilters(input: {
     removed.school = before - pool.length;
   }
 
+  if (input.workSetupFilters && input.workSetupFilters.length > 0) {
+    const wanted = input.workSetupFilters.map((s) => s.toLowerCase().trim());
+    const before = pool.length;
+    pool = pool.filter(({ candidate }) => {
+      const ws = input.items.get(candidate.id)?.jobPreference?.work_setup?.toLowerCase().trim();
+      return ws ? wanted.includes(ws) : false;
+    });
+    removed.work_setup = before - pool.length;
+  }
+
   return { pool, removed };
 }
 
-/** The one sidebar filter that can only run after scoring. */
+/** The one sidebar filter that can only run after scoring. Supports multi-select OR logic. */
 export function applyExperienceFilter<T extends { relevant_experience_years: number }>(
   talents: T[],
-  experienceLevel: string
+  experienceLevels: string[] | string
 ): T[] {
-  if (!experienceLevel) return talents;
-  const [minYears, maxYears] = EXP_LEVEL_RANGE[experienceLevel.toUpperCase()] ?? [0, 99];
-  return talents.filter(
-    (t) => t.relevant_experience_years >= minYears && t.relevant_experience_years <= maxYears
+  const levels = Array.isArray(experienceLevels)
+    ? experienceLevels.filter(Boolean)
+    : experienceLevels ? [experienceLevels] : [];
+  if (levels.length === 0) return talents;
+
+  return talents.filter((t) =>
+    levels.some((level) => {
+      const [minYears, maxYears] = EXP_LEVEL_RANGE[level.toUpperCase()] ?? [0, 99];
+      return t.relevant_experience_years >= minYears && t.relevant_experience_years <= maxYears;
+    })
   );
 }
 

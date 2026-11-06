@@ -392,7 +392,7 @@ export default function CompanyDocuments({
           <p>
             Upload documents required to verify your company. These documents are{" "}
             <span className="font-semibold text-foreground">private</span> and
-            will only be accessible to authorized VOS Sync administrators.
+            will only be accessible to authorized LinkBridge administrators.
           </p>
 
           <p className="text-[11px] font-medium">
@@ -441,11 +441,10 @@ export default function CompanyDocuments({
           return (
             <div
               key={slot.type}
-              className={`min-w-0 space-y-3 rounded-xl border bg-card p-4 transition-colors ${
-                errorMsg
+              className={`min-w-0 space-y-3 rounded-xl border bg-card p-4 transition-colors ${errorMsg
                   ? "border-destructive ring-1 ring-destructive/30 shadow-xs shadow-destructive/10"
                   : "border-border hover:border-border/80"
-              }`}
+                }`}
             >
               {/* Document title and upload action */}
               <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -643,11 +642,10 @@ export default function CompanyDocuments({
 
       {/* Other Supporting Documents (Multi-Upload Section) */}
       <div
-        className={`rounded-xl border p-4 bg-card space-y-3 transition-colors ${
-          otherError
+        className={`rounded-xl border p-4 bg-card space-y-3 transition-colors ${otherError
             ? "border-destructive ring-1 ring-destructive/30 shadow-xs shadow-destructive/10"
             : "border-border"
-        }`}
+          }`}
       >
         {/* Row 1: Header - Title/Desc and Action */}
         <div className="flex items-center justify-between gap-3">

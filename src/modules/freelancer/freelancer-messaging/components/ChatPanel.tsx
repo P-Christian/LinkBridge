@@ -9,6 +9,8 @@ import {
   Loader2,
   ArrowLeft,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   ArrowDown,
   PanelRight,
   Pin,
@@ -170,14 +172,19 @@ export default function ChatPanel({
   const [reportingMessageId, setReportingMessageId] = useState<number | null>(null);
   const [showReportModal, setShowReportModal] = useState(false);
 
-  const displayMessages = useMemo(
-    () => filterLatestInterviewCards(messages),
-    [messages]
-  );
+  const displayMessages = useMemo(() => {
+    return filterLatestInterviewCards(messages).filter((m) => !m.is_deleted);
+  }, [messages]);
+
+  const [activePinIndex, setActivePinIndex] = useState(0);
 
   const pinnedMessages = useMemo(() => {
     return messages.filter((m) => Boolean(m.is_pinned) && !m.is_deleted);
   }, [messages]);
+
+  const safePinIndex =
+    pinnedMessages.length > 0 ? activePinIndex % pinnedMessages.length : 0;
+  const currentPinned = pinnedMessages[safePinIndex];
 
   const handleReply = useCallback((m: Message) => {
     setReplyingTo(m);
@@ -189,16 +196,17 @@ export default function ChatPanel({
 
   const handleJumpToMessage = useCallback(
     async (messageId: number) => {
+      if (messages.some((m) => m.message_id === messageId && m.is_deleted)) {
+        toast.info("This message was removed.", { id: "jump-older", duration: 3000 });
+        return;
+      }
+
       // Pulling older pages grows the list above the viewport; without releasing
       // the pin the resize observer would keep dragging the view back down.
       stickRef.current = false;
       let el = document.querySelector(`[data-message-id="${messageId}"]`);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("ring-2", "ring-emerald-500", "ring-offset-2", "rounded-2xl");
-        setTimeout(() => {
-          el?.classList.remove("ring-2", "ring-emerald-500", "ring-offset-2", "rounded-2xl");
-        }, 2000);
         return;
       }
 
@@ -211,10 +219,6 @@ export default function ChatPanel({
           if (el) {
             toast.dismiss(toastId);
             el.scrollIntoView({ behavior: "smooth", block: "center" });
-            el.classList.add("ring-2", "ring-emerald-500", "ring-offset-2", "rounded-2xl");
-            setTimeout(() => {
-              el?.classList.remove("ring-2", "ring-emerald-500", "ring-offset-2", "rounded-2xl");
-            }, 2000);
             return;
           }
         }
@@ -226,7 +230,7 @@ export default function ChatPanel({
         duration: 3000,
       });
     },
-    [onLoadOlder]
+    [onLoadOlder, messages]
   );
 
   const pinningRef = useRef<Set<number>>(new Set());
@@ -425,13 +429,6 @@ export default function ChatPanel({
               <span className="text-sm font-semibold text-foreground truncate">
                 {other_party_name}
               </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary border border-primary/20 shrink-0">
-                {conversation_type === "JOB_APPLICATION"
-                  ? "Job Opportunity"
-                  : conversation_type === "DIRECT_MESSAGE"
-                  ? "Direct"
-                  : "Support"}
-              </span>
             </div>
             {(subtitle || other_party_email) && (
               <div className="flex items-center gap-2 mt-0.5">
@@ -478,28 +475,72 @@ export default function ChatPanel({
         </div>
 
         {/* Sticky Pinned Messages Banner */}
-        {pinnedMessages.length > 0 && (
+        {pinnedMessages.length > 0 && currentPinned && (
           <div className="flex shrink-0 items-center justify-between border-b border-amber-200/60 bg-amber-50/80 px-4 py-2 text-xs text-amber-900 backdrop-blur-xs dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
             <button
               type="button"
-              onClick={() => handleJumpToMessage(pinnedMessages[0].message_id)}
+              onClick={() => handleJumpToMessage(currentPinned.message_id)}
               className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline cursor-pointer"
             >
               <Pin className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-600 dark:text-amber-400" />
-              <span className="font-semibold text-[11px] text-amber-800 dark:text-amber-300">
-                {pinnedMessages.length === 1 ? "Pinned message:" : `${pinnedMessages.length} pinned messages:`}
+              <span className="font-semibold text-[11px] text-amber-800 dark:text-amber-300 shrink-0">
+                {pinnedMessages.length === 1
+                  ? "Pinned message:"
+                  : `Pinned (${safePinIndex + 1}/${pinnedMessages.length}):`}
               </span>
-              <span className="truncate text-[11px] opacity-90">
-                {pinnedMessages[0].message_content || "Attachment"}
-              </span>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={currentPinned.message_id}
+                  initial={{ opacity: 0, y: -3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 3 }}
+                  transition={{ duration: 0.15 }}
+                  className="truncate text-[11px] opacity-90"
+                >
+                  {currentPinned.message_content ||
+                    (currentPinned.attachments?.[0]?.file_name
+                      ? `${currentPinned.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${currentPinned.attachments[0].file_name}`
+                      : "Attachment")}
+                </motion.span>
+              </AnimatePresence>
             </button>
-            <button
-              type="button"
-              onClick={() => setShowPinnedModal(true)}
-              className="ml-2 shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
-            >
-              View all
-            </button>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              {pinnedMessages.length > 1 && (
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev - 1 + pinnedMessages.length) % pinnedMessages.length);
+                    }}
+                    title="Previous pinned message"
+                    aria-label="Previous pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev + 1) % pinnedMessages.length);
+                    }}
+                    title="Next pinned message"
+                    aria-label="Next pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowPinnedModal(true)}
+                className="rounded-lg px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+              >
+                View all
+              </button>
+            </div>
           </div>
         )}
 
@@ -517,7 +558,7 @@ export default function ChatPanel({
           <div className="flex flex-1 justify-center items-center">
             <Loader2 className="h-6 w-6 text-primary animate-spin" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : displayMessages.length === 0 && !hasMore ? (
           <div className="flex flex-1 flex-col items-center justify-center text-center gap-3">
             <div className="p-4 rounded-2xl bg-muted/60">
               <span className="text-2xl">💬</span>
@@ -556,48 +597,58 @@ export default function ChatPanel({
               </div>
             )}
 
-            {displayMessages.map((msg, index) => {
-              const isOwn = msg.sender_id === currentUserId;
-              const prevMsg = displayMessages[index - 1];
-              const nextMsg = displayMessages[index + 1];
-              const showDateDivider =
-                !prevMsg ||
-                !isSameDayStr(prevMsg.created_at, msg.created_at) ||
-                minutesBetweenStr(prevMsg.created_at, msg.created_at) >= 30;
-              const dateLabel = showDateDivider ? getSeparatorLabel(msg.created_at) : undefined;
-              const isFirstInGroup =
-                showDateDivider ||
-                !prevMsg ||
-                prevMsg.sender_id !== msg.sender_id ||
-                !isSameDayStr(prevMsg.created_at, msg.created_at) ||
-                minutesBetweenStr(prevMsg.created_at, msg.created_at) >= 30;
-              const isLastInGroup =
-                !nextMsg ||
-                nextMsg.sender_id !== msg.sender_id ||
-                !isSameDayStr(msg.created_at, nextMsg.created_at) ||
-                minutesBetweenStr(msg.created_at, nextMsg.created_at) >= 30;
+            <AnimatePresence initial={false}>
+              {displayMessages.map((msg, index) => {
+                const isOwn = msg.sender_id === currentUserId;
+                const prevMsg = displayMessages[index - 1];
+                const nextMsg = displayMessages[index + 1];
+                const showDateDivider =
+                  !prevMsg ||
+                  !isSameDayStr(prevMsg.created_at, msg.created_at) ||
+                  minutesBetweenStr(prevMsg.created_at, msg.created_at) >= 30;
+                const dateLabel = showDateDivider ? getSeparatorLabel(msg.created_at) : undefined;
+                const isFirstInGroup =
+                  showDateDivider ||
+                  !prevMsg ||
+                  prevMsg.sender_id !== msg.sender_id ||
+                  !isSameDayStr(prevMsg.created_at, msg.created_at) ||
+                  minutesBetweenStr(prevMsg.created_at, msg.created_at) >= 30;
+                const isLastInGroup =
+                  !nextMsg ||
+                  nextMsg.sender_id !== msg.sender_id ||
+                  !isSameDayStr(msg.created_at, nextMsg.created_at) ||
+                  minutesBetweenStr(msg.created_at, nextMsg.created_at) >= 30;
 
-              return (
-                <MessageBubble
-                  key={msg.message_id}
-                  message={msg}
-                  isOwn={isOwn}
-                  showDateDivider={showDateDivider}
-                  dateLabel={dateLabel}
-                  onToggleReaction={onToggleReaction}
-                  otherPartyName={conversation.other_party_name}
-                  otherPartyAvatar={conversation.other_party_avatar}
-                  isFirstInGroup={isFirstInGroup}
-                  isLastInGroup={isLastInGroup}
-                  onRetry={onRetry}
-                  onReply={handleReply}
-                  onTogglePin={handleTogglePin}
-                  onDelete={handleDelete}
-                  onReport={handleOpenReport}
-                  onJumpToMessage={handleJumpToMessage}
-                />
-              );
-            })}
+                return (
+                  <motion.div
+                    key={msg.message_id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.96 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9, height: 0, overflow: "hidden" }}
+                    transition={{ duration: 0.22, ease: "easeOut" }}
+                  >
+                    <MessageBubble
+                      message={msg}
+                      isOwn={isOwn}
+                      showDateDivider={showDateDivider}
+                      dateLabel={dateLabel}
+                      onToggleReaction={onToggleReaction}
+                      otherPartyName={conversation.other_party_name}
+                      otherPartyAvatar={conversation.other_party_avatar}
+                      isFirstInGroup={isFirstInGroup}
+                      isLastInGroup={isLastInGroup}
+                      onRetry={onRetry}
+                      onReply={handleReply}
+                      onTogglePin={handleTogglePin}
+                      onDelete={handleDelete}
+                      onReport={handleOpenReport}
+                      onJumpToMessage={handleJumpToMessage}
+                    />
+                  </motion.div>
+                );
+              })}
+            </AnimatePresence>
             <div className="h-6 shrink-0" aria-hidden="true" />
           </>
         )}

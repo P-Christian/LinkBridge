@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
         cache: "no-store",
       });
       let jobTitle = "Opportunity";
-      let companyName = "VOS Sync Partner";
+      let companyName = "LinkBridge Partner";
       if (jobRes.ok) {
         const jData = (await jobRes.json()).data;
         jobTitle = jData?.job_title || jobTitle;
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
       await sendMail({
         to: recipient_email,
         subject: `${referrerName} referred you to a job: ${jobTitle}`,
-        text: `Hello!\n\n${referrerName} has referred you to view the ${jobTitle} position at ${companyName}.\n\nView details and apply here: ${inviteUrl}\n\nBest regards,\nVOS Sync Team`,
+        text: `Hello!\n\n${referrerName} has referred you to view the ${jobTitle} position at ${companyName}.\n\nView details and apply here: ${inviteUrl}\n\nBest regards,\nLinkBridge Team`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #333;">
             <h2>You have been referred!</h2>

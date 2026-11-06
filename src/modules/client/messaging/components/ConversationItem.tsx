@@ -61,9 +61,9 @@ export default function ConversationItem({
       >
         {isActive && (
           <motion.span
-            layoutId="activeConversationBorderClient"
-            className="absolute bottom-0 left-0 top-0 w-1 rounded-r-full bg-indigo-500"
-            transition={{ type: "spring", stiffness: 400, damping: 32 }}
+            layoutId="active-conversation-indicator-client"
+            className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-indigo-500"
+            transition={{ type: "spring", stiffness: 600, damping: 40, mass: 0.2 }}
           />
         )}
 

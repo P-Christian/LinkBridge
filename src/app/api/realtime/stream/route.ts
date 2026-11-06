@@ -1,15 +1,19 @@
 // src/app/api/realtime/stream/route.ts
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { safeDecryptMessage } from "@/lib/message-encryption";
 import {
   directusWsRelay,
   ensureDirectusRelayStarted,
+  pickFields,
   RelayEventPayload,
   RelayState,
   resolveSenderName,
   resolveUserCompanyIds,
+  SSE_MESSAGE_FIELDS,
+  SSE_REACTION_FIELDS,
 } from "@/lib/realtime/directus-ws-relay";
 
 import { safeErrorMessage } from "@/lib/api-error";
@@ -32,10 +36,7 @@ export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json(
-        { error: "Unauthorized session" },
-        { status: 401 }
-      );
+      return json({ error: "Unauthorized session" }, 401);
     }
 
     // Ensure backend WebSocket connection to Directus is active
@@ -133,6 +134,13 @@ export async function GET(req: NextRequest) {
                   return row;
                 })
               );
+              // Membership scoping above read the raw row; the browser only
+              // ever gets the REST message DTO's fields — not the participant
+              // IDs used for scoping, nor columns like deleted_at/deleted_by.
+              records = records.map((rec) => pickFields(rec, SSE_MESSAGE_FIELDS));
+            } else if (payload.collection === "vs_message_reaction") {
+              // Same rule for reactions: scoping columns never leave the server.
+              records = records.map((rec) => pickFields(rec, SSE_REACTION_FIELDS));
             }
 
             const ssePayload = {
@@ -180,13 +188,13 @@ export async function GET(req: NextRequest) {
     return new Response(stream, {
       headers: {
         "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
+        "Cache-Control": "no-store, no-cache, no-transform",
         Connection: "keep-alive",
         "X-Accel-Buffering": "no",
       },
     });
   } catch (error: unknown) {
     const message = safeErrorMessage(error, "Internal Error");
-    return NextResponse.json({ error: message }, { status: 500 });
+    return json({ error: message }, 500);
   }
 }

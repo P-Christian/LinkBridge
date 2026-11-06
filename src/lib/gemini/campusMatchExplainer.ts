@@ -34,8 +34,8 @@ function buildPrompt(result: CampusMatchResult, jobTitle: string): string {
         g.status === "NOT_EVIDENCED"
           ? "No evidence available"
           : g.status === "NOT_MATCHED"
-          ? "Not matched in candidate data"
-          : "Hard requirement not satisfied";
+            ? "Not matched in candidate data"
+            : "Hard requirement not satisfied";
       return `- ${g.requirementLabel} (${g.type}): ${statusLabel}`;
     })
     .join("\n") || "None";
@@ -53,7 +53,7 @@ JOB: ${jobTitle}
 
 CANDIDATE EVIDENCE:
 - Inferred Curriculum Competencies (from degree program, NOT verified): ${curriculumLabels}
-- Verified Skills (from VOS Sync profile): ${verifiedSkills}
+- Verified Skills (from LinkBridge profile): ${verifiedSkills}
 - Work Experience: ${experience}
 
 DETERMINISTIC GAPS (explain these only — do not invent new ones):

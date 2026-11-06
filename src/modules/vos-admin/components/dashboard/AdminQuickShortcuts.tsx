@@ -99,7 +99,7 @@ export function AdminQuickShortcuts() {
         </div>
 
         <div className="mt-4 pt-3 border-t border-border/60 text-xs text-muted-foreground text-right">
-          <span>Platform Version: <strong>VOS Sync 2.0</strong></span>
+          <span>Platform Version: <strong>LinkBridge 2.0</strong></span>
         </div>
       </CardContent>
     </Card>

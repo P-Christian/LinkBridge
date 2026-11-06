@@ -2,8 +2,8 @@
 
 // src/modules/client/talent-search/components/TalentFilters.tsx
 
-import React, { useId, useState } from "react";
-import { Filter, ChevronDown, X } from "lucide-react";
+import React, {  useState } from "react";
+import { Filter, ChevronDown, X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -12,12 +12,14 @@ import {
   TalentFilters as TalentFiltersValue,
   ExperienceLevel,
   EXPERIENCE_LEVEL_LABELS,
+  WorkSetup,
+  WORK_SETUP_LABELS,
   FilterSuggestion,
   SchoolFilter,
 } from "../types";
 import AutocompleteFilterField from "./AutocompleteFilterField";
 
-const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+ 
 
 interface TalentFiltersProps {
   filters: TalentFiltersValue;
@@ -99,7 +101,7 @@ function TagChips({ tags, onRemove, removePrefix }: { tags: FilterTag[]; onRemov
 export default function TalentFiltersPanel({ filters, onFilterChange, onApply }: TalentFiltersProps) {
   // The desktop sidebar and the mobile sheet can both be mounted, so the shared
   // highlight is scoped to one panel instance.
-  const panelId = useId();
+ 
 
   const addSkill = (name: string) => {
     const trimmed = name.trim();
@@ -142,8 +144,9 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
   const activeCount = [
     filters.skills.length > 0,
     filters.locations.length > 0,
-    !!filters.experience_level,
+    ((filters.experience_levels && filters.experience_levels.length > 0) || !!filters.experience_level),
     filters.schools.length > 0,
+    (filters.work_setups && filters.work_setups.length > 0),
   ].filter(Boolean).length;
 
   return (
@@ -174,7 +177,9 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
               onFilterChange("skills", []);
               onFilterChange("locations", []);
               onFilterChange("experience_level", "");
+              onFilterChange("experience_levels", []);
               onFilterChange("schools", []);
+              onFilterChange("work_setups", []);
             }}
             className="text-xs text-muted-foreground hover:text-destructive transition-colors max-md:min-h-10"
           >
@@ -222,27 +227,61 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
         <FilterSection title="Experience Level">
           <div className="space-y-1">
             {(Object.entries(EXPERIENCE_LEVEL_LABELS) as [ExperienceLevel, string][]).map(([level, label]) => {
-              const active = filters.experience_level === level;
+              const selectedLevels = (filters.experience_levels && filters.experience_levels.length > 0)
+                ? filters.experience_levels
+                : filters.experience_level ? [filters.experience_level] : [];
+              const active = selectedLevels.includes(level);
               return (
                 <button
                   key={level}
                   type="button"
-                  onClick={() => onFilterChange("experience_level", active ? "" : level)}
+                  onClick={() => {
+                    const next = active
+                      ? selectedLevels.filter((l) => l !== level)
+                      : [...selectedLevels, level];
+                    onFilterChange("experience_levels", next);
+                    onFilterChange("experience_level", "");
+                  }}
                   className={cn(
-                    "relative w-full rounded-lg px-3 py-1.5 text-left text-xs transition-colors",
+                    "flex items-center justify-between w-full rounded-lg px-3 py-1.5 text-left text-xs transition-colors",
                     active
-                      ? "font-semibold text-primary"
+                      ? "font-semibold text-primary bg-primary/10 border border-primary/20 shadow-2xs"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  {active && (
-                    <motion.span
-                      layoutId={`${panelId}-experience`}
-                      transition={{ duration: 0.24, ease: EASE_OUT }}
-                      className="absolute inset-0 rounded-lg border border-primary/20 bg-primary/10 shadow-2xs"
-                    />
+                  <span>{label}</span>
+                  {active && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
+        </FilterSection>
+
+        {/* Work Setup */}
+        <FilterSection title="Work Setup">
+          <div className="space-y-1">
+            {(Object.entries(WORK_SETUP_LABELS) as [WorkSetup, string][]).map(([setup, label]) => {
+              const selectedSetups = filters.work_setups ?? [];
+              const active = selectedSetups.includes(setup);
+              return (
+                <button
+                  key={setup}
+                  type="button"
+                  onClick={() => {
+                    const next = active
+                      ? selectedSetups.filter((s) => s !== setup)
+                      : [...selectedSetups, setup];
+                    onFilterChange("work_setups", next);
+                  }}
+                  className={cn(
+                    "flex items-center justify-between w-full rounded-lg px-3 py-1.5 text-left text-xs transition-colors",
+                    active
+                      ? "font-semibold text-primary bg-primary/10 border border-primary/20 shadow-2xs"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
-                  <span className="relative">{label}</span>
+                >
+                  <span>{label}</span>
+                  {active && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
                 </button>
               );
             })}

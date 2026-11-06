@@ -41,7 +41,7 @@ export function ArticleActionConfirmDialog({
       buttonClass: "bg-primary text-primary-foreground",
     },
     PUBLISH: {
-      title: "Publish Article to VOS Sync?",
+      title: "Publish Article to LinkBridge?",
       desc: "This article will immediately go live on the public Career Advice landing page with the published date set to now (UTC).",
       confirmText: "Publish Now",
       icon: <Send className="h-5 w-5 text-emerald-600" />,

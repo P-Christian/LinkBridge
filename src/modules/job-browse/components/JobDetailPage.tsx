@@ -450,7 +450,7 @@ export default function JobDetailPage({ jobId }: Props) {
                     Profile Completion Required to Apply
                   </h4>
                   <p className="text-xs text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
-                    VOS Sync requires candidates to complete their profile (currently <strong>{profileCompletion}%</strong>) before submitting applications.
+                    LinkBridge requires candidates to complete their profile (currently <strong>{profileCompletion}%</strong>) before submitting applications.
                   </p>
                   <p className="text-xs text-amber-800/80 dark:text-amber-400/80 leading-relaxed">
                     Don&apos;t worry—this job has already been saved to your <strong>Bookmarked Jobs</strong> so you can easily apply right after completing your profile!
@@ -486,8 +486,8 @@ export default function JobDetailPage({ jobId }: Props) {
                 profileCompletion !== null && profileCompletion < 100
                   ? "You must complete your profile (100%) before applying"
                   : alreadyApplied
-                  ? "Already Applied"
-                  : "Apply for Job"
+                    ? "Already Applied"
+                    : "Apply for Job"
               }
               className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium gap-2 border-0 shadow-xs disabled:bg-zinc-100 disabled:text-zinc-400 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600 disabled:cursor-not-allowed max-md:min-h-11"
             >
@@ -496,11 +496,10 @@ export default function JobDetailPage({ jobId }: Props) {
             </Button>
             <Button
               variant="outline"
-              className={`w-full h-10 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${
-                isBookmarked 
-                  ? "border-primary text-primary hover:bg-primary/5" 
+              className={`w-full h-10 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${isBookmarked
+                  ? "border-primary text-primary hover:bg-primary/5"
                   : "text-foreground border-zinc-200 dark:border-zinc-800"
-              }`}
+                }`}
               onClick={() => toggleBookmark(jobId)}
             >
               <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-current" : ""}`} />

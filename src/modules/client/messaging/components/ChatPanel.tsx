@@ -20,6 +20,8 @@ import {
   ArrowDown,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Search,
   X,
@@ -182,11 +184,19 @@ export default function ChatPanel({
   const [matchIndex, setMatchIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const displayMessages = useMemo(() => filterLatestInterviewCards(messages), [messages]);
+  const displayMessages = useMemo(() => {
+    return filterLatestInterviewCards(messages).filter((m) => !m.is_deleted);
+  }, [messages]);
+
+  const [activePinIndex, setActivePinIndex] = useState(0);
 
   const pinnedMessages = useMemo(() => {
     return messages.filter((m) => Boolean(m.is_pinned) && !m.is_deleted);
   }, [messages]);
+
+  const safePinIndex =
+    pinnedMessages.length > 0 ? activePinIndex % pinnedMessages.length : 0;
+  const currentPinned = pinnedMessages[safePinIndex];
 
   const handleReply = useCallback((m: Message) => {
     setReplyingTo(m);
@@ -198,13 +208,14 @@ export default function ChatPanel({
 
   const handleJumpToMessage = useCallback(
     async (messageId: number) => {
+      if (messages.some((m) => m.message_id === messageId && m.is_deleted)) {
+        toast.info("This message was removed.", { id: "jump-older", duration: 3000 });
+        return;
+      }
+
       let el = document.querySelector(`[data-message-id="${messageId}"]`);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
-        el.classList.add("ring-2", "ring-indigo-500", "ring-offset-2", "rounded-2xl");
-        setTimeout(() => {
-          el?.classList.remove("ring-2", "ring-indigo-500", "ring-offset-2", "rounded-2xl");
-        }, 2000);
         return;
       }
 
@@ -217,10 +228,6 @@ export default function ChatPanel({
           if (el) {
             toast.dismiss(toastId);
             el.scrollIntoView({ behavior: "smooth", block: "center" });
-            el.classList.add("ring-2", "ring-indigo-500", "ring-offset-2", "rounded-2xl");
-            setTimeout(() => {
-              el?.classList.remove("ring-2", "ring-indigo-500", "ring-offset-2", "rounded-2xl");
-            }, 2000);
             return;
           }
           if (outcome === "failed") {
@@ -243,7 +250,7 @@ export default function ChatPanel({
         duration: 3000,
       });
     },
-    [onLoadOlder]
+    [onLoadOlder, messages]
   );
 
   const pinningRef = useRef<Set<number>>(new Set());
@@ -448,13 +455,6 @@ export default function ChatPanel({
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const typeLabel =
-    conversation_type === "JOB_APPLICATION"
-      ? "Applicant"
-      : conversation_type === "DIRECT_MESSAGE"
-      ? "Direct"
-      : "Support";
-
   const iconButton =
     "flex items-center justify-center rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:size-10 max-md:p-0 dark:hover:bg-zinc-800 dark:hover:text-zinc-300";
 
@@ -486,9 +486,6 @@ export default function ChatPanel({
               <h2 className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
                 {otherName}
               </h2>
-              <span className="inline-flex shrink-0 items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-                {typeLabel}
-              </span>
             </div>
             {(job_title || other_party_email) && (
               <div className="mt-0.5 flex items-center gap-1">
@@ -536,28 +533,72 @@ export default function ChatPanel({
         </div>
 
         {/* Sticky Pinned Messages Banner */}
-        {pinnedMessages.length > 0 && (
+        {pinnedMessages.length > 0 && currentPinned && (
           <div className="flex shrink-0 items-center justify-between border-b border-amber-200/60 bg-amber-50/80 px-4 py-2 text-xs text-amber-900 backdrop-blur-xs dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
             <button
               type="button"
-              onClick={() => handleJumpToMessage(pinnedMessages[0].message_id)}
+              onClick={() => handleJumpToMessage(currentPinned.message_id)}
               className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline cursor-pointer"
             >
               <Pin className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-600 dark:text-amber-400" />
-              <span className="font-semibold text-[11px] text-amber-800 dark:text-amber-300">
-                {pinnedMessages.length === 1 ? "Pinned message:" : `${pinnedMessages.length} pinned messages:`}
+              <span className="font-semibold text-[11px] text-amber-800 dark:text-amber-300 shrink-0">
+                {pinnedMessages.length === 1
+                  ? "Pinned message:"
+                  : `Pinned (${safePinIndex + 1}/${pinnedMessages.length}):`}
               </span>
-              <span className="truncate text-[11px] opacity-90">
-                {pinnedMessages[0].message_content || "Attachment"}
-              </span>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={currentPinned.message_id}
+                  initial={{ opacity: 0, y: -3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 3 }}
+                  transition={{ duration: 0.15 }}
+                  className="truncate text-[11px] opacity-90"
+                >
+                  {currentPinned.message_content ||
+                    (currentPinned.attachments?.[0]?.file_name
+                      ? `${currentPinned.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${currentPinned.attachments[0].file_name}`
+                      : "Attachment")}
+                </motion.span>
+              </AnimatePresence>
             </button>
-            <button
-              type="button"
-              onClick={() => setShowPinnedModal(true)}
-              className="ml-2 shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
-            >
-              View all
-            </button>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              {pinnedMessages.length > 1 && (
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev - 1 + pinnedMessages.length) % pinnedMessages.length);
+                    }}
+                    title="Previous pinned message"
+                    aria-label="Previous pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev + 1) % pinnedMessages.length);
+                    }}
+                    title="Next pinned message"
+                    aria-label="Next pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowPinnedModal(true)}
+                className="rounded-lg px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+              >
+                View all
+              </button>
+            </div>
           </div>
         )}
 
@@ -632,7 +673,7 @@ export default function ChatPanel({
           <div ref={contentRef} className="flex min-h-full w-full min-w-0 flex-col justify-end">
             {loading ? (
               <MessagesSkeleton />
-            ) : messages.length === 0 ? (
+            ) : displayMessages.length === 0 && !hasMore ? (
               error ? (
                 // An unread thread must not render as an empty one: the "start
                 // the conversation" copy below invites a first message into a
@@ -693,39 +734,48 @@ export default function ChatPanel({
                   </div>
                 )}
 
-                {displayMessages.map((msg, index) => {
-                  const prev = displayMessages[index - 1];
-                  const next = displayMessages[index + 1];
-                  const showDateDivider =
-                    !prev ||
-                    !isSameDay(prev.created_at, msg.created_at) ||
-                    minutesBetween(prev.created_at, msg.created_at) >= 30;
-                  const startsUnread = msg.message_id === unreadMarkerId;
+                <AnimatePresence initial={false}>
+                  {displayMessages.map((msg, index) => {
+                    const prev = displayMessages[index - 1];
+                    const next = displayMessages[index + 1];
+                    const showDateDivider =
+                      !prev ||
+                      !isSameDay(prev.created_at, msg.created_at) ||
+                      minutesBetween(prev.created_at, msg.created_at) >= 30;
+                    const startsUnread = msg.message_id === unreadMarkerId;
 
-                  return (
-                    <React.Fragment key={msg.message_id}>
-                      {startsUnread && <UnreadDivider count={unreadAtOpen} />}
-                      <MessageBubble
-                        message={msg}
-                        isOwn={msg.sender_id === currentUserId}
-                        showDateDivider={showDateDivider}
-                        dateLabel={showDateDivider ? formatSeparatorLabel(msg.created_at) : undefined}
-                        isFirstInGroup={startsUnread || !sameGroup(prev, msg)}
-                        isLastInGroup={!sameGroup(msg, next) || next?.message_id === unreadMarkerId}
-                        otherParty={{ name: otherName, avatar: other_party_avatar }}
-                        searchQuery={searchOpen ? query : ""}
-                        isActiveMatch={msg.message_id === activeMatchId}
-                        onToggleReaction={onToggleReaction}
-                        onRetry={onRetry}
-                        onReply={handleReply}
-                        onTogglePin={handleTogglePin}
-                        onDelete={handleDelete}
-                        onReport={handleOpenReport}
-                        onJumpToMessage={handleJumpToMessage}
-                      />
-                    </React.Fragment>
-                  );
-                })}
+                    return (
+                      <motion.div
+                        key={msg.message_id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9, height: 0, overflow: "hidden" }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                      >
+                        {startsUnread && <UnreadDivider count={unreadAtOpen} />}
+                        <MessageBubble
+                          message={msg}
+                          isOwn={msg.sender_id === currentUserId}
+                          showDateDivider={showDateDivider}
+                          dateLabel={showDateDivider ? formatSeparatorLabel(msg.created_at) : undefined}
+                          isFirstInGroup={startsUnread || !sameGroup(prev, msg)}
+                          isLastInGroup={!sameGroup(msg, next) || next?.message_id === unreadMarkerId}
+                          otherParty={{ name: otherName, avatar: other_party_avatar }}
+                          searchQuery={searchOpen ? query : ""}
+                          isActiveMatch={msg.message_id === activeMatchId}
+                          onToggleReaction={onToggleReaction}
+                          onRetry={onRetry}
+                          onReply={handleReply}
+                          onTogglePin={handleTogglePin}
+                          onDelete={handleDelete}
+                          onReport={handleOpenReport}
+                          onJumpToMessage={handleJumpToMessage}
+                        />
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
                 <div className="h-6 shrink-0" aria-hidden="true" />
               </>
             )}

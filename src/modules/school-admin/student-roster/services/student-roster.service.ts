@@ -14,7 +14,7 @@ export async function getStudentRoster(filter: StudentRosterFilter) {
 
 export async function addSingleStudent(schoolId: number, createdByUserId: number, input: CreateStudentInput): Promise<VsSchoolStudent> {
   const validated = createStudentSchema.parse(input);
-  
+
   const payload: Partial<VsSchoolStudent> = {
     school_id: schoolId,
     student_number: validated.student_number || null,
@@ -226,18 +226,18 @@ export async function inviteStudentService(
       const { sendMail } = await import('@/lib/mail');
       await sendMail({
         to: student.email,
-        subject: `🎓 You're invited to join VOS Sync Freelancer Network!`,
+        subject: `🎓 You're invited to join LinkBridge Freelancer Network!`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">VOS Sync</h1>
+              <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">LinkBridge</h1>
               <p style="color: #64748b; margin: 4px 0 0; font-size: 13px;">Student Career & Freelance Network</p>
             </div>
 
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
               <h2 style="color: #0f172a; margin: 0 0 10px; font-size: 18px;">Hello ${student.first_name}!</h2>
               <p style="color: #334155; margin: 0; font-size: 14px; line-height: 1.5;">
-                Your institution has registered you on VOS Sync. Activate your student freelancer account to showcase your skills, build your professional portfolio, and receive verified job recommendations and referrals from your school administrators.
+                Your institution has registered you on LinkBridge. Activate your student freelancer account to showcase your skills, build your professional portfolio, and receive verified job recommendations and referrals from your school administrators.
               </p>
             </div>
 

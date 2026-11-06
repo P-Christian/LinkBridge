@@ -7,7 +7,9 @@ import { Search, MessageSquare, RefreshCw, Archive, X } from "lucide-react";
 import { Conversation } from "../types";
 import ConversationItem from "./ConversationItem";
 import ConversationGroupItem, { ClientConversationGroup } from "./ConversationGroupItem";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { LayoutGroup, motion, AnimatePresence } from "framer-motion";
 
 type Filter = "all" | "unread";
 
@@ -200,13 +202,22 @@ export default function ConversationList({
                 aria-selected={selected}
                 onClick={() => setFilter(value)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:min-h-9",
+                  "relative rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:min-h-9",
                   selected
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    ? "text-white dark:text-zinc-900"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                 )}
               >
-                {value === "all" ? "All" : `Unread${unreadConversations > 0 ? ` (${unreadConversations})` : ""}`}
+                {selected && (
+                  <motion.span
+                    layoutId="activeFilterTabClient"
+                    className="absolute inset-0 rounded-full bg-zinc-900 dark:bg-zinc-100"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <span className="relative z-10">
+                  {value === "all" ? "All" : `Unread${unreadConversations > 0 ? ` (${unreadConversations})` : ""}`}
+                </span>
               </button>
             );
           })}
@@ -214,77 +225,109 @@ export default function ConversationList({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
-        {loading ? (
-          <div className="flex flex-col gap-4 p-4" aria-busy="true">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex animate-pulse items-center gap-3">
-                <div className="h-10 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3 w-3/4 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="h-2 w-full rounded bg-zinc-100 dark:bg-zinc-800" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : loadFailed && conversations.length === 0 ? (
-          // Not the same as an empty inbox: this only means the list could not
-          // be read, and "No conversations yet" would be a claim about them.
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              Your conversations could not be loaded.
-            </p>
-            <button
-              type="button"
-              onClick={onRefresh}
-              className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+      <ScrollArea className="flex-1 min-h-0">
+        <AnimatePresence mode="wait" initial={false}>
+          {loading ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="flex flex-col gap-4 p-4"
+              aria-busy="true"
             >
-              Try again
-            </button>
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
-              <MessageSquare className="h-7 w-7 text-zinc-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">{emptyTitle}</p>
-              <p className="mt-1 text-xs text-zinc-500">{emptyBody}</p>
-            </div>
-            {searchQuery && (
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex animate-pulse items-center gap-3">
+                  <div className="h-10 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-3/4 rounded bg-zinc-200 dark:bg-zinc-700" />
+                    <div className="h-2 w-full rounded bg-zinc-100 dark:bg-zinc-800" />
+                  </div>
+                </div>
+              ))}
+            </motion.div>
+          ) : loadFailed && conversations.length === 0 ? (
+            <motion.div
+              key="load-failed"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                Your conversations could not be loaded.
+              </p>
               <button
                 type="button"
-                onClick={() => onSearch("")}
+                onClick={onRefresh}
                 className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
               >
-                Clear search
+                Try again
               </button>
-            )}
-          </div>
-        ) : (
-          grouped.map((group) =>
-            group.items.length === 1 ? (
-              <ConversationItem
-                key={group.items[0].conversation_id}
-                conversation={group.items[0]}
-                isActive={group.items[0].conversation_id === activeConversationId}
-                searchQuery={searchQuery}
-                onSelect={onSelect}
-                onArchive={onArchive}
-              />
-            ) : (
-              <ConversationGroupItem
-                key={`group-${group.groupId}`}
-                group={group}
-                activeConversationId={activeConversationId}
-                searchQuery={searchQuery}
-                onSelect={onSelect}
-                onArchive={onArchive}
-              />
-            )
-          )
-        )}
-      </div>
+            </motion.div>
+          ) : filtered.length === 0 ? (
+            <motion.div
+              key={`empty-${filter}-${searchQuery ? "search" : "idle"}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
+                <MessageSquare className="h-7 w-7 text-zinc-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">{emptyTitle}</p>
+                <p className="mt-1 text-xs text-zinc-500">{emptyBody}</p>
+              </div>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearch("")}
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                >
+                  Clear search
+                </button>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`list-${filter}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <LayoutGroup id="client-conversations">
+                {grouped.map((group) =>
+                  group.items.length === 1 ? (
+                    <ConversationItem
+                      key={group.items[0].conversation_id}
+                      conversation={group.items[0]}
+                      isActive={group.items[0].conversation_id === activeConversationId}
+                      searchQuery={searchQuery}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  ) : (
+                    <ConversationGroupItem
+                      key={`group-${group.groupId}`}
+                      group={group}
+                      activeConversationId={activeConversationId}
+                      searchQuery={searchQuery}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  )
+                )}
+              </LayoutGroup>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </ScrollArea>
     </div>
   );
 }

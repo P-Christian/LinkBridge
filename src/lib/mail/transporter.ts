@@ -17,7 +17,7 @@ export const transporter = nodemailer.createTransport({
   },
 });
 
-const DEFAULT_SENDER_NAME = "VOS Sync";
+const DEFAULT_SENDER_NAME = "LinkBridge";
 const DEFAULT_SENDER_ADDRESS = "vertextechcorpofficial@gmail.com";
 
 const HEADER_INJECTION = /[\r\n]/;

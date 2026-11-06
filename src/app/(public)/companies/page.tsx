@@ -11,8 +11,8 @@ import { CompaniesBrowseModule } from "@/modules/public/company-profile";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Browse Companies | VOS Sync",
-  description: "Find verified employers hiring qualified professionals on VOS Sync. Explore industries, company sizes, and job vacancies.",
+  title: "Browse Companies | LinkBridge",
+  description: "Find verified employers hiring qualified professionals on LinkBridge. Explore industries, company sizes, and job vacancies.",
 };
 
 export default async function CompaniesPage() {

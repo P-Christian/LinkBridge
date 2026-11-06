@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
 import { safeErrorMessage } from "@/lib/api-error";
@@ -27,12 +28,12 @@ export async function POST(
     const { messageId } = await params;
     const msgIdNum = Number(messageId);
     if (!msgIdNum || isNaN(msgIdNum)) {
-      return NextResponse.json({ error: "Invalid message ID." }, { status: 400 });
+      return json({ error: "Invalid message ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session?.userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
 
     const userId = Number(session.userId);
@@ -48,19 +49,17 @@ export async function POST(
     // their seat in the conversation did not exist.
     if (!msgRes.ok) {
       if (msgRes.status === 404) {
-        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+        return json({ error: "Message not found." }, 404);
       }
       console.error(`Message lookup failed for #${msgIdNum}: ${msgRes.status}`);
-      return NextResponse.json(
-        { error: "The message could not be read. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The message could not be read. Please try again." }, 502);
     }
 
     const msgJson = await msgRes.json().catch(() => null);
     const msgData = msgJson?.data;
     if (!msgData) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return json({ error: "Message not found." }, 404);
     }
 
     // Verify user is a member of the conversation
@@ -72,27 +71,23 @@ export async function POST(
 
     if (!convRes.ok) {
       if (convRes.status === 404) {
-        return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+        return json({ error: "Conversation not found." }, 404);
       }
       console.error(`Conversation lookup failed for #${convId}: ${convRes.status}`);
-      return NextResponse.json(
-        { error: "The conversation could not be read. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The conversation could not be read. Please try again." }, 502);
     }
 
     const convJson = await convRes.json().catch(() => null);
     const convData = convJson?.data;
     if (!convData) {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+      return json({ error: "Conversation not found." }, 404);
     }
     if (
       Number(convData.client_id) !== userId && Number(convData.freelancer_id) !== userId
     ) {
-      return NextResponse.json(
-        { error: "Forbidden: You are not a participant in this conversation." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Forbidden: You are not a participant in this conversation." }, 403);
     }
 
     const now = getPHTimeString();
@@ -110,10 +105,8 @@ export async function POST(
     const pinTableMissing = existingPinRes.status === 404 || existingPinRes.status === 403;
     if (!existingPinRes.ok && !pinTableMissing) {
       console.error(`Pin lookup failed for message #${msgIdNum}: ${existingPinRes.status}`);
-      return NextResponse.json(
-        { error: "The pin list could not be read, so the pin was not changed. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The pin list could not be read, so the pin was not changed. Please try again." }, 502);
     }
 
     const existingPinJson = pinTableMissing
@@ -127,10 +120,8 @@ export async function POST(
 
     if (!pinTableMissing && existingPins === null) {
       console.error(`Pin lookup returned an unreadable response for message #${msgIdNum}`);
-      return NextResponse.json(
-        { error: "The pin list could not be read, so the pin was not changed. Please try again." },
-        { status: 502 }
-      );
+      return json(
+        { error: "The pin list could not be read, so the pin was not changed. Please try again." }, 502);
     }
 
     if (existingPins !== null) {
@@ -147,16 +138,14 @@ export async function POST(
           );
         }
         if (deleteRes === null || (!deleteRes.ok && deleteRes.status !== 404)) {
-          return NextResponse.json(
-            { error: "The pin could not be removed. Please try again." },
-            { status: 502 }
-          );
+          return json(
+            { error: "The pin could not be removed. Please try again." }, 502);
         }
         nextIsPinned = false;
       } else {
         // Creating a new pin is forbidden if the message is deleted
         if (msgData.is_deleted) {
-          return NextResponse.json({ error: "Cannot pin a deleted message." }, { status: 400 });
+          return json({ error: "Cannot pin a deleted message." }, 400);
         }
 
         // Pin: check the 25-pins-per-conversation limit from the real count. A
@@ -170,16 +159,12 @@ export async function POST(
         const pinnedCount = Number(countJson?.data?.[0]?.count?.pin_id);
         if (!countRes.ok || !Number.isSafeInteger(pinnedCount)) {
           console.error(`Pin count failed for conversation #${convId}: ${countRes.status}`);
-          return NextResponse.json(
-            { error: "The current pin count could not be read, so the pin was not added. Please try again." },
-            { status: 502 }
-          );
+          return json(
+            { error: "The current pin count could not be read, so the pin was not added. Please try again." }, 502);
         }
         if (pinnedCount >= 25) {
-          return NextResponse.json(
-            { error: "You can pin up to 25 messages per conversation." },
-            { status: 400 }
-          );
+          return json(
+            { error: "You can pin up to 25 messages per conversation." }, 400);
         }
 
         const createRes = await fetch(`${DIRECTUS_BASE}/items/vs_message_pin`, {
@@ -197,10 +182,8 @@ export async function POST(
             `Pin insert failed (${createRes?.status ?? "no response"}):`,
             createRes ? await createRes.text().catch(() => "") : ""
           );
-          return NextResponse.json(
-            { error: "The pin could not be saved. Please try again." },
-            { status: 502 }
-          );
+          return json(
+            { error: "The pin could not be saved. Please try again." }, 502);
         }
         nextIsPinned = true;
       }
@@ -211,7 +194,7 @@ export async function POST(
       );
 
       if (!isCurrentlyPinned && msgData.is_deleted) {
-        return NextResponse.json({ error: "Cannot pin a deleted message." }, { status: 400 });
+        return json({ error: "Cannot pin a deleted message." }, 400);
       }
 
       nextIsPinned = !isCurrentlyPinned;
@@ -229,11 +212,11 @@ export async function POST(
       if (!patchRes.ok) {
         const err = await patchRes.text().catch(() => "");
         console.error("Directus pin message error:", err);
-        return NextResponse.json({ error: "Failed to update pin status." }, { status: 500 });
+        return json({ error: "Failed to update pin status." }, 500);
       }
     }
 
-    return NextResponse.json({
+    return json({
       success: true,
       message_id: msgIdNum,
       is_pinned: nextIsPinned,
@@ -243,6 +226,6 @@ export async function POST(
   } catch (err: unknown) {
     const message = safeErrorMessage(err, "Internal server error");
     console.error("Error in POST /api/shared/messaging/messages/[messageId]/pin:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return json({ error: message }, 500);
   }
 }

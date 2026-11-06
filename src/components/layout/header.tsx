@@ -194,36 +194,42 @@ export function Header() {
       initial={{ y: -80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`fixed top-0 w-full z-50 h-[72px] flex items-center border-b transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out motion-reduce:transition-none ${
-        showScrolledBg
-          ? "bg-background/85 backdrop-blur-xl border-border/80 shadow-md shadow-primary/5"
-          : "bg-transparent border-transparent shadow-none"
-      }`}
+      className={`fixed top-0 w-full z-50 h-[72px] flex items-center border-b transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out motion-reduce:transition-none ${showScrolledBg
+        ? "bg-background/85 backdrop-blur-xl border-border/80 shadow-md shadow-primary/5"
+        : "bg-transparent border-transparent shadow-none"
+        }`}
     >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
         <Link
           href="/"
-          className="group flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          className="group flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 shadow-md shadow-indigo-600/30 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105 overflow-hidden p-1.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-none transition-all duration-300 ease-out group-hover:-rotate-6 group-hover:scale-110 group-active:scale-95 group-hover:drop-shadow-[0_4px_12px_rgba(37,99,235,0.35)] overflow-hidden dark:bg-none">
             {company?.platform_icon &&
-            (company.platform_icon.startsWith("/") ||
-              company.platform_icon.startsWith("http") ||
-              /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
+              (company.platform_icon.startsWith("/") ||
+                company.platform_icon.startsWith("http") ||
+                /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
               <Image
                 src={formatAssetUrl(company.platform_icon) || company.platform_icon}
-                alt={company?.platform_name || "VOS Sync"}
+                alt={company?.platform_name || "LinkBridge"}
                 width={24}
                 height={24}
-                className="h-6 w-6 object-contain"
+                className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
                 unoptimized
               />
             ) : (
-              <Briefcase className="h-5 w-5 text-white" aria-hidden="true" />
+              <Image
+                src="/linkbridge.png"
+                alt={company?.platform_name || "LinkBridge"}
+                width={24}
+                height={24}
+                className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                unoptimized
+              />
             )}
           </div>
-          <span className="text-xl font-bold tracking-tight text-foreground">
-            {company?.platform_name || "VOS Sync"}
+          <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent transition-all duration-300 ease-out group-hover:brightness-115 group-hover:drop-shadow-[0_2px_10px_rgba(37,99,235,0.25)] motion-reduce:transition-none">
+            {company?.platform_name || "LinkBridge"}
           </span>
         </Link>
 

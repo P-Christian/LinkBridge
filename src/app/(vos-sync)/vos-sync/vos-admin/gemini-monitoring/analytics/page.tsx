@@ -4,7 +4,7 @@ import React from "react";
 import { PeakUsageAnalyticsPage } from "@/modules/vos-admin/gemini-monitoring";
 
 export const metadata = {
-  title: "Peak Usage & Analytics | VOS Sync Admin",
+  title: "Peak Usage & Analytics | LinkBridge Admin",
   description: "AI invocation surge analytics, peak throughput, and hourly load distributions.",
 };
 

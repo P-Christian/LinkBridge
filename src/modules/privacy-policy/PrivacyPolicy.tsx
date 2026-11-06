@@ -21,7 +21,7 @@ const SECTIONS = [
 
 export default function PrivacyPolicy() {
   const { company } = usePrimaryPlatformCompany();
-  const brandName = company?.company_name || "Vos Sync";
+  const brandName = company?.company_name || "LinkBridge";
   const contactEmail = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
   const addressParts = [company?.company_city, company?.company_province, company?.company_country].filter(Boolean).join(", ");
   const complianceOffice = `${brandName} Legal Compliance Team${addressParts ? `, ${addressParts}` : ", Philippines"}`;
@@ -141,7 +141,7 @@ export default function PrivacyPolicy() {
               <div id="retention" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Data Retention & Deletion</h2>
                 <p>
-                  We retain personal data for as long as your account is active or needed to provide services. You can delete or deactivate your account at any time in your Settings panel. 
+                  We retain personal data for as long as your account is active or needed to provide services. You can delete or deactivate your account at any time in your Settings panel.
                 </p>
                 <p>
                   Once requested, your account profile materials are permanently purged from our primary databases within 30 days, unless required to be kept for legal compliance.

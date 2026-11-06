@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
-import { toId } from "@/lib/server/route";
+import { json, toId } from "@/lib/server/route";
 import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
@@ -32,16 +32,16 @@ export async function PATCH(
     const { conversationId } = await params;
     const convId = toId(conversationId);
     if (convId === null) {
-      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+      return json({ error: "Invalid conversation ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
 
     if (session && !isClientSession(session)) {
-      return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
+      return json({ error: "Forbidden: employer access required." }, 403);
     }
 
     const userId = Number(session.userId);
@@ -50,10 +50,8 @@ export async function PATCH(
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid JSON body. Expected { "archive": boolean }.' },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
-      );
+      return json(
+        { error: 'Invalid JSON body. Expected { "archive": boolean }.' }, 400);
     }
 
     const archiveValue: unknown =
@@ -62,9 +60,9 @@ export async function PATCH(
         : undefined;
 
     if (typeof archiveValue !== "boolean") {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid request body. Expected { "archive": boolean }.' },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+        400
       );
     }
 
@@ -81,22 +79,20 @@ export async function PATCH(
     if (!convRes.ok) {
       // This read decides who may write, so an outage must not be reported as a
       // conversation that does not exist.
-      return NextResponse.json(
+      return json(
         {
           error:
             convRes.status === 404
               ? "Conversation not found."
               : "The conversation could not be verified.",
-        },
-        { status: convRes.status === 404 ? 404 : 502 }
-      );
+        }, convRes.status === 404 ? 404 : 502);
     }
 
     const convJson = await convRes.json();
     const conv = convJson.data;
 
     if (Number(conv?.client_id) !== userId) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      return json({ error: "Forbidden." }, 403);
     }
 
     const nowPH = getPHTimeString();
@@ -119,21 +115,17 @@ export async function PATCH(
     if (!patchRes.ok) {
       const text = await patchRes.text();
       console.error("Archive patch error:", text);
-      return NextResponse.json(
-        { error: "Failed to update conversation." },
-        { status: patchRes.status }
-      );
+      return json(
+        { error: "Failed to update conversation." }, patchRes.status);
     }
 
-    return NextResponse.json({
+    return json({
       success: true,
       archived: archive,
     });
   } catch (err: unknown) {
     console.error("PATCH /api/client/messaging/[id]/archive error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
 import { safeErrorMessage } from "@/lib/api-error";
@@ -28,12 +29,12 @@ export async function DELETE(
     const { messageId } = await params;
     const msgIdNum = Number(messageId);
     if (!msgIdNum || isNaN(msgIdNum)) {
-      return NextResponse.json({ error: "Invalid message ID." }, { status: 400 });
+      return json({ error: "Invalid message ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session?.userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
 
     const userId = Number(session.userId);
@@ -45,24 +46,22 @@ export async function DELETE(
     );
 
     if (!getRes.ok) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return json({ error: "Message not found." }, 404);
     }
 
     const msgData = (await getRes.json()).data;
     if (!msgData) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return json({ error: "Message not found." }, 404);
     }
 
     // Only the sender can remove/delete their message
     if (Number(msgData.sender_id) !== userId) {
-      return NextResponse.json(
-        { error: "Forbidden: You can only remove your own messages." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Forbidden: You can only remove your own messages." }, 403);
     }
 
     if (msgData.is_deleted) {
-      return NextResponse.json({ success: true, message: "Message already deleted." });
+      return json({ success: true, message: "Message already deleted." });
     }
 
     // Clean up any pins for this message across all users
@@ -104,10 +103,10 @@ export async function DELETE(
     if (!patchRes.ok) {
       const err = await patchRes.text();
       console.error("Directus soft-delete message error:", err);
-      return NextResponse.json({ error: "Failed to delete message." }, { status: 500 });
+      return json({ error: "Failed to delete message." }, 500);
     }
 
-    return NextResponse.json({
+    return json({
       success: true,
       message_id: msgIdNum,
       deleted_at: now,
@@ -117,6 +116,6 @@ export async function DELETE(
   } catch (err: unknown) {
     const message = safeErrorMessage(err, "Internal server error");
     console.error("Error in DELETE /api/shared/messaging/messages/[messageId]:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return json({ error: message }, 500);
   }
 }

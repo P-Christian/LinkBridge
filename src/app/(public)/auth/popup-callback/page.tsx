@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { PopupCallbackContent } from "./PopupCallbackContent";
 
 export const metadata: Metadata = {
-  title: "Authentication Complete | VOS Sync",
+  title: "Authentication Complete | LinkBridge",
   description: "OAuth completion handler for popup authentication.",
 };
 

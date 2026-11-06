@@ -2,12 +2,12 @@
 
 export function otpTemplate(otp: string, expiryMinutes = 15) {
   return {
-    subject: "Verify your VOS Sync Account",
+    subject: "Verify your LinkBridge Account",
     html: `
       <div style="font-family: sans-serif; max-width: 500px; margin: 0 auto; border: 1px solid #e4e4e7; padding: 24px; border-radius: 12px; background-color: #ffffff;">
-        <h2 style="color: #18181b; font-weight: 700; margin-top: 0;">Verify your VOS Sync Account</h2>
+        <h2 style="color: #18181b; font-weight: 700; margin-top: 0;">Verify your LinkBridge Account</h2>
         <p style="color: #71717a; font-size: 14px; line-height: 1.5;">
-          Thank you for registering on VOS Sync. Use the following One-Time Password (OTP) to complete your verification process:
+          Thank you for registering on LinkBridge. Use the following One-Time Password (OTP) to complete your verification process:
         </p>
         <div style="background-color: #f4f4f5; padding: 16px; text-align: center; border-radius: 8px; font-size: 28px; font-weight: 800; letter-spacing: 4px; color: #18181b; margin: 20px 0;">
           ${otp}

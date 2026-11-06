@@ -8,7 +8,7 @@ import { layerLog } from "@/modules/client/talent-search/services/talent-search.
  * or the record shape. It is the only key a scoring change invalidates, so a
  * stale ranking can never outlive a deploy by more than one version string.
  */
-export const RANKING_ENGINE_VERSION = "2026-11-04.1";
+export const RANKING_ENGINE_VERSION = "2026-11-05.2";
 
 /**
  * Freshness bound. A profile-row write is caught by the probe in the route, but
@@ -33,7 +33,9 @@ export interface RankingKeyInput {
   skills: string[];
   locations: string[];
   schools: string[];
-  experienceLevel: string;
+  experienceLevel?: string;
+  experienceLevels?: string[];
+  workSetups?: string[];
 }
 
 /**
@@ -42,14 +44,16 @@ export interface RankingKeyInput {
  * one entry.
  */
 export function buildRankingKey(input: RankingKeyInput): string {
+  const expLevels = input.experienceLevels ?? (input.experienceLevel ? [input.experienceLevel] : []);
   return JSON.stringify([
     RANKING_ENGINE_VERSION,
     input.jobId || 0,
-    input.keyword,
+    (input.keyword || "").trim().toLowerCase(),
     input.skills,
     input.locations,
     input.schools,
-    input.experienceLevel,
+    expLevels,
+    input.workSetups ?? [],
   ]);
 }
 

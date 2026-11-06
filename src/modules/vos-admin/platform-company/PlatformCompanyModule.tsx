@@ -62,7 +62,7 @@ export function PlatformCompanyModule() {
               </span>
             </div>
             <p className="text-xs sm:text-sm text-muted-foreground max-w-xl">
-              Internal operating profile powering brand identity, customer support hours, values, and marketing copy across VOS Sync public pages.
+              Internal operating profile powering brand identity, customer support hours, values, and marketing copy across LinkBridge public pages.
             </p>
           </div>
         </div>

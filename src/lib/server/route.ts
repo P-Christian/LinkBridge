@@ -42,9 +42,16 @@ export function notFound(message = "Not found.", extra?: Record<string, unknown>
   return new HttpError(404, message, extra);
 }
 
-/** Success body. Handlers may also return a `Response` to set status or headers. */
+/**
+ * Success body. Handlers may also return a `Response` to set status or headers.
+ * Every response is marked `no-store`: these carry per-session data behind a
+ * cookie, and a shared cache (or the browser's own) must never retain them.
+ */
 export function json(body: unknown, status = 200): NextResponse {
-  return NextResponse.json(body, { status });
+  return NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 const ROLE_GUARDS = {

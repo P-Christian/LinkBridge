@@ -112,6 +112,7 @@ export interface TalentProfile {
   headline: string | null;
   summary: string | null;
   expected_salary: number | null;
+  work_setup?: string | null;
   profile_visibility: string;
   availability_status: "AVAILABLE" | "EMPLOYED" | "OPEN" | "IMMEDIATELY_AVAILABLE";
   skills: string[];
@@ -175,13 +176,23 @@ export interface SavedTalent {
   skills: string[];
 }
 
+export type WorkSetup = "Remote" | "Hybrid" | "On-site";
+
+export const WORK_SETUP_LABELS: Record<WorkSetup, string> = {
+  Remote: "Remote",
+  Hybrid: "Hybrid",
+  "On-site": "On-site",
+};
+
 /** Search filters */
 export interface TalentFilters {
   keyword: string;
   skills: string[];
   locations: string[];
-  experience_level: ExperienceLevel | "";
+  experience_level?: ExperienceLevel | "";
+  experience_levels: ExperienceLevel[];
   schools: SchoolFilter[];
+  work_setups: WorkSetup[];
 }
 
 /**
@@ -209,14 +220,16 @@ export const EMPTY_FILTERS: TalentFilters = {
   skills: [],
   locations: [],
   experience_level: "",
+  experience_levels: [],
   schools: [],
+  work_setups: [],
 };
 
 export const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
-  ENTRY: "Entry Level (0–2 yrs)",
-  JUNIOR: "Junior (0–3 yrs)",
-  MID: "Mid Level (2–6 yrs)",
-  SENIOR: "Senior (5+ yrs)",
+  ENTRY: "Entry Level (< 1 yr)",
+  JUNIOR: "Junior (1–3 yrs)",
+  MID: "Mid Level (3–6 yrs)",
+  SENIOR: "Senior (6–10 yrs)",
   MANAGER: "Manager (7+ yrs)",
   EXECUTIVE: "Executive (10+ yrs)",
 };

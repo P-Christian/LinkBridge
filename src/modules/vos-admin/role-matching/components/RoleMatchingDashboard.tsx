@@ -95,7 +95,7 @@ export function MatchingIntelligenceDashboard() {
             Matching Intelligence
           </h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Maintain and govern the official job taxonomy, matching rules, search terms, and client-submitted intelligence requests used across VOS Sync.
+            Maintain and govern the official job taxonomy, matching rules, search terms, and client-submitted intelligence requests used across LinkBridge.
           </p>
         </div>
         <div className="flex items-center gap-3">

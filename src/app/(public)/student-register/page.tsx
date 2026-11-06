@@ -5,9 +5,9 @@ import { cookies } from "next/headers";
 import StudentRegisterClient from "./StudentRegisterClient";
 
 export const metadata: Metadata = {
-  title: "Student Registration | VOS Sync",
+  title: "Student Registration | LinkBridge",
   description:
-    "Accept your school invitation and link your student record to your VOS Sync account.",
+    "Accept your school invitation and link your student record to your LinkBridge account.",
   // Invitation tokens travel in the URL query string; never leak them to
   // third parties through the Referer header.
   referrer: "no-referrer",

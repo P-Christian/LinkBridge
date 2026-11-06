@@ -444,7 +444,7 @@ export function ArticleEditorModal({
               <div className="rounded-lg border border-border bg-card p-3 space-y-1">
                 <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground">Google Search Preview</p>
                 <p className="text-xs text-blue-600 dark:text-blue-400 font-medium truncate">
-                  {seoTitle || title || "Article Title Preview"} - VOS Sync
+                  {seoTitle || title || "Article Title Preview"} - LinkBridge
                 </p>
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-500 font-mono">
                   https://vos-sync.com/career-advice/{slug || "slug-preview"}

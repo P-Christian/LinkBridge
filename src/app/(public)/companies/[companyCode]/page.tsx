@@ -13,18 +13,18 @@ interface PageProps {
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { companyCode } = await params;
   const company = await getPublicCompanyByCode(companyCode);
-  
+
   if (!company) {
     return {
-      title: "Company Not Found | VOS Sync",
+      title: "Company Not Found | LinkBridge",
     };
   }
 
   return {
-    title: `${company.company_name} Profile & Open Jobs | VOS Sync`,
+    title: `${company.company_name} Profile & Open Jobs | LinkBridge`,
     description: company.company_description
       ? `${company.company_description.slice(0, 150)}...`
-      : `Learn more about working at ${company.company_name}. View active job listings and corporate information on VOS Sync.`,
+      : `Learn more about working at ${company.company_name}. View active job listings and corporate information on LinkBridge.`,
   };
 }
 

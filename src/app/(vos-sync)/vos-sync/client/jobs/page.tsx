@@ -9,8 +9,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Manage Jobs | VOS Sync client Portal",
-  description: "Create, manage, and track your job postings on VOS Sync.",
+  title: "Manage Jobs | LinkBridge client Portal",
+  description: "Create, manage, and track your job postings on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

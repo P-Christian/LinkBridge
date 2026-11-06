@@ -69,3 +69,4 @@ profile.md
 /src/components/temp-ui
 implementation_plan.md
 *.md
+scripts/decode-messaging-protobuf.mjs

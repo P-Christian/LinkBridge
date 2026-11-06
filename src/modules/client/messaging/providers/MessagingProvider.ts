@@ -7,6 +7,7 @@ import {
   CreateConversationPayload,
   SendMessagePayload,
 } from "../types";
+import { parseConversationsResponse } from "@/lib/messaging/transport/client";
 
 const BASE = "/api/client/messaging";
 
@@ -17,9 +18,11 @@ export async function fetchConversations(params?: {
 }): Promise<Conversation[]> {
   const qs = params?.archived ? "?archived=true" : "";
   const res = await fetch(`${BASE}${qs}`, { cache: "no-store" });
-  const json = await res.json();
+  const json = await parseConversationsResponse(res);
   if (!res.ok) throw new Error(json.error ?? "Failed to fetch conversations.");
-  return json.conversations ?? [];
+  // The wire rows are untyped under either format, exactly as `res.json()` left
+  // them: the protobuf path ships only the fields the conversation UI reads.
+  return (json.conversations ?? []) as unknown as Conversation[];
 }
 
 // ─── Create or get conversation ────────────────────────────────────────────
