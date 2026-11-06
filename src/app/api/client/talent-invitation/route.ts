@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const companyName = (company?.company_name as string) ;
+    const companyName = (company?.company_name as string) || "a company on LinkBridge";
     const jobTitle = (verifiedJob?.job_title as string) || null;
     const jobDescription = (verifiedJob?.job_description as string) || null;
     const jobLocation = (verifiedJob?.job_location as string) || null;

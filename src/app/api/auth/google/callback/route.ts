@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
 
     // ─── Flow A: Account Linking (mode === "link") ───────────────────────────
     if (transaction.mode === "link") {
-      const returnBasePath = transaction.returnTo || "/vos-sync/freelancer/settings";
+      const returnBasePath = transaction.returnTo || "/linkbridge/freelancer/settings";
       const settingsUrl = new URL(returnBasePath, requestOrigin);
       settingsUrl.searchParams.set("tab", "security");
 
@@ -327,7 +327,7 @@ export async function GET(req: NextRequest) {
           lock_until: user.lock_until,
         });
 
-        const targetPath = session.destination || "/vos-sync/freelancer/dashboard";
+        const targetPath = session.destination || "/linkbridge/freelancer/dashboard";
         const redirectTarget = transaction.popup
           ? new URL(`/auth/popup-callback?status=success&provider=google&flow=login&redirectUrl=${encodeURIComponent(targetPath)}`, requestOrigin)
           : new URL(targetPath, requestOrigin);
@@ -518,7 +518,7 @@ export async function GET(req: NextRequest) {
       lock_until: user.lock_until,
     });
 
-    const targetPath = session.destination || "/vos-sync/freelancer/dashboard";
+    const targetPath = session.destination || "/linkbridge/freelancer/dashboard";
     const redirectTarget = transaction.popup
       ? new URL(`/auth/popup-callback?status=success&provider=google&flow=login&redirectUrl=${encodeURIComponent(targetPath)}`, requestOrigin)
       : new URL(targetPath, requestOrigin);
@@ -539,7 +539,7 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (err: unknown) {
     console.error("[GET /api/auth/google/callback] Callback failure:", err);
-    const fallbackPath = transaction?.mode === "link" ? "/vos-sync/freelancer/settings" : "/login";
+    const fallbackPath = transaction?.mode === "link" ? "/linkbridge/freelancer/settings" : "/login";
     const res = NextResponse.redirect(new URL(`${fallbackPath}?error=oauth_callback_failed`, requestOrigin));
     clearTxCookie(res);
     return res;

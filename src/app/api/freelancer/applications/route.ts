@@ -768,7 +768,7 @@ export async function POST(req: NextRequest) {
                   category: "APPLICATION_RECEIVED",
                   title: "New Application Received",
                   message: `${candidateName} applied for "${jobTitle}".`,
-                  action_url: `/vos-sync/client/applicants/${applicationId}`,
+                  action_url: `/linkbridge/client/applicants/${applicationId}`,
                 }).catch((err: unknown) => console.error("[Employer in-app] APPLICATION_RECEIVED error:", err));
               }
             }
@@ -783,7 +783,7 @@ export async function POST(req: NextRequest) {
             category: "APPLICATION_SUBMITTED",
             title: "Application Submitted",
             message: `Your application for "${jobTitle}" was submitted successfully.`,
-            action_url: `/vos-sync/freelancer/applications`,
+            action_url: `/linkbridge/freelancer/applications`,
           }).catch((err: unknown) => console.error("[Candidate in-app] APPLICATION_SUBMITTED error:", err));
 
           // Chat System Message
@@ -985,7 +985,7 @@ export async function PATCH(req: NextRequest) {
           category: "Application Updates",
           title: "Application Withdrawn",
           message: `You have successfully withdrawn your application for "${jobTitle}".`,
-          action_url: "/vos-sync/freelancer/applications",
+          action_url: "/linkbridge/freelancer/applications",
         }).catch((e) => console.error("Error creating candidate withdrawal notification:", e));
 
         // 2. In-app notification for Employer/Company recruiter
@@ -1003,7 +1003,7 @@ export async function PATCH(req: NextRequest) {
                 category: "APPLICATION_STATUS_UPDATED",
                 title: "Application Withdrawn",
                 message: `${candidateName} has withdrawn their application for "${jobTitle}".`,
-                action_url: `/vos-sync/client/applicants/${body.application_id}`,
+                action_url: `/linkbridge/client/applicants/${body.application_id}`,
               }).catch((e) => console.error("Error creating employer withdrawal notification:", e));
             }
           }

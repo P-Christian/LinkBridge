@@ -89,7 +89,7 @@ export function SchoolOverviewBanner({ school }: SchoolOverviewBannerProps) {
                 {completion >= 80 ? 'Ready to Match' : 'Setup In Progress'}
               </p>
               <Link
-                href="/vos-sync/school-admin/profile"
+                href="/linkbridge/school-admin/profile"
                 className="inline-flex items-center text-xs font-medium text-primary hover:underline"
               >
                 Manage Profile <ArrowUpRight className="ml-0.5 h-3 w-3" />

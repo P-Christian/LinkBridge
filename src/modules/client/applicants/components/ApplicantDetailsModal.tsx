@@ -1007,7 +1007,7 @@ export default function ApplicantDetailsModal({
 
           <div className="flex flex-row items-center gap-2.5 max-md:flex-col max-md:items-stretch">
             <Button asChild variant="outline" className="gap-1.5 border-border font-medium hover:bg-muted max-md:min-h-10 max-md:w-full">
-              <Link href={`/vos-sync/client/messaging?freelancer_id=${activeApplicant?.user_id ?? ""}&job_id=${activeApplicant?.job_id ?? ""}`}>
+              <Link href={`/linkbridge/client/messaging?freelancer_id=${activeApplicant?.user_id ?? ""}&job_id=${activeApplicant?.job_id ?? ""}`}>
                 <MessageSquare className="h-4 w-4 text-primary" />
                 Message
               </Link>
@@ -1022,7 +1022,7 @@ export default function ApplicantDetailsModal({
             {isInterviewEligible &&
               (interviewId ? (
                 <Button asChild variant="outline" className="gap-1.5 border-border font-medium hover:bg-muted max-md:min-h-10 max-md:w-full">
-                  <Link href="/vos-sync/client/interviews">
+                  <Link href="/linkbridge/client/interviews">
                     <CalendarPlus className="h-4 w-4 text-primary" />
                     View Interview
                   </Link>

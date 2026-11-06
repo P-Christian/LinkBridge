@@ -161,7 +161,7 @@ export async function submitIdentityVerificationAction(payload: Partial<Identity
         const { recalculateAndPersistScoreForUser } = await import("./identity-verification.service");
         await recalculateAndPersistScoreForUser(profile.user_id, profile.user_email);
 
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/verify-identity");
+        revalidatePath("/linkbridge/freelancer/verify-identity");
         return { success: true };
     } catch (error) {
         console.error("submitIdentityVerificationAction Error:", error);
@@ -210,7 +210,7 @@ export async function verifyMobileOtpAction(mobileNumber: string, otp: string) {
         const { recalculateAndPersistScoreForUser } = await import("./identity-verification.service");
         await recalculateAndPersistScoreForUser(profile.user_id, profile.user_email);
 
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/verify-identity");
+        revalidatePath("/linkbridge/freelancer/verify-identity");
         return { success: true };
     } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to verify OTP";

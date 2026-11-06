@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.json({
-    message: "Welcome to the VOS Admin API",
+    message: "Welcome to the Admin Portal API",
     data: {
       status: "online",
       post_graduates: 0,

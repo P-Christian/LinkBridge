@@ -243,7 +243,7 @@ export async function applyReviewAction(
             category: meta.category,
             title: meta.title,
             message: meta.message,
-            action_url: `/vos-sync/freelancer/applications?assessment=${context.application.application_id}`,
+            action_url: `/linkbridge/freelancer/applications?assessment=${context.application.application_id}`,
           }).catch((error: unknown) => console.error("[assessment-review] notify error:", error));
         }
       } catch (error) {

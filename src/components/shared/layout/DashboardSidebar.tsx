@@ -256,8 +256,8 @@ export function DashboardSidebar({
                 }
 
                 if (hasNotificationsItem && !isCircuitBroken) {
-                    const isFreelancer = pathname?.startsWith("/vos-sync/freelancer") || pathname?.startsWith("/freelancer");
-                    const isClient = pathname?.startsWith("/vos-sync/client") || pathname?.startsWith("/client");
+                    const isFreelancer = pathname?.startsWith("/linkbridge/freelancer") || pathname?.startsWith("/freelancer");
+                    const isClient = pathname?.startsWith("/linkbridge/client") || pathname?.startsWith("/client");
 
                     const endpoint = isFreelancer
                         ? "/api/freelancer/notifications?unread_only=true"
@@ -358,17 +358,17 @@ export function DashboardSidebar({
     }, [user.verification_status, user.status]);
 
     const profileUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/company-profile";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/profile";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/profile";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/company-profile";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/profile";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/profile";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     const settingsUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/settings";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/settings";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/settings";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/settings";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/settings";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/settings";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     return (

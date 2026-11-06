@@ -193,7 +193,7 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
       params.delete("tab");
       setShowBestMatches(false);
     }
-    router.push(`/vos-sync/client/applicants?${params.toString()}`);
+    router.push(`/linkbridge/client/applicants?${params.toString()}`);
   };
 
   const toggleBestMatches = () => {
@@ -205,7 +205,7 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
     } else {
       params.delete("tab");
     }
-    router.push(`/vos-sync/client/applicants?${params.toString()}`);
+    router.push(`/linkbridge/client/applicants?${params.toString()}`);
   };
 
   const selectedJob = allJobs.find((j: JobPosting) => j.job_id === jobId);
@@ -456,7 +456,7 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
   };
 
   const handleViewScheduledInterview = (interviewId: number) => {
-    router.push(`/vos-sync/client/interviews?interview_id=${interviewId}`);
+    router.push(`/linkbridge/client/interviews?interview_id=${interviewId}`);
   };
 
   return (

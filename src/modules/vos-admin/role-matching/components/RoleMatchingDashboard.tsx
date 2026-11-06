@@ -109,7 +109,7 @@ export function MatchingIntelligenceDashboard() {
             <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh Data
           </Button>
-          <Link href="/vos-sync/vos-admin/job-roles/tester">
+          <Link href="/linkbridge/admin/job-roles/tester">
             <Button
               size="sm"
               className="h-9 px-4 rounded-xl text-xs gap-2 bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-semibold shadow-xs transition-all cursor-pointer"
@@ -176,7 +176,7 @@ export function MatchingIntelligenceDashboard() {
             whileHover={{ y: -3 }}
             transition={{ duration: 0.18, delay: 0.15 }}
           >
-            <Link href="/vos-sync/vos-admin/job-roles/approval-queue" className="block h-full">
+            <Link href="/linkbridge/admin/job-roles/approval-queue" className="block h-full">
               <div className="p-5 rounded-2xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20 hover:border-amber-500 dark:hover:border-amber-500 transition-all group h-full flex flex-col justify-between cursor-pointer">
                 <div>
                   <Inbox className="h-6 w-6 text-amber-600 dark:text-amber-400 mb-3" />
@@ -204,7 +204,7 @@ export function MatchingIntelligenceDashboard() {
             whileHover={{ y: -3 }}
             transition={{ duration: 0.18, delay: 0.18 }}
           >
-            <Link href="/vos-sync/vos-admin/job-roles/taxonomy" className="block h-full">
+            <Link href="/linkbridge/admin/job-roles/taxonomy" className="block h-full">
               <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
                 <div>
                   <Layers className="h-6 w-6 text-indigo-600 mb-3" />
@@ -226,7 +226,7 @@ export function MatchingIntelligenceDashboard() {
             whileHover={{ y: -3 }}
             transition={{ duration: 0.18, delay: 0.21 }}
           >
-            <Link href="/vos-sync/vos-admin/job-roles/taxonomy" className="block h-full">
+            <Link href="/linkbridge/admin/job-roles/taxonomy" className="block h-full">
               <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
                 <div>
                   <Activity className="h-6 w-6 text-emerald-600 mb-3" />

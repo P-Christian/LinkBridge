@@ -367,7 +367,7 @@ export function PlatformCompanyModal({
                       type="email"
                       value={formData.company_email}
                       onChange={(e) => handleChange("company_email", e.target.value)}
-                      placeholder="e.g. contact@vosync.com"
+                      placeholder="e.g. contact@linkbridge.com"
                       className="rounded-xl h-10 text-xs"
                       required
                     />
@@ -378,7 +378,7 @@ export function PlatformCompanyModal({
                       type="email"
                       value={formData.support_email || ""}
                       onChange={(e) => handleChange("support_email", e.target.value)}
-                      placeholder="e.g. support@vosync.com"
+                      placeholder="e.g. support@linkbridge.com"
                       className="rounded-xl h-10 text-xs"
                     />
                   </div>

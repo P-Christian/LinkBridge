@@ -33,12 +33,12 @@ export function SchoolAdminDashboard() {
             <div className="flex items-center gap-2 mb-1.5">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-semibold text-primary">
                 <Shield className="h-3.5 w-3.5" />
-                VOS Command Center
+                Command Center
               </span>
               <span className="text-xs text-muted-foreground">• {formattedDate}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-              VOS Admin Portal
+              Admin Portal
             </h1>
             <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
               Platform-wide governance overview covering institutional accreditation, employer verifications, and AI matching telemetry.

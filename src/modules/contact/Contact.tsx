@@ -40,10 +40,10 @@ import type { PlatformCompany } from "@/modules/vos-admin/platform-company/types
 const CONTACT_API_ENDPOINT = "/api/contact";
 const PRIVACY_POLICY_HREF = "/privacy-policy"; // verify this route exists
 
-// "/vos-sync/freelancer" 404s. Prefer the dashboard supplied by the session and
+// "/linkbridge/freelancer" 404s. Prefer the dashboard supplied by the session and
 // fall back to these. Verify the fallbacks against your app directory.
-const JOB_SEEKER_PORTAL_FALLBACK = "/vos-sync/freelancer/dashboard";
-const EMPLOYER_PORTAL_FALLBACK = "/vos-sync/client/dashboard";
+const JOB_SEEKER_PORTAL_FALLBACK = "/linkbridge/freelancer/dashboard";
+const EMPLOYER_PORTAL_FALLBACK = "/linkbridge/client/dashboard";
 
 // Keep in sync with the server-side validation / database limits.
 const LIMITS = { name: 100, email: 254, company: 150, subject: 150, message: 5000 } as const;
@@ -625,7 +625,7 @@ export default function Contact({ initialCompany = null }: ContactProps) {
                     </Link>
                   </Button>
                   <Button asChild size="lg" variant="outline" className="border-border/80 bg-background/80 hover:bg-muted text-foreground rounded-full px-8 cursor-pointer h-11 md:h-10">
-                    <Link href="/vos-sync/client/talent-search" className="flex items-center gap-2">
+                    <Link href="/linkbridge/client/talent-search" className="flex items-center gap-2">
                       <UserCheck className="h-4 w-4" />
                       Find Talent
                     </Link>
@@ -641,7 +641,7 @@ export default function Contact({ initialCompany = null }: ContactProps) {
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Button asChild size="lg" className="bg-gradient-to-r from-primary to-sky-600 hover:brightness-110 text-white rounded-full px-8 cursor-pointer shadow-sm hover:shadow-md transition-all h-11 md:h-10">
-                    <Link href={session.dashboard || "/vos-sync/admin"} className="flex items-center gap-2">
+                    <Link href={session.dashboard || "/linkbridge/admin"} className="flex items-center gap-2">
                       <LayoutDashboard className="h-4 w-4" />
                       Go to Dashboard
                     </Link>

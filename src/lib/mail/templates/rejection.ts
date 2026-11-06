@@ -32,18 +32,19 @@ export function rejectionTemplate(data: RejectionTemplateData) {
           After careful consideration, the hiring team has decided to proceed with other candidates whose qualifications more closely match the current requirements for this position.
         </p>
 
-        ${notes
-        ? `
+        ${
+          notes
+            ? `
         <div style="background-color: #f8fafc; border-left: 4px solid #94a3b8; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Employer Feedback / Notes:</p>
           <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeNotes}</p>
         </div>
         `
-        : ""
-      }
+            : ""
+        }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          We appreciate your interest in <strong>${safeCompanyName}</strong> and encourage you to apply for future opportunities on <a href="${safeBaseUrl}/vos-sync/freelancer/jobs" style="color: #14a800; font-weight: 600;">LinkBridge</a>.
+          We appreciate your interest in <strong>${safeCompanyName}</strong> and encourage you to apply for future opportunities on <a href="${safeBaseUrl}/linkbridge/freelancer/jobs" style="color: #14a800; font-weight: 600;">LinkBridge</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">

@@ -263,7 +263,7 @@ export async function POST(req: NextRequest) {
     // school_status 'Draft' + verification_status 'DRAFT' with NO
     // vs_school_admin link is the placeholder identity (spec: Placeholder
     // creation and ownership). is_active is set so the row classifies as
-    // AWAITING_REGISTRATION; created_by records the VOS Admin actor.
+    // AWAITING_REGISTRATION; created_by records the Admin Portal actor.
     //
     // vs_school requires non-null school_type/city_municipality/province, and
     // school_type is an enum (University | College | Technical/Vocational |

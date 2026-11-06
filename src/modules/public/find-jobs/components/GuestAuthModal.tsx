@@ -23,7 +23,7 @@ interface Props {
 
 export function GuestAuthModal({ job, isOpen, onClose }: Props) {
   const openJobQuery = job?.job_id ? `?open_job=${job.job_id}` : "";
-  const targetPath = `/vos-sync/freelancer/jobs${openJobQuery}`;
+  const targetPath = `/linkbridge/freelancer/jobs${openJobQuery}`;
   const loginHref = `/login?next=${encodeURIComponent(targetPath)}`;
   const signupHref = `/signup?next=${encodeURIComponent(targetPath)}`;
 

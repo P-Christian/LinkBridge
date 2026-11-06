@@ -33,7 +33,7 @@ export async function getReferralPolicy(jobId?: number) {
         return json.data[0];
       }
     }
-
+    
     // Fallback if no specific policy exists
     if (jobId) {
       return getReferralPolicy();
@@ -74,7 +74,7 @@ export async function createReferralRecord(
 ) {
   const { plain, hash } = generateToken();
   const policy = await getReferralPolicy(jobId);
-
+  
   if (!policy.enabled) {
     throw new Error("Referrals are not enabled for this vacancy.");
   }
@@ -121,7 +121,7 @@ export async function createReferralRecord(
   }
 
   const created = (await res.json()).data;
-
+  
   // Log history
   await logReferralHistory(created.referral_id, "None", payload.status as string, "system", "Creation");
 
@@ -316,7 +316,7 @@ export async function claimReferralRecord(
         category: "Referral Updates",
         title: "Referral Invitation Accepted!",
         message: `${candidateName} has accepted your referral invite for the position ${referralJobTitle || "Opportunity"}.`,
-        action_url: "/vos-sync/freelancer/referrals",
+        action_url: "/linkbridge/freelancer/referrals",
       });
     } catch (err) {
       console.error("Failed to send claim in-app notification to referrer:", err);
@@ -426,7 +426,7 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
       await sendMail({
         to: referrer.user_email,
         subject: `Your referral applied: ${referral.job_id?.job_title || "Vacancy"}`,
-        text: `Hello ${referrer.user_fname}!\n\nGood news! ${candidateName}, whom you referred, has successfully submitted their application for the ${referral.job_id?.job_title || "Vacancy"} position.\n\nKeep track of your referrals here: ${process.env.NEXT_PUBLIC_APP_URL || ""}/vos-sync/freelancer/referrals\n\nBest regards,\nLinkBridge Team`,
+        text: `Hello ${referrer.user_fname}!\n\nGood news! ${candidateName}, whom you referred, has successfully submitted their application for the ${referral.job_id?.job_title || "Vacancy"} position.\n\nKeep track of your referrals here: ${process.env.NEXT_PUBLIC_APP_URL || ""}/linkbridge/freelancer/referrals\n\nBest regards,\nLinkBridge Team`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #333;">
             <h2>Good news! Your referral applied</h2>
@@ -448,7 +448,7 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
           category: "Referral Updates",
           title: "Referral Candidate Applied!",
           message: `${candidateName} has submitted their application for the position ${referral.job_id?.job_title || "Vacancy"}.`,
-          action_url: "/vos-sync/freelancer/referrals",
+          action_url: "/linkbridge/freelancer/referrals",
         });
       } catch (err) {
         console.error("Failed to send application in-app notification to referrer:", err);

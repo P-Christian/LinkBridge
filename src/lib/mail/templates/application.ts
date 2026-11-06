@@ -46,7 +46,7 @@ export function applicationSubmittedTemplate(data: ApplicationTemplateData) {
         </div>
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can track your application status anytime via your <a href="${safeBaseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
+          You can track your application status anytime via your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">
@@ -123,7 +123,7 @@ export function newApplicationReceivedTemplate(data: NewApplicationNotificationD
         </div>
 
         <div style="text-align: center; margin: 28px 0;">
-          <a href="${safeBaseUrl}/vos-sync/client/applicants" style="display: inline-block; background-color: #14a800; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 24px; border-radius: 10px; text-decoration: none;">
+          <a href="${safeBaseUrl}/linkbridge/client/applicants" style="display: inline-block; background-color: #14a800; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 24px; border-radius: 10px; text-decoration: none;">
             Review Application in Portal
           </a>
         </div>

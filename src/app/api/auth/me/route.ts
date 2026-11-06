@@ -50,17 +50,17 @@ export async function GET(req: NextRequest) {
   // route reads the same predicates the API guards use. An account that
   // matches none of them keeps the historical freelancer default.
   let role = "employee";
-  let dashboard = "/vos-sync/freelancer/dashboard";
+  let dashboard = "/linkbridge/freelancer/dashboard";
 
   if (isClientSession(claims)) {
     role = "employer";
-    dashboard = "/vos-sync/client/dashboard";
+    dashboard = "/linkbridge/client/dashboard";
   } else if (isAdministratorSession(claims)) {
     role = "admin";
-    dashboard = "/vos-sync/vos-admin";
+    dashboard = "/linkbridge/admin";
   } else if (isSchoolAdminSession(claims)) {
     role = "school";
-    dashboard = "/vos-sync/school-admin";
+    dashboard = "/linkbridge/school-admin";
   } else if (isFreelancerSession(claims)) {
     role = "employee";
   }

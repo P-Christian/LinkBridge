@@ -26,7 +26,7 @@ export async function uploadResumeAction(_requestedUserId: number, formData: For
         }
 
         await uploadResumeService(userId, formData, fileName);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: unknown) {
         console.error("uploadResumeAction Error:", err);
@@ -38,7 +38,7 @@ export async function setPrimaryResumeAction(_requestedUserId: number, resumeId:
     try {
         const userId = await requireFreelancerUserId();
         await setPrimaryResumeService(userId, resumeId);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: unknown) {
         console.error("setPrimaryResumeAction Error:", err);
@@ -50,7 +50,7 @@ export async function deleteResumeAction(resumeId: number) {
     try {
         const userId = await requireFreelancerUserId();
         await deleteResumeService(userId, resumeId);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: unknown) {
         console.error("deleteResumeAction Error:", err);
@@ -68,7 +68,7 @@ export async function uploadAndAutofillResumeAction(_requestedUserId: number, fo
 
         // 1. Upload the resume first
         await uploadResumeService(userId, formData, fileName);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
 
         // 2. Extract the file buffer for Gemini
         const file = formData.get("file") as File;

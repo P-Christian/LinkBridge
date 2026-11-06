@@ -100,8 +100,8 @@ export function Footer() {
 
   const candidateLinks = session.isJobSeeker
     ? [
-      { label: "Find Jobs", href: "/vos-sync/freelancer/jobs" },
-      { label: "My Applications", href: "/vos-sync/freelancer/applications" },
+      { label: "Find Jobs", href: "/linkbridge/freelancer/jobs" },
+      { label: "My Applications", href: "/linkbridge/freelancer/applications" },
       { label: "Browse Companies", href: "/companies" },
       { label: "Career Advice", href: "/career-advice" },
     ]
@@ -114,10 +114,10 @@ export function Footer() {
 
   const employerLinks = session.isEmployer
     ? [
-      { label: "Post a Job", href: "/vos-sync/client/jobs" },
-      { label: "Applicants", href: "/vos-sync/client/applicants" },
-      { label: "Talent Search", href: "/vos-sync/client/talent-search" },
-      { label: "Dashboard", href: "/vos-sync/client/dashboard" },
+      { label: "Post a Job", href: "/linkbridge/client/jobs" },
+      { label: "Applicants", href: "/linkbridge/client/applicants" },
+      { label: "Talent Search", href: "/linkbridge/client/talent-search" },
+      { label: "Dashboard", href: "/linkbridge/client/dashboard" },
     ]
     : [
       { label: "Post a Job", href: "/signup?role=employer" },

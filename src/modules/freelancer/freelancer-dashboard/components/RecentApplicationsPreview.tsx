@@ -126,7 +126,7 @@ export function RecentApplicationsPreview({
                         <p className="text-xs text-slate-500 dark:text-muted-foreground mt-0.5">Track your job application status</p>
                     </div>
                     <Link
-                        href="/vos-sync/freelancer/applications"
+                        href="/linkbridge/freelancer/applications"
                         className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition-colors"
                     >
                         View All <ArrowRight className="w-3.5 h-3.5" />
@@ -138,7 +138,7 @@ export function RecentApplicationsPreview({
                     <div className="p-8 text-center">
                         <p className="text-xs text-slate-500 dark:text-muted-foreground">You haven&apos;t applied to any roles yet.</p>
                         <Button variant="outline" asChild size="sm" className="mt-3">
-                            <Link href="/vos-sync/freelancer/jobs">Browse Jobs</Link>
+                            <Link href="/linkbridge/freelancer/jobs">Browse Jobs</Link>
                         </Button>
                     </div>
                 ) : (
@@ -146,7 +146,7 @@ export function RecentApplicationsPreview({
                         {recentApps.map((app) => (
                             <Link
                                 key={app.application_id}
-                                href="/vos-sync/freelancer/applications"
+                                href="/linkbridge/freelancer/applications"
                                 className="px-6 py-3.5 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-muted/40 transition group"
                             >
                                 <div className="flex items-center gap-3.5 min-w-0 pr-2">

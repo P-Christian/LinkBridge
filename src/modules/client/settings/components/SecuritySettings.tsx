@@ -402,7 +402,7 @@ export default function SecuritySettings({
       </div>
 
       {/* Connected Accounts & Social Logins */}
-      <ConnectedAccountsCard returnTo="/vos-sync/client/settings" />
+      <ConnectedAccountsCard returnTo="/linkbridge/client/settings" />
 
       {/* Choice B Password Change Confirmation Dialog */}
       <Dialog open={showLogoutDialog} onOpenChange={setShowLogoutDialog}>

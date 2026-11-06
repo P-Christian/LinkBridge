@@ -18,6 +18,26 @@ const nextConfig: NextConfig = {
     },
   },
 
+  async redirects() {
+    return [
+      {
+        source: "/vos-sync/vos-admin/:path*",
+        destination: "/linkbridge/admin/:path*",
+        permanent: false,
+      },
+      {
+        source: "/vos-sync/:path*",
+        destination: "/linkbridge/:path*",
+        permanent: false,
+      },
+      {
+        source: "/linkbridge/vos-admin/:path*",
+        destination: "/linkbridge/admin/:path*",
+        permanent: false,
+      },
+    ];
+  },
+
   async headers() {
     return [
       {

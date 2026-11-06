@@ -1418,7 +1418,7 @@ async function notifyFreelancerOfAssessmentAssignment(input: {
       category: "ASSESSMENT_ASSIGNED",
       title: "Assessment assigned",
       message: `You have until ${formatted} to complete your assessment.`,
-      action_url: `/vos-sync/freelancer/applications?assessment=${input.applicationId}`,
+      action_url: `/linkbridge/freelancer/applications?assessment=${input.applicationId}`,
     }).catch((error: unknown) => console.error("[job-pipeline.service] assessment arrival notify error:", error));
   } catch (error) {
     console.error("[job-pipeline.service] assessment arrival notification failed:", error);
@@ -1473,7 +1473,7 @@ export async function notifyFreelancerOfAssessmentOutcome(input: {
       message: passed
         ? `Your assessment for "${input.fromStageName}" was marked as passed.`
         : `Your assessment for "${input.fromStageName}" was marked as failed.`,
-      action_url: `/vos-sync/freelancer/applications?assessment=${input.applicationId}`,
+      action_url: `/linkbridge/freelancer/applications?assessment=${input.applicationId}`,
     }).catch((error: unknown) => console.error("[job-pipeline.service] assessment outcome notify error:", error));
   } catch (error) {
     console.error("[job-pipeline.service] assessment outcome notification failed:", error);

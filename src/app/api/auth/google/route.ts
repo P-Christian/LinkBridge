@@ -19,8 +19,8 @@ function sanitizeReturnToPath(raw: string | null): string | null {
   }
   // Only allow settings destinations within the application
   if (
-    trimmed.startsWith("/vos-sync/client/settings") ||
-    trimmed.startsWith("/vos-sync/freelancer/settings")
+    trimmed.startsWith("/linkbridge/client/settings") ||
+    trimmed.startsWith("/linkbridge/freelancer/settings")
   ) {
     return trimmed;
   }
@@ -54,8 +54,8 @@ export async function GET(req: NextRequest) {
       const rawReturnTo = req.nextUrl.searchParams.get("returnTo");
       const defaultReturn =
         session.roleId === 2 || session.roleName === "CLIENT"
-          ? "/vos-sync/client/settings?tab=security"
-          : "/vos-sync/freelancer/settings?tab=security";
+          ? "/linkbridge/client/settings?tab=security"
+          : "/linkbridge/freelancer/settings?tab=security";
 
       returnTo = sanitizeReturnToPath(rawReturnTo) || defaultReturn;
     }

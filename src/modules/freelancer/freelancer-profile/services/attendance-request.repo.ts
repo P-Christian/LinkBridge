@@ -304,7 +304,7 @@ function requireLinkedRequest(
   // canonical state. Any drift fails closed — never returned as valid.
   // Defect (2): enforce canonical route semantics; reject hybrids.
   // System auto-route is the only writer on this path, so routed_by must
-  // always be the null system-route marker (never a VOS Admin action).
+  // always be the null system-route marker (never a Admin Portal action).
   if (request.routed_by !== null && request.routed_by !== undefined) {
     throw new AttendanceRequestError(
       "Attendance request route actor is invalid.",

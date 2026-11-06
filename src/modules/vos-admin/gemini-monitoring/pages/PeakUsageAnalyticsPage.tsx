@@ -227,7 +227,7 @@ export function PeakUsageAnalyticsPage() {
       {/* ── Top Navigation & Breadcrumb ─────────────────────────────────── */}
       <motion.div variants={itemVariants} className="flex items-center justify-between gap-4">
         <Link
-          href="/vos-sync/vos-admin/gemini-monitoring"
+          href="/linkbridge/admin/gemini-monitoring"
           className="inline-flex items-center gap-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors group"
         >
           <motion.div

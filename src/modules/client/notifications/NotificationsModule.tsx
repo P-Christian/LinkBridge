@@ -34,7 +34,7 @@ import NotificationList from "./components/NotificationList";
 import { cn } from "@/lib/utils";
 
 // Notification preferences live in the Settings page — open that tab directly.
-const SETTINGS_HREF = "/vos-sync/client/settings?tab=notifications";
+const SETTINGS_HREF = "/linkbridge/client/settings?tab=notifications";
 
 type FilterTab = "ALL" | "UNREAD" | "STARRED";
 

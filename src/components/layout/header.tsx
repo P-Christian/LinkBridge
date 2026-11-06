@@ -310,13 +310,13 @@ export function Header() {
                 {user.role === "client" ? (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <Briefcase className="w-4 h-4 text-muted-foreground" />
                         Manage Jobs
                       </Link>
@@ -324,14 +324,14 @@ export function Header() {
                   </>
                 ) : user.role === "admin" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/vos-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       Admin Portal
                     </Link>
                   </DropdownMenuItem>
                 ) : user.role === "school" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       School Portal
                     </Link>
@@ -339,13 +339,13 @@ export function Header() {
                 ) : (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <FileText className="w-4 h-4 text-muted-foreground" />
                         My Applications
                       </Link>
@@ -457,37 +457,37 @@ export function Header() {
               {user.role === "client" ? (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/dashboard">
+                    <Link href="/linkbridge/client/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/jobs">
+                    <Link href="/linkbridge/client/jobs">
                       <Briefcase className="w-4 h-4" /> Manage Jobs
                     </Link>
                   </Button>
                 </>
               ) : user.role === "admin" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/vos-admin">
+                  <Link href="/linkbridge/admin">
                     <LayoutDashboard className="w-4 h-4" /> Admin Portal
                   </Link>
                 </Button>
               ) : user.role === "school" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/school-admin">
+                  <Link href="/linkbridge/school-admin">
                     <LayoutDashboard className="w-4 h-4" /> School Portal
                   </Link>
                 </Button>
               ) : (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/dashboard">
+                    <Link href="/linkbridge/freelancer/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/applications">
+                    <Link href="/linkbridge/freelancer/applications">
                       <FileText className="w-4 h-4" /> My Applications
                     </Link>
                   </Button>

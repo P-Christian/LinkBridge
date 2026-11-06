@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useSettings } from "@/modules/client/settings/hooks/useSettings";
 import AccountSettings from "@/modules/freelancer/settings/components/AccountSettings";
 import SecuritySettings from "@/modules/freelancer/settings/components/SecuritySettings";
-import { SettingsAppearance } from "@/app/(vos-sync)/vos-sync/settings/settings-appearance";
+import { SettingsAppearance } from "@/app/(linkbridge)/linkbridge/settings/settings-appearance";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Settings2, User, Shield, Palette } from "lucide-react";
 import { cn } from "@/lib/utils";
