@@ -120,7 +120,8 @@ export async function GET(req: NextRequest) {
     const requestedSkills = getListParam(searchParams, "skills");
     const locations = getListParam(searchParams, "location");
     const schoolFilters = getListParam(searchParams, "school_id");
-    const experienceLevel = searchParams.get("experience_level") || "";
+    const experienceLevels = getListParam(searchParams, "experience_level");
+    const workSetupFilters = getListParam(searchParams, "work_setup");
     const page = getIntParam(searchParams, "page", 1);
     const limit = Math.min(50, getIntParam(searchParams, "limit", 20));
     // Interpolated raw into the job reads below. A percent-encoded `&filter[…]`
@@ -134,7 +135,8 @@ export async function GET(req: NextRequest) {
       skills: requestedSkills.length,
       locations: locations.length,
       schools: schoolFilters.length,
-      experience: experienceLevel || null,
+      experience: experienceLevels.join(",") || null,
+      workSetup: workSetupFilters.join(",") || null,
       job: requestedJobId || null,
       page,
       limit,
@@ -202,7 +204,8 @@ export async function GET(req: NextRequest) {
         requestedSkills.length > 0 ||
         requestedJobId ||
         locations.length > 0 ||
-        experienceLevel ||
+        experienceLevels.length > 0 ||
+        workSetupFilters.length > 0 ||
         schoolFilters.length > 0
     );
 
@@ -238,22 +241,32 @@ export async function GET(req: NextRequest) {
     });
 
     // ────────────────────────────────────────────
-    // 3. Ranked-id cache
+    // 3. Gemini Layer A: query understanding & Ranked-id cache
     //
-    // The order a search produces does not depend on which page is being asked
-    // for, so a page turn used to re-run everything for it: ~300 batched reads,
-    // the six evaluators on every candidate, and a Gemini rerank call. A hit
-    // reads the page's rows and re-scores them with the engine inputs captured
-    // when the ranking was written — rebuilding those from the 10 000-row
-    // taxonomy scans and Layer A would cost what the cache just saved.
+    // Query understanding runs before the cache and taxonomy so that near-identical
+    // queries (e.g. "web dev", "web development", "web developer") resolve to
+    // the same canonical role keyword and share the exact same ranking cache entry.
     // ────────────────────────────────────────────
+    const query = await understandQuery({ keyword, userId, companyId });
+    mark("layer_a");
+    counts.layer_a = query.outcome;
+    counts.layer_a_rewrote = query.rewrote;
+    layerLog("LAYER_A", query.intent ? `AI intent ${query.outcome}` : "no AI intent — raw keyword used", {
+      raw: `"${keyword}"`,
+      matched: `"${query.matchKeyword}"`,
+      confidence: query.intent?.confidence ?? null,
+      inferredSkills: query.intent?.inferred_skills.length ?? 0,
+    });
+
+    const canonicalKeyword = (query.matchKeyword || keyword).trim().toLowerCase();
     const rankingKey = buildRankingKey({
       jobId: requestedJobId,
-      keyword,
+      keyword: canonicalKeyword,
       skills: requestedSkills,
       locations,
       schools: schoolFilters,
-      experienceLevel,
+      experienceLevels,
+      workSetups: workSetupFilters,
     });
 
     let ranked = getRankedSearch(rankingKey);
@@ -401,19 +414,6 @@ export async function GET(req: NextRequest) {
     counts.corpus = profiles.length;
     if (scanTruncated) counts.truncated = true;
 
-    // Gemini Layer A: query understanding. Runs before taxonomy + retrieval, so
-    // everything downstream scores against the resolved role.
-    const query = await understandQuery({ keyword, userId, companyId });
-    mark("layer_a");
-    counts.layer_a = query.outcome;
-    counts.layer_a_rewrote = query.rewrote;
-    layerLog("LAYER_A", query.intent ? `AI intent ${query.outcome}` : "no AI intent — raw keyword used", {
-      raw: `"${keyword}"`,
-      matched: `"${query.matchKeyword}"`,
-      confidence: query.intent?.confidence ?? null,
-      inferredSkills: query.intent?.inferred_skills.length ?? 0,
-    });
-
     // Resolve Role Taxonomy using the effective match keyword (Gemini-resolved or original)
     const taxonomy = resolveRoleTaxonomy(query.matchKeyword, dbAliases);
     layerLog("TAXONOMY", taxonomy.resolved_role ? `matched alias "${taxonomy.matched_alias}" → role ${taxonomy.resolved_role}` : "no DB role for this keyword — matching on the raw text only", {
@@ -545,6 +545,7 @@ export async function GET(req: NextRequest) {
       jobId: requestedJobId,
       locations,
       schoolFilters,
+      workSetupFilters,
     });
     layerLog(
       "PREFILTER",
@@ -581,9 +582,9 @@ export async function GET(req: NextRequest) {
     // ────────────────────────────────────────────
     // 6. Rank
     // ────────────────────────────────────────────
-    let filtered = applyExperienceFilter(allTalents, experienceLevel);
-    if (experienceLevel) {
-      layerLog("FILTER", `experience_level=${experienceLevel} cut the scored list`, {
+    let filtered = applyExperienceFilter(allTalents, experienceLevels);
+    if (experienceLevels.length > 0) {
+      layerLog("FILTER", `experience_levels=${experienceLevels.join(",")} cut the scored list`, {
         kept: filtered.length,
         of: allTalents.length,
         dropped: allTalents.length - filtered.length,
@@ -602,7 +603,7 @@ export async function GET(req: NextRequest) {
     });
 
     const rerank = await rerankTalents({
-      keyword,
+      keyword: query.matchKeyword || keyword,
       jobId: requestedJobId,
       userId,
       companyId,

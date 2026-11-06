@@ -57,7 +57,7 @@ export function SchoolOverviewBanner({ school }: SchoolOverviewBannerProps) {
               Welcome back, <span className="text-primary">{school.school_name}</span>
             </h1>
             <p className="mt-1 text-sm text-muted-foreground max-w-2xl">
-              {school.school_description || 'Track your institution academic programs, student onboarding pipeline, and career placement performance on VOS-Sync.'}
+              {school.school_description || 'Track your institution academic programs, student onboarding pipeline, and career placement performance on LinkBridge.'}
             </p>
           </div>
 

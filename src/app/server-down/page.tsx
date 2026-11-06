@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { ServerDownContent } from "@/components/shared/ServerDownContent";
 
 export const metadata: Metadata = {
-    title: "Server Down | VOS Sync",
+    title: "Server Down | LinkBridge",
     description: "Our server or database is temporarily undergoing maintenance or experiencing an outage. Please check back shortly.",
 };
 

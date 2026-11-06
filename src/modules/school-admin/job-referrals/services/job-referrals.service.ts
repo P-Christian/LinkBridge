@@ -224,7 +224,7 @@ export async function createBatchReferralsService(
           const htmlBody = `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
               <div style="text-align: center; margin-bottom: 24px;">
-                <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">VOS Sync</h1>
+                <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">LinkBridge</h1>
                 <p style="color: #64748b; margin: 4px 0 0; font-size: 13px;">Official Academic & Career Referral</p>
               </div>
 
@@ -269,7 +269,7 @@ export async function createBatchReferralsService(
               <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
 
               <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
-                This endorsement was officially issued by ${escapeHtml(schoolName)} on VOS Sync.<br/>
+                This endorsement was officially issued by ${escapeHtml(schoolName)} on LinkBridge.<br/>
                 This referral link is unique to you and valid for ${expires_in_days} days.<br/>
                 <span style="color: #4f46e5; word-break: break-all; margin-top: 6px; display: inline-block;">${escapeHtml(url)}</span>
               </p>
@@ -284,14 +284,14 @@ export async function createBatchReferralsService(
             html: htmlBody,
             ...(pdfBuffer
               ? {
-                  attachments: [
-                    {
-                      filename: `Recommendation_Letter_${cleanSafeName}.pdf`,
-                      content: pdfBuffer,
-                      contentType: 'application/pdf',
-                    },
-                  ],
-                }
+                attachments: [
+                  {
+                    filename: `Recommendation_Letter_${cleanSafeName}.pdf`,
+                    content: pdfBuffer,
+                    contentType: 'application/pdf',
+                  },
+                ],
+              }
               : {}),
           });
         } catch (mailErr) {

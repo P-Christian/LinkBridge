@@ -2,7 +2,7 @@ import React from "react";
 import AdminSettingsModule from "./AdminSettingsModule";
 
 export const metadata = {
-    title: "Admin Settings - VOS Sync",
+    title: "Admin Settings - LinkBridge",
     description: "Manage your admin profile, credentials, and theme options.",
 };
 

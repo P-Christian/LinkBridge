@@ -133,7 +133,7 @@ export function generateRecommendationPdfBuffer(params: RecommendationPdfParams)
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
   doc.text(params.schoolName || 'Partner Academic Institution', margin, cursorY + 4.5);
-  doc.text('Verified via VOS Sync Industry-Academia Placement Portal', margin, cursorY + 8.5);
+  doc.text('Verified via LinkBridge Industry-Academia Placement Portal', margin, cursorY + 8.5);
 
   // Footer
   doc.setDrawColor(226, 232, 240);

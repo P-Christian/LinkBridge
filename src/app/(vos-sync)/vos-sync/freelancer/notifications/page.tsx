@@ -11,9 +11,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Notifications | VOS Sync Freelancer Portal",
+  title: "Notifications | LinkBridge Freelancer Portal",
   description:
-    "Stay updated on job applications, interview schedules, and company activity on VOS Sync.",
+    "Stay updated on job applications, interview schedules, and company activity on LinkBridge.",
 };
 
 function checkIsNewUser(dateStr?: string | null): boolean {

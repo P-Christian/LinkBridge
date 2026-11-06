@@ -604,24 +604,6 @@ export function RoleDetailSheet({
               </p>
             </div>
           </div>
-
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={roleSaving}
-              onClick={handleToggleRoleActive}
-              className={`h-8 px-3 text-xs font-bold gap-1.5 rounded-xl transition-all ${
-                role.is_active !== false
-                  ? "text-zinc-600 hover:text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/40 border-border"
-                  : "text-emerald-700 hover:text-emerald-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 border-emerald-300 dark:border-emerald-800"
-              }`}
-            >
-              <Power className="h-3.5 w-3.5" />
-              {role.is_active !== false ? "Deactivate" : "Activate"}
-            </Button>
-          </div>
         </DialogHeader>
 
         {/* Tab Navigation */}
@@ -804,7 +786,7 @@ export function RoleDetailSheet({
                                   title={s.is_active !== false ? "Deactivate Skill" : "Activate Skill"}
                                 >
                                   <Power className="h-3 w-3" />
-                                  <span className="hidden sm:inline">{s.is_active !== false ? "Deactivate" : "Activate"}</span>
+                                  <span className="hidden sm:inline">{s.is_active !== false ? "Deactivate4" : "Activate4"}</span>
                                 </button>
 
                                 <button
@@ -1010,7 +992,7 @@ export function RoleDetailSheet({
                                   title={kw.is_active !== false ? "Deactivate Keyword" : "Activate Keyword"}
                                 >
                                   <Power className="h-3 w-3" />
-                                  <span className="hidden sm:inline">{kw.is_active !== false ? "Deactivate" : "Activate"}</span>
+                                  <span className="hidden sm:inline">{kw.is_active !== false ? "Deactivate5" : "Activate5"}</span>
                                 </button>
 
                                 <button

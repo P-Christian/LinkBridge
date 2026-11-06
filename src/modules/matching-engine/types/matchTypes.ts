@@ -9,6 +9,22 @@ export enum MatchMode {
   AI_RERANK = "AI_RERANK",
 }
 
+export type EligibilityReason =
+  | "BROWSE_MODE"
+  | "DIRECT_ROLE_MATCH"
+  | "RELATED_ROLE_MATCH"
+  | "SKILL_MATCH"
+  | "EXPERIENCE_MATCH"
+  | "EDUCATION_MATCH"
+  | "NAME_MATCH"
+  | "NO_RELEVANCE";
+
+export interface CandidateEligibility {
+  eligible: boolean;
+  reason: EligibilityReason;
+  score: number;
+}
+
 export type MatchConfidenceLevel = "HIGH" | "MEDIUM" | "LOW";
 
 export interface ResolvedTaxonomyContext {
@@ -27,6 +43,7 @@ export interface MatchContext {
   mode: MatchMode;
   keyword?: string;
   requestedSkills?: string[];
+  effectiveSkills?: string[];
   jobId?: number;
   location?: string;
   requiredExperience?: number;

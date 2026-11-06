@@ -10,9 +10,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "ATS Pipeline Configuration | VOS Sync Employer Portal",
+  title: "ATS Pipeline Configuration | LinkBridge Employer Portal",
   description:
-    "Configure custom hiring workflows, progression stages, and candidate transition rules on VOS Sync.",
+    "Configure custom hiring workflows, progression stages, and candidate transition rules on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

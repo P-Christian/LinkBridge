@@ -41,14 +41,14 @@ const OTP_MAIL_COPY: Record<
     { readonly subject: string; readonly heading: string; readonly lead: string }
 > = {
     personal: {
-        subject: "Verify your VOS Sync email",
-        heading: "Your VOS Sync verification code",
-        lead: "Your VOS Sync verification code is",
+        subject: "Verify your LinkBridge email",
+        heading: "Your LinkBridge verification code",
+        lead: "Your LinkBridge verification code is",
     },
     school: {
-        subject: "Verify your school email on VOS Sync",
+        subject: "Verify your school email on LinkBridge",
         heading: "Verify your school email",
-        lead: "Your VOS Sync school email verification code is",
+        lead: "Your LinkBridge school email verification code is",
     },
 };
 
@@ -89,11 +89,11 @@ export async function sendSchoolInvite(email: string, schoolName: string, invite
         const info = await transporter.sendMail({
             from: MAIL_FROM,
             to: email,
-            subject: `Invitation to Manage ${schoolName} on Vos Sync`,
-            text: `You have been invited to manage ${schoolName} on Vos Sync. Click the following link to register: ${inviteUrl}`,
+            subject: `Invitation to Manage ${schoolName} on LinkBridge`,
+            text: `You have been invited to manage ${schoolName} on LinkBridge. Click the following link to register: ${inviteUrl}`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2>Welcome to Vos Sync!</h2>
+                    <h2>Welcome to LinkBridge!</h2>
                     <p>You have been invited to manage <strong>${schoolName}</strong>.</p>
                     <p>Please click the button below to complete your registration and set up your school admin account:</p>
                     <a href="${inviteUrl}" style="display: inline-block; padding: 12px 24px; background-color: #1e40af; color: white; text-decoration: none; border-radius: 4px; font-weight: bold; margin-top: 16px;">Register Now</a>
@@ -114,11 +114,11 @@ export async function sendPasswordResetOTP(email: string, otpCode: string) {
         const info = await transporter.sendMail({
             from: MAIL_FROM,
             to: email,
-            subject: "Vos Sync Password Reset",
+            subject: "LinkBridge Password Reset",
             text: `Your password reset code is: ${otpCode}. It will expire in 2 minutes.`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-                    <h2>Vos Sync Password Reset</h2>
+                    <h2>LinkBridge Password Reset</h2>
                     <p>We received a request to reset your password. Your reset code is:</p>
                     <h1 style="font-size: 32px; letter-spacing: 5px; color: #1e40af;">${otpCode}</h1>
                     <p>This code will expire in 2 minutes. If you did not request this, please ignore this email.</p>

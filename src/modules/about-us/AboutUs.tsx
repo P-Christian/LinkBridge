@@ -28,13 +28,13 @@ export default function AboutUs() {
   const heroDescription =
     company?.company_short_description ||
     company?.company_description ||
-    "VOS Sync was built to bridge the gap between ambitious professionals and the companies building tomorrow. We're not just a job board — we're a career partner.";
+    "LinkBridge was built to bridge the gap between ambitious professionals and the companies building tomorrow. We're not just a job board — we're a career partner.";
 
   const missionStatement =
     company?.company_mission || "Connecting talent with opportunity at the speed of ambition.";
   const missionNarrative =
     company?.company_description ||
-    "Traditional hiring is broken — slow processes, opaque requirements, and endless black holes. We built VOS Sync to make hiring transparent, fast, and human again.";
+    "Traditional hiring is broken — slow processes, opaque requirements, and endless black holes. We built LinkBridge to make hiring transparent, fast, and human again.";
   const stats =
     Array.isArray(company?.metadata?.stats) &&
       company.metadata.stats.length > 0
@@ -431,7 +431,7 @@ export default function AboutUs() {
               <div className="relative z-10">
                 <h2 className="text-3xl md:text-4xl font-bold text-foreground tracking-tight mb-4">Join us in building the future of work</h2>
                 <p className="text-muted-foreground mb-8 max-w-xl mx-auto text-lg">
-                  Whether you&apos;re hiring or being hired — VOS Sync is built for you.
+                  Whether you&apos;re hiring or being hired — LinkBridge is built for you.
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Button asChild size="lg" className="bg-gradient-to-r from-primary to-sky-600 hover:brightness-110 text-white rounded-full px-8 cursor-pointer shadow-sm hover:shadow-md transition-all h-11 md:h-10">

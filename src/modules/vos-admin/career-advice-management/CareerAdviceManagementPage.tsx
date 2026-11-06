@@ -117,7 +117,7 @@ export function CareerAdviceManagementPage() {
             <BookOpen className="h-6 w-6 text-primary" /> Career Advice Articles
           </h1>
           <p className="text-xs md:text-sm text-muted-foreground mt-0.5">
-            Create, edit, and publish advice articles released on the VOS Sync landing page.
+            Create, edit, and publish advice articles released on the LinkBridge landing page.
           </p>
         </div>
 

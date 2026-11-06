@@ -57,7 +57,7 @@ export function Footer() {
     company?.company_short_description ||
     company?.company_tagline ||
     "Connecting top talent with verified organizations. Your next career move starts here.";
-  const legalName = company?.company_legal_name || company?.company_name || "VOS Sync";
+  const legalName = company?.company_legal_name || company?.company_name || "LinkBridge";
 
   const socialLinks = [
     {
@@ -130,28 +130,38 @@ export function Footer() {
       <SlideUp className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 mb-12">
           <div className="col-span-2 lg:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-zinc-900 dark:bg-zinc-100 rounded-lg flex items-center justify-center overflow-hidden p-1.5">
+            <Link
+              href="/"
+              className="group inline-flex items-center gap-2 mb-4 transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
+            >
+              <div className="w-9 h-9 bg-none dark:bg-none rounded-lg flex items-center justify-center overflow-hidden p-1.5 transition-all duration-300 ease-out group-hover:-rotate-6 group-hover:scale-110 group-active:scale-95 group-hover:drop-shadow-[0_4px_12px_rgba(37,99,235,0.35)]">
                 {company?.platform_icon &&
                   (company.platform_icon.startsWith("/") ||
                     company.platform_icon.startsWith("http") ||
                     /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
                   <Image
                     src={formatAssetUrl(company.platform_icon) || company.platform_icon}
-                    alt={company?.platform_name || "VOS Sync"}
+                    alt={company?.platform_name || "LinkBridge"}
                     width={20}
                     height={20}
-                    className="w-5 h-5 object-contain"
+                    className="w-8 h-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
                     unoptimized
                   />
                 ) : (
-                  <Briefcase className="w-5 h-5 text-white dark:text-zinc-900" />
+                  <Image
+                    src="/linkbridge.png"
+                    alt={company?.platform_name || "LinkBridge"}
+                    width={20}
+                    height={20}
+                    className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                    unoptimized
+                  />
                 )}
               </div>
-              <span className="text-xl font-bold tracking-tight text-foreground">
-                {company?.platform_name || "VOS Sync"}
+              <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent transition-all duration-300 ease-out group-hover:brightness-115 group-hover:drop-shadow-[0_2px_10px_rgba(37,99,235,0.25)] motion-reduce:transition-none">
+                {company?.platform_name || "LinkBridge"}
               </span>
-            </div>
+            </Link>
             <p className="text-muted-foreground max-w-sm mb-6 text-sm leading-relaxed">
               {brandDescription}
             </p>

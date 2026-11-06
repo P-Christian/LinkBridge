@@ -8,6 +8,7 @@
     "start": "next start -p 4000",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "node ./node_modules/jiti/lib/jiti-cli.mjs src/modules/matching-engine/__tests__/index.test.ts",
     "proto:gen": "cd src/lib/messaging/protobuf && buf generate"
   },
   "dependencies": {

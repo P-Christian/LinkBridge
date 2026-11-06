@@ -246,8 +246,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         // layer; the pass is single-use and release is at-most-once best effort.
         void sendNotificationEmail(
           recipient,
-          "Welcome to VOS Sync",
-          `Your VOS Sync account is now linked to ${schoolName}.`
+          "Welcome to LinkBridge",
+          `Your LinkBridge account is now linked to ${schoolName}.`
         );
         linkedResponse.cookies.delete("vs_welcome_pending");
       }

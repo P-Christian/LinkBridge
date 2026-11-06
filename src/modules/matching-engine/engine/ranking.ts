@@ -28,7 +28,9 @@ export function calculateRankingScore(
     score += (layer1Score / 100) * 20;
   }
 
-  if (hasKeyword) {
+  // Name and school bonus: only applied when candidate demonstrates baseline compatibility (> 10)
+  // to avoid elevating completely unrelated profiles based on name/school match alone.
+  if (hasKeyword && compatibilityScore > 10) {
     const rawKeyword = searchKeyword!.trim();
     const nameMatch = matchCandidateName(rawKeyword, profile.name);
     if (nameMatch.matched) {
@@ -45,5 +47,6 @@ export function calculateRankingScore(
     }
   }
 
-  return Number(score.toFixed(1));
+  // Cap ranking score strictly within [0, 100]
+  return Math.min(100, Math.max(0, Number(score.toFixed(1))));
 }

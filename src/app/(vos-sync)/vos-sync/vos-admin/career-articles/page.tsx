@@ -4,7 +4,7 @@ import { CareerAdviceManagementPage } from "@/modules/vos-admin/career-advice-ma
 
 export const metadata: Metadata = {
   title: "Career Advice Articles | VOS Admin",
-  description: "Manage, create, and publish career advice articles for VOS Sync.",
+  description: "Manage, create, and publish career advice articles for LinkBridge.",
 };
 
 export default function CareerArticlesPage() {

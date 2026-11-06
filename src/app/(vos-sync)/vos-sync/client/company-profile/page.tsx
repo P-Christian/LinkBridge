@@ -12,8 +12,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Company Profile | VOS Sync Client Portal",
-  description: "View and manage your company profile on the VOS Sync Client Portal.",
+  title: "Company Profile | LinkBridge Client Portal",
+  description: "View and manage your company profile on the LinkBridge Client Portal.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

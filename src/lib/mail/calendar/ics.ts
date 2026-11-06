@@ -23,7 +23,7 @@ export function generateICS({
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//VOS Sync//EN",
+    "PRODID:-//LinkBridge//EN",
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${stamp}`,

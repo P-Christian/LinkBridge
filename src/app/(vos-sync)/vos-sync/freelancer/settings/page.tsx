@@ -9,9 +9,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Freelancer Settings | VOS Sync",
+  title: "Freelancer Settings | LinkBridge",
   description:
-    "Manage account preferences, password security, appearance settings, and notification choices on VOS Sync.",
+    "Manage account preferences, password security, appearance settings, and notification choices on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

@@ -8,9 +8,9 @@
 /** Sidebar bands. A posting's own level maps to its band's lower bound. */
 export const EXP_LEVEL_RANGE: Record<string, [number, number]> = {
   ENTRY: [0, 1],
-  JUNIOR: [0, 2],
-  MID: [3, 5],
-  SENIOR: [6, 99],
+  JUNIOR: [1, 3],
+  MID: [3, 6],
+  SENIOR: [6, 10],
   MANAGER: [7, 99],
   EXECUTIVE: [10, 99],
 };
@@ -23,10 +23,18 @@ export const EXP_LEVEL_RANGE: Record<string, [number, number]> = {
 export const OPTIONAL_SECTIONS: Record<string, string> = {
   vs_certifications: "Certifications",
   vs_user_social_links: "Portfolio and social links",
+  vs_job_preferences: "Job preferences and work setup",
 };
+
+/**
+ * Master toggle to show/hide talent search console logs.
+ * Set to false to silence all pipeline debug and layer logs.
+ */
+export const SHOW_TALENT_SEARCH_LOGS = true;
 
 /** Query text, AI payloads and candidate names stay out of production logs. */
 export function debugLog(...args: unknown[]): void {
+  if (!SHOW_TALENT_SEARCH_LOGS) return;
   if (process.env.NODE_ENV !== "production") console.log(...args);
 }
 
@@ -43,6 +51,7 @@ export function layerLog(
   detail: string,
   stats?: Record<string, string | number | boolean | null | undefined>
 ): void {
+  if (!SHOW_TALENT_SEARCH_LOGS) return;
   if (process.env.NODE_ENV === "production") return;
   const tail = stats
     ? Object.entries(stats)

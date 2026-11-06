@@ -182,22 +182,7 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
       )}
 
       {/* Footer: availability + actions */}
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-            isAvailable
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-              : "border-border bg-muted text-muted-foreground"
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn("h-1.5 w-1.5 rounded-full", isAvailable ? "bg-emerald-500" : "bg-muted-foreground/50")}
-          />
-          {availabilityLabel}
-        </span>
-
+      <div className="mt-auto flex items-center justify-end gap-2 border-t border-border/60 pt-3">
         <div className="flex gap-1.5">
           <motion.div whileTap={{ scale: 0.95 }}>
             <Button

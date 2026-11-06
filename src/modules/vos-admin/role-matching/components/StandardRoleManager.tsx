@@ -222,7 +222,7 @@ export function StandardRoleManager() {
                           }`}
                       >
                         <Power className="h-3 w-3" />
-                        {r.is_active !== false ? "Deactivate" : "Activate"}
+                        {r.is_active !== false ? "Deactivate1" : "Activate1"}
                       </Button>
                       <Button
                         variant="ghost"

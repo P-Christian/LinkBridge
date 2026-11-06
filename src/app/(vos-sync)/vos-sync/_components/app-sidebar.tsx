@@ -71,7 +71,7 @@ const data = {
 // render body it was a fresh object each render, which re-ran DashboardSidebar's
 // unread-count effect and re-issued its fetches on every unrelated re-render.
 const FREELANCER_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "FREELANCER PORTAL",
     homeUrl: "/vos-sync/freelancer/dashboard",
     navItems: [
@@ -100,7 +100,7 @@ const FREELANCER_GUEST_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "CLIENT PORTAL",
     homeUrl: "/vos-sync/client/dashboard",
     navItems: [
@@ -120,7 +120,7 @@ const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "SCHOOL ADMIN",
     homeUrl: "/vos-sync/school-admin",
     navItems: [
@@ -139,8 +139,8 @@ const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const SCHOOL_ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
-    subtitle: "VOS Sync ADMIN",
+    title: "LinkBridge",
+    subtitle: "LinkBridge ADMIN",
     homeUrl: "/vos-sync/vos-admin",
     navItems: [
         { label: "Dashboard", href: "/vos-sync/vos-admin", icon: LayoutDashboard, group: "Overview" },

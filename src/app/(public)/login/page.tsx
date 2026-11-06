@@ -122,13 +122,13 @@ function LoginForm() {
 
         const errorMap: Record<string, string> = {
             account_not_found: "No account found with this email. Please sign up first.",
-            google_not_connected: "This email already has a VOS Sync account, but it isn't connected to Google.",
+            google_not_connected: "This email already has a LinkBridge account, but it isn't connected to Google.",
             google_identity_conflict: "Google identity is linked to a different account than the entered email.",
             google_not_linked: "This Google account is not connected to an existing account. Sign in using your original login method, then connect Google in Security & Auth → Connected Accounts & Social Logins.",
-            facebook_not_connected: "This email already has a VOS Sync account, but it isn't connected to Facebook.",
+            facebook_not_connected: "This email already has a LinkBridge account, but it isn't connected to Facebook.",
             facebook_identity_conflict: "Facebook identity is linked to a different account than the entered email.",
             facebook_not_linked: "This Facebook account is not connected to an existing account. Sign in using your original login method, then connect Facebook in Security & Auth → Connected Accounts & Social Logins.",
-            linkedin_not_connected: "This email already has a VOS Sync account, but it isn't connected to LinkedIn.",
+            linkedin_not_connected: "This email already has a LinkBridge account, but it isn't connected to LinkedIn.",
             linkedin_identity_conflict: "LinkedIn identity is linked to a different account than the entered email.",
             linkedin_not_linked: "This LinkedIn account is not connected to an existing account. Sign in using your original login method, then connect LinkedIn in Security & Auth → Connected Accounts & Social Logins.",
             google_already_registered: "This Google account is already registered. Please sign in.",
@@ -264,7 +264,7 @@ function LoginForm() {
 
                     <div className="relative z-10">
                         <div className="mb-10">
-                            <span className="text-xl font-bold text-primary mb-2 block">VOS Sync</span>
+                            <span className="text-xl font-bold text-primary mb-2 block">LinkBridge</span>
                             <h1 className="text-5xl font-bold text-foreground mb-4 tracking-tight">How it Works</h1>
                             <div className="w-16 h-1.5 bg-primary rounded-full"></div>
                         </div>
@@ -314,7 +314,7 @@ function LoginForm() {
                             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
                                 <Briefcase className="w-5 h-5 text-primary-foreground" />
                             </div>
-                            <span className="text-xl font-bold text-foreground">VOS Sync</span>
+                            <span className="text-xl font-bold text-foreground">LinkBridge</span>
                         </div>
 
                         <div className="mb-5 md:mb-8">
@@ -329,7 +329,7 @@ function LoginForm() {
                                     <span>Account Not Found</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    No VOS Sync account was found with that email. If you are new to VOS Sync, please create an account.
+                                    No LinkBridge account was found with that email. If you are new to LinkBridge, please create an account.
                                 </p>
                                 <div className="pt-1">
                                     <Link
@@ -349,7 +349,7 @@ function LoginForm() {
                                     <span>Google account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to Google. Sign in using your original login method, then connect your Google account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to Google. Sign in using your original login method, then connect your Google account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -379,7 +379,7 @@ function LoginForm() {
                                     <span>Google Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This Google identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This Google identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}
@@ -391,7 +391,7 @@ function LoginForm() {
                                     <span>Facebook account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to Facebook. Sign in using your original login method, then connect your Facebook account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to Facebook. Sign in using your original login method, then connect your Facebook account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -421,7 +421,7 @@ function LoginForm() {
                                     <span>Facebook Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This Facebook identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This Facebook identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}
@@ -433,7 +433,7 @@ function LoginForm() {
                                     <span>LinkedIn account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to LinkedIn. Sign in using your original login method, then connect your LinkedIn account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to LinkedIn. Sign in using your original login method, then connect your LinkedIn account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -463,7 +463,7 @@ function LoginForm() {
                                     <span>LinkedIn Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This LinkedIn identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This LinkedIn identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}

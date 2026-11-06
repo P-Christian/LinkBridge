@@ -3,7 +3,7 @@ import { Suspense } from "react";
 import { CancelledClientContent } from "./CancelledClientContent";
 
 export const metadata: Metadata = {
-  title: "Authorization Cancelled | VOS Sync",
+  title: "Authorization Cancelled | LinkBridge",
   description:
     "The authentication or account connection process was cancelled. No changes were made to your account.",
 };

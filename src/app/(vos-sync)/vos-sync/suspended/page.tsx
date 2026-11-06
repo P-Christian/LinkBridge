@@ -43,7 +43,7 @@ export default function SuspendedPage() {
             Account Suspended
           </CardTitle>
           <CardDescription className="text-zinc-400 mt-2 text-sm">
-            Your VOS Sync account has been placed under administrative containment.
+            Your LinkBridge account has been placed under administrative containment.
           </CardDescription>
         </CardHeader>
 

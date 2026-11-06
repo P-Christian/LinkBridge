@@ -8,12 +8,12 @@ function normalizePlatformCompany(raw: Record<string, unknown> | null): Platform
   const meta =
     typeof raw.metadata === "string"
       ? (() => {
-          try {
-            return JSON.parse(raw.metadata as string);
-          } catch {
-            return {};
-          }
-        })()
+        try {
+          return JSON.parse(raw.metadata as string);
+        } catch {
+          return {};
+        }
+      })()
       : (raw.metadata as Record<string, unknown> | null) || {};
 
   return {
@@ -23,7 +23,7 @@ function normalizePlatformCompany(raw: Record<string, unknown> | null): Platform
       (raw.platform_name as string) ||
       (meta.platform_name as string) ||
       (raw.company_name as string) ||
-      "VOS Sync",
+      "LinkBridge",
     platform_icon: (raw.platform_icon as string) || (meta.platform_icon as string) || "Briefcase",
     support_hours_days:
       (raw.support_hours_days as string) || (meta.support_hours_days as string) || "Mon–Fri",

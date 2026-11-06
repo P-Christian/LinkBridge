@@ -143,7 +143,7 @@ export async function POST(req: NextRequest) {
       "Metro Manila, Philippines";
 
     // 2. Build Gemini System Prompt
-    const systemPrompt = `You are an expert AI Technical Recruiter and Job Specification Architect for VOS Sync.
+    const systemPrompt = `You are an expert AI Technical Recruiter and Job Specification Architect for LinkBridge.
 Your task is to analyze the employer's prompt and generate a structured, highly professional, and complete job posting draft.
 
 ### EMPLOYER & COMPANY PROFILE:
@@ -334,7 +334,7 @@ You MUST return ONLY valid JSON matching this exact structure without markdown b
             status: "PENDING",
             created_at: getPHTimeString(),
           }),
-        }).catch(() => {});
+        }).catch(() => { });
       } catch {
         // non-blocking
       }
@@ -366,9 +366,9 @@ You MUST return ONLY valid JSON matching this exact structure without markdown b
       rawScreening.length > 0
         ? rawScreening
         : [
-            `How many years of professional experience do you have in ${parsedDraft.job_title || "this role"}?`,
-            "Are you comfortable working in the specified work arrangement (Remote / Hybrid / On-site)?",
-          ];
+          `How many years of professional experience do you have in ${parsedDraft.job_title || "this role"}?`,
+          "Are you comfortable working in the specified work arrangement (Remote / Hybrid / On-site)?",
+        ];
 
     const structuredJob = {
       job_title: (parsedDraft.job_title as string) || "New Position",

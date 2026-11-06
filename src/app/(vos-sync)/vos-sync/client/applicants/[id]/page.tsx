@@ -8,8 +8,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Review Candidate | VOS Sync client Portal",
-  description: "Review applicant details for your job postings on VOS Sync.",
+  title: "Review Candidate | LinkBridge client Portal",
+  description: "Review applicant details for your job postings on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

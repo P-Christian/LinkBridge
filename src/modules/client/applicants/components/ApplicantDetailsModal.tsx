@@ -843,7 +843,7 @@ export default function ApplicantDetailsModal({
                               ? `Endorsed by ${detail.referral_school_name}${detail.referrer_name ? ` (${detail.referrer_name})` : ""}`
                               : detail.referrer_name
                                 ? `Referred by ${detail.referrer_name}`
-                                : "Referred candidate on VOS Sync"}
+                                : "Referred candidate on LinkBridge"}
                           </p>
                         </div>
                       </div>

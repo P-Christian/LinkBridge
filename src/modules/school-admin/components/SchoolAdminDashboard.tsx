@@ -49,7 +49,7 @@ export function SchoolAdminDashboard({
           <div className="space-y-0.5">
             <h4 className="text-sm font-semibold">Account Pending Verification</h4>
             <p className="text-xs text-amber-800 dark:text-amber-300">
-              Your school profile is currently being reviewed by the VOS-Sync verification team. Complete your school documents and details to accelerate activation.
+              Your school profile is currently being reviewed by the LinkBridge verification team. Complete your school documents and details to accelerate activation.
             </p>
           </div>
         </div>
@@ -57,9 +57,8 @@ export function SchoolAdminDashboard({
 
       {/* 2. Top Metric Cards with Top-side only Color Accents & Zero False Data */}
       <div
-        className={`grid gap-4 sm:grid-cols-2 ${
-          unassignedStudentsCount > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"
-        }`}
+        className={`grid gap-4 sm:grid-cols-2 ${unassignedStudentsCount > 0 ? "lg:grid-cols-4" : "lg:grid-cols-3"
+          }`}
       >
         <SchoolMetricCard
           title="Active Student Roster"
