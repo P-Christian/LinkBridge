@@ -1,6 +1,10 @@
 // src/modules/vos-admin/account-status-management/services/account-status.service.ts
-import { fetchAccountStatusUsersRepo, fetchUserStatusDetailRepo, updateUserStatusRepo, updateAppealCaseRepo } from './account-status.repo';
-import { AccountStatusUser } from '../types/account-status.types';
+import { fetchAccountStatusUsersRepo, fetchUserStatusDetailRepo, updateUserStatusRepo, updateAppealCaseRepo, fetchAccountStatusMetricsRepo } from './account-status.repo';
+import { AccountStatusUser, AccountStatusMetrics } from '../types/account-status.types';
+
+export async function getAccountStatusMetrics(): Promise<AccountStatusMetrics> {
+  return fetchAccountStatusMetricsRepo();
+}
 
 export async function getAccountStatusUsers(
   statusFilter?: string,
