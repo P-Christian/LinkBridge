@@ -118,3 +118,11 @@ export interface AppealDecisionPayload {
   internalNote?: string;
   publicNote?: string;
 }
+
+export interface AccountStatusMetrics {
+  active: number;
+  limited: number;
+  suspendedBlocked: number;
+  deletionHolds: number;
+  pendingAppeals: number;
+}

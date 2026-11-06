@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountStatusUsers, getAccountStatusDetail, changeUserStatus } from "@/modules/vos-admin/account-status-management";
+import { getAccountStatusUsers, getAccountStatusDetail, changeUserStatus, getAccountStatusMetrics } from "@/modules/vos-admin/account-status-management";
 import { createAuditRecordStrictRepo } from "@/modules/vos-admin/audit-trail";
 import { createNotification } from "@/lib/notifications";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
@@ -21,6 +21,13 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
+    const metricsParam = searchParams.get("metrics");
+
+    if (metricsParam === "true") {
+      const metrics = await getAccountStatusMetrics();
+      return NextResponse.json({ metrics });
+    }
+
     const userIdStr = searchParams.get("userId");
 
     if (userIdStr) {
