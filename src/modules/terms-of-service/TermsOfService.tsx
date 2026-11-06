@@ -21,7 +21,7 @@ const SECTIONS = [
 
 export default function TermsOfService() {
   const { company } = usePrimaryPlatformCompany();
-  const brandName = company?.company_name || "Vos Sync";
+  const brandName = company?.company_name || "LinkBridge";
   const contactEmail = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
   const addressParts = [company?.company_city, company?.company_province, company?.company_country].filter(Boolean).join(", ");
   const legalOffice = `Legal Agreements Team, ${brandName}${addressParts ? `, ${addressParts}` : ", Philippines"}`;

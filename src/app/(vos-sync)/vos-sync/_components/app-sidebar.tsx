@@ -71,7 +71,7 @@ const data = {
 // render body it was a fresh object each render, which re-ran DashboardSidebar's
 // unread-count effect and re-issued its fetches on every unrelated re-render.
 const FREELANCER_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "FREELANCER PORTAL",
     homeUrl: "/vos-sync/freelancer/dashboard",
     navItems: [
@@ -100,7 +100,7 @@ const FREELANCER_GUEST_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "CLIENT PORTAL",
     homeUrl: "/vos-sync/client/dashboard",
     navItems: [
@@ -120,7 +120,7 @@ const CLIENT_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
+    title: "LinkBridge",
     subtitle: "SCHOOL ADMIN",
     homeUrl: "/vos-sync/school-admin",
     navItems: [
@@ -139,8 +139,8 @@ const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
 };
 
 const SCHOOL_ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
-    title: "VOS Sync",
-    subtitle: "VOS Sync ADMIN",
+    title: "LinkBridge",
+    subtitle: "LINKBRIDGE ADMIN",
     homeUrl: "/vos-sync/vos-admin",
     navItems: [
         { label: "Dashboard", href: "/vos-sync/vos-admin", icon: LayoutDashboard, group: "Overview" },
@@ -229,20 +229,24 @@ export function AppSidebar({
                     <SidebarMenuItem>
                         <SidebarMenuButton size="lg" asChild>
                             <Link href="/main-dashboard">
-                                <div className="flex aspect-square size-10 items-center justify-center overflow-hidden">
+                                <div
+                                    className="flex aspect-square items-center justify-center overflow-hidden shrink-0"
+                                    style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                                >
                                     <Image
-                                        src="/vertex_logo_black.png"
-                                        alt="VOS Logo"
-                                        width={40}
-                                        height={40}
-                                        style={{ width: "auto", height: "auto" }}
-                                        className="max-h-9 max-w-10 object-contain"
+                                        src="/Link-Bridge-logo.png"
+                                        alt="LinkBridge Logo"
+                                        width={32}
+                                        height={32}
+                                        unoptimized
                                         priority
+                                        className="object-contain shrink-0"
+                                        style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
                                     />
                                 </div>
 
                                 <div className="grid flex-1 text-left text-sm leading-tight">
-                                    <span className="truncate font-medium">VOS Web</span>
+                                    <span className="truncate font-medium">LinkBridge</span>
                                     <span className="truncate text-xs text-muted-foreground">
                                         Customer Relationship Management
                                     </span>
@@ -277,7 +281,7 @@ export function AppSidebar({
             <SidebarFooter className="p-0">
                 <Separator />
                 <div className="py-3 text-center text-xs text-muted-foreground">
-                    VOS Web v2.0
+                    LinkBridge v2.0
                 </div>
             </SidebarFooter>
         </Sidebar>

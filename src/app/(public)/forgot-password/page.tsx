@@ -136,7 +136,7 @@ function ForgotPasswordForm() {
                     
                     <div className="relative z-10">
                         <div className="mb-10">
-                            <span className="text-xl font-bold text-primary mb-2 block">VOS Sync</span>
+                            <span className="text-xl font-bold text-primary mb-2 block">LinkBridge</span>
                             <h1 className="text-5xl font-bold text-foreground mb-4 tracking-tight">Account Recovery</h1>
                             <div className="w-16 h-1.5 bg-primary rounded-full"></div>
                         </div>
@@ -186,7 +186,7 @@ function ForgotPasswordForm() {
                             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
                                 <Briefcase className="w-5 h-5 text-primary-foreground" />
                             </div>
-                            <span className="text-xl font-bold text-foreground">VOS Sync</span>
+                            <span className="text-xl font-bold text-foreground">LinkBridge</span>
                         </div>
                         
                         {step === "EMAIL" && (

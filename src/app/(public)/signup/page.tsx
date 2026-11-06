@@ -1268,7 +1268,7 @@ function SignupPageContent() {
   const renderSelectionScreen = () => (
                 <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6 md:py-12 text-center">
       <h1 className="text-3xl md:text-4xl font-medium text-primary mb-3">
-        Join VOS Sync
+        Join LinkBridge
       </h1>
       <p className="text-base text-muted-foreground mb-4">
         Choose how you&apos;ll use the platform.
@@ -1887,7 +1887,7 @@ function SignupPageContent() {
               className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', errors.terms && 'border-destructive')} />
             <span className={cn('text-sm leading-snug select-none', errors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
               Yes, I understand and agree to the{' '}
-              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
+              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
               <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
               <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
               <span className="text-destructive ml-0.5">*</span>
@@ -2431,7 +2431,7 @@ function SignupPageContent() {
               className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', freelancerErrors.terms && 'border-destructive')} />
             <span className={cn('text-sm leading-tight select-none', freelancerErrors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
               Yes, I understand and agree to the{' '}
-              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
+              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
               <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
               <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
               <span className="text-destructive ml-0.5">*</span>
@@ -2696,7 +2696,7 @@ function SignupPageContent() {
     setVerifiedDestination(data.destination);
     setVerifiedRole(data.role);
     setAttachmentUploadToken(data.attachmentToken);
-    toast.success('Email verified!', { description: 'Welcome to VOS Sync.' });
+    toast.success('Email verified!', { description: 'Welcome to LinkBridge.' });
 
     // If nextParam exists and is a safe internal path, prioritize it over default role dashboard
     let targetDestination = data.destination;
@@ -2956,7 +2956,7 @@ function SignupPageContent() {
                 className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', schoolErrors.terms && 'border-destructive')} />
               <span className={cn('text-sm leading-tight select-none', schoolErrors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
                 Yes, I understand and agree to the{' '}
-                <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
+                <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
                 <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
                 <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
                 <span className="text-destructive ml-0.5">*</span>

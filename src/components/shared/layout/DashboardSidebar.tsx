@@ -399,15 +399,19 @@ export function DashboardSidebar({
                                     "group-data-[collapsible=icon]:!gap-0"
                                 )}
                             >
-                                <div className="flex aspect-square size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:rounded-lg">
+                                <div
+                                    className="flex aspect-square items-center justify-center overflow-hidden shrink-0"
+                                    style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                                >
                                     <Image
-                                        src="/vertex_logo_black.png"
-                                        alt="VOS Logo"
-                                        width={40}
-                                        height={40}
-                                        style={{ width: "auto", height: "auto" }}
-                                        className="max-h-8 max-w-9 object-contain group-data-[collapsible=icon]:max-h-6 group-data-[collapsible=icon]:max-w-6 dark:invert"
+                                        src="/Link-Bridge-logo.png"
+                                        alt="LinkBridge Logo"
+                                        width={32}
+                                        height={32}
+                                        unoptimized
                                         priority
+                                        className="object-contain shrink-0"
+                                        style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
                                     />
                                 </div>
 
