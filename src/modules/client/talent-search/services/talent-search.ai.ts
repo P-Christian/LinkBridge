@@ -16,7 +16,10 @@ import type { TalentResult } from "./talent-search.record";
  * say whether a search was shaped by AI at all.
  */
 
-const RERANK_LIMIT = 50;
+const RERANK_LIMIT = 10;
+
+/** In-memory query understanding cache to avoid redundant Layer A calls for identical queries */
+const queryUnderstandingCache = new Map<string, GeminiQueryIntent>();
 
 export type LayerAOutcome = "hit" | "miss" | "skipped";
 
@@ -50,14 +53,22 @@ export async function understandQuery(input: {
   const isSchoolSearch = isSchoolQuery(keyword);
 
   if (keyword && !isSchoolSearch && shouldExpandWithGemini(keyword)) {
-    debugLog(`[talent-search] 🤖 Gemini Layer A: expanding query "${keyword}"`);
-    intent = await expandQueryWithGemini(keyword, { userId, companyId }).catch(() => null);
-    outcome = intent ? "hit" : "miss";
-
-    if (intent) {
-      debugLog(`[talent-search] 🤖 Gemini Layer A result:`, JSON.stringify(intent));
+    const cacheKey = keyword.trim().toLowerCase();
+    if (queryUnderstandingCache.has(cacheKey)) {
+      intent = queryUnderstandingCache.get(cacheKey)!;
+      outcome = "hit";
+      debugLog(`[talent-search] 🤖 Gemini Layer A (cache hit): "${keyword}" → "${intent.resolved_role ?? keyword}"`);
     } else {
-      console.log(`[talent-search] ⚠️  Gemini Layer A: failed or no API key — using raw keyword`);
+      debugLog(`[talent-search] 🤖 Gemini Layer A: expanding query "${keyword}"`);
+      intent = await expandQueryWithGemini(keyword, { userId, companyId }).catch(() => null);
+      outcome = intent ? "hit" : "miss";
+
+      if (intent) {
+        queryUnderstandingCache.set(cacheKey, intent);
+        debugLog(`[talent-search] 🤖 Gemini Layer A result:`, JSON.stringify(intent));
+      } else {
+        console.log(`[talent-search] ⚠️  Gemini Layer A: failed or no API key — using raw keyword`);
+      }
     }
 
     // Use Gemini resolved role as effective search keyword when confidence is
@@ -113,22 +124,24 @@ export async function rerankTalents(input: {
     return { talents, aiReranked: false, outcome: "not_applicable" };
   }
 
+  const candidatesToRerank = talents.slice(0, RERANK_LIMIT);
+  const beforeOrder = candidatesToRerank.map((t) => `#${t.user_id}`).join(", ");
   debugLog(
-    `[talent-search] 🤖 Gemini Layer B: reranking top ${Math.min(talents.length, RERANK_LIMIT)} candidates${jobId ? ` for job ${jobId}` : ""} for "${keyword}"...`
+    `[talent-search] 🤖 Gemini Layer B: reranking top ${candidatesToRerank.length} candidates${jobId ? ` for job ${jobId}` : ""} for "${keyword}"... [order before: ${beforeOrder}]`
   );
-  const rerankInput = talents.slice(0, RERANK_LIMIT).map((t) => ({
+  const rerankInput = candidatesToRerank.map((t) => ({
     id: t.user_id,
     title: t.headline,
     skills: t.skills,
     summary: t.summary,
   }));
-  const { ranked_ids, used_ai } = await rerankCandidatesWithGemini(keyword, rerankInput, {
+  const { ranked_ids, rationales, used_ai, skip_reason } = await rerankCandidatesWithGemini(keyword, rerankInput, {
     userId,
     companyId,
   });
 
   if (!used_ai || ranked_ids.length === 0) {
-    console.log(`[talent-search] ⚠️  Gemini Layer B: rerank failed or skipped — keeping Layer 2 order`);
+    debugLog(`[talent-search] ⚠️  Gemini Layer B: rerank skipped or failed (${skip_reason ?? "no candidates or timeout"}) — keeping Layer 2 order`);
     return { talents, aiReranked: false, outcome: "skipped" };
   }
 
@@ -137,7 +150,16 @@ export async function rerankTalents(input: {
     .slice(0, RERANK_LIMIT)
     .sort((a, b) => (rankMap.get(a.user_id) ?? 99) - (rankMap.get(b.user_id) ?? 99));
 
-  debugLog(`[talent-search] 🤖 Gemini Layer B: ✅ reranked ${ranked_ids.length} candidates`);
+  const afterOrder = topReranked.map((t) => `#${t.user_id}`).join(", ");
+  debugLog(`[talent-search] 🤖 Gemini Layer B: ✅ reranked ${ranked_ids.length} candidates [order after: ${afterOrder}]`);
+
+  if (rationales && Object.keys(rationales).length > 0) {
+    debugLog(`[talent-search] 🤖 Gemini Layer B: Rationale per candidate:`);
+    topReranked.forEach((t, idx) => {
+      const why = rationales[t.user_id] ?? "Maintained position";
+      debugLog(`   ${idx + 1}. Candidate #${t.user_id} (${t.name}): ${why}`);
+    });
+  }
   return {
     talents: [...topReranked, ...talents.slice(RERANK_LIMIT)],
     aiReranked: true,

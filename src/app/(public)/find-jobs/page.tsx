@@ -7,7 +7,7 @@ import type { PublicJobPosting, PopularPreset } from "@/modules/public/find-jobs
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Find Jobs & Career Opportunities | VOS-Sync",
+  title: "Find Jobs & Career Opportunities",
   description:
     "Explore open job listings, remote positions, and career opportunities across verified companies in the Philippines.",
 };

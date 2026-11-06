@@ -1,6 +1,6 @@
 // src/modules/client/talent-search/services/talent-search.repo.ts
 
-import { directusItems, directusItemsWhereIn } from "@/lib/server/directus";
+import { directusItems, directusItemsWhereIn } from "../../../../lib/server/directus";
 
 /**
  * Every Directus read the talent search makes. No scoring, no shaping beyond the
@@ -71,6 +71,12 @@ export interface BulkSocialRow {
   user_id: number;
   platform_name: string;
   profile_url: string;
+}
+
+export interface BulkJobPreferenceRow {
+  user_id: number;
+  work_setup?: string | null;
+  preferred_location?: string | null;
 }
 
 export interface TalentEducationBulkRow {
@@ -240,6 +246,15 @@ export function readSocialLinkRows(userIds: number[]): Promise<BulkSocialRow[]> 
     "user_id",
     userIds,
     "user_id,platform_name,profile_url"
+  );
+}
+
+export function readJobPreferenceRows(userIds: number[]): Promise<BulkJobPreferenceRow[]> {
+  return directusItemsWhereIn<BulkJobPreferenceRow>(
+    "vs_job_preferences",
+    "user_id",
+    userIds,
+    "user_id,work_setup,preferred_location"
   );
 }
 

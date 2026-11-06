@@ -101,7 +101,7 @@ function assertCompatibleUser(
 export class RegistrationProvisioningService {
   constructor(
     private readonly repo = new RegistrationProvisioningRepository()
-  ) {}
+  ) { }
 
   async provision(
     challenge: RegistrationChallengeRecord,
@@ -259,8 +259,8 @@ export class RegistrationProvisioningService {
       effects.push(
         sendNotificationEmail(
           user.user_email,
-          "Welcome to VOS Sync",
-          "Your VOS Sync account has been created and is pending admin verification."
+          "Welcome to LinkBridge",
+          "Your LinkBridge account has been created and is pending admin verification."
         )
       );
     }

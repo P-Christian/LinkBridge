@@ -69,7 +69,7 @@ export function LandingCTA() {
             /* Logged in Admin / School View */
             <div className="relative z-10">
               <h2 className="text-3xl md:text-5xl font-bold tracking-tight mb-6 text-foreground">
-                Manage your organization on VOS Sync
+                Manage your organization on LinkBridge
               </h2>
               <p className="text-muted-foreground text-sm sm:text-base md:text-lg max-w-2xl mx-auto mb-10">
                 Access your organization dashboard to verify records and monitor platform operations.

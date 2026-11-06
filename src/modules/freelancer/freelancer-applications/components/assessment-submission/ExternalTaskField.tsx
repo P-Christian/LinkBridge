@@ -41,7 +41,7 @@ export function ExternalTaskField({ taskId, url, value, disabled, onChange }: Pr
         />
       </div>
       <p className="text-xs text-muted-foreground">
-        The task opens in a new browser tab. VOS Sync never opens, reads, or previews the linked
+        The task opens in a new browser tab. LinkBridge never opens, reads, or previews the linked
         page.
       </p>
     </div>

@@ -103,10 +103,10 @@ async function callOllama(
       model: res.model,
       usageMetadata: res.usage
         ? {
-            promptTokenCount: res.usage.promptTokens,
-            candidatesTokenCount: res.usage.completionTokens,
-            totalTokenCount: res.usage.totalTokens,
-          }
+          promptTokenCount: res.usage.promptTokens,
+          candidatesTokenCount: res.usage.completionTokens,
+          totalTokenCount: res.usage.totalTokens,
+        }
         : null,
       finishReason: res.finishReason ?? "STOP",
       httpStatus: 200,
@@ -129,7 +129,7 @@ async function callOllama(
 /**
  * callGeminiMonitored — the unified application entrypoint for all Gemini calls.
  *
- * Every AI feature in VOS Sync calls this wrapper instead of callGeminiSafe().
+ * Every AI feature in LinkBridge calls this wrapper instead of callGeminiSafe().
  * Returns the response text or null on failure — identical behavior to callGeminiSafe().
  * Writes telemetry asynchronously (fire-and-forget) to Directus gemini_requests.
  */

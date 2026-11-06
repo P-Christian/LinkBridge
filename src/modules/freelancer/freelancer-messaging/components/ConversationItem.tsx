@@ -208,12 +208,12 @@ export default function ConversationItem({
           : "hover:bg-accent/40"
       )}
     >
-      {/* Active Accent Bar */}
+      {/* Active Accent Bar with smooth shared layout motion */}
       {isActive && (
-        <motion.div
-          layoutId="activeConversationBorderFreelancer"
-          className="absolute left-0 top-0 bottom-0 w-1 bg-primary rounded-r-full"
-          transition={{ type: "spring", stiffness: 400, damping: 32 }}
+        <motion.span
+          layoutId="active-conversation-indicator-freelancer"
+          className="absolute left-0 top-1.5 bottom-1.5 w-1 bg-primary rounded-r-full"
+          transition={{ type: "spring", stiffness: 600, damping: 40, mass: 0.2 }}
         />
       )}
 

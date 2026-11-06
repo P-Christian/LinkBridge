@@ -84,7 +84,7 @@ export default function CompaniesBrowseModule({
       const res = await fetch(`/api/public/companies?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
-        
+
         const elapsed = Date.now() - startTime;
         if (elapsed < 250) {
           await new Promise((r) => setTimeout(r, 250 - elapsed));
@@ -241,11 +241,10 @@ export default function CompaniesBrowseModule({
             Has Active Jobs Only
           </span>
           <span
-            className={`w-5 h-5 max-md:w-6 max-md:h-6 rounded border flex items-center justify-center transition-all ${
-              activeJobsOnly
+            className={`w-5 h-5 max-md:w-6 max-md:h-6 rounded border flex items-center justify-center transition-all ${activeJobsOnly
                 ? "bg-primary border-primary text-primary-foreground"
                 : "border-input group-hover:border-zinc-400 bg-background"
-            }`}
+              }`}
           >
             {activeJobsOnly && <Check className="w-3.5 h-3.5 max-md:w-4 max-md:h-4 stroke-[3px]" />}
           </span>
@@ -275,7 +274,7 @@ export default function CompaniesBrowseModule({
       <div className="mt-8 md:mt-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mb-4 text-center">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest block">
-            Trusted employers hiring on VOS Sync
+            Trusted employers hiring on LinkBridge
           </p>
         </div>
         <TrustedEmployersMarquee companies={trustedCompanies} />
@@ -284,230 +283,230 @@ export default function CompaniesBrowseModule({
 
       {/* Browse Container + Research Guide — listings lead on mobile, the guide leads on md+ */}
       <div className="flex flex-col">
-      {/* Main Browse Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 max-md:mt-10 md:order-2">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4 mb-8">
-          <div>
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              Find a company that&apos;s right for you
-            </h2>
-            <p className="text-muted-foreground mt-2 text-sm sm:text-base">
-              Explore verified employers and discover opportunities that align with your career goals, values, and expectations.
-            </p>
-          </div>
-          <div className="text-sm font-semibold text-muted-foreground bg-muted/40 px-3 py-1.5 rounded-xl border border-border select-none">
-            Showing {companies.length} of {total} {total === 1 ? "Company" : "Companies"}
-          </div>
-        </div>
-
-        {/* 2. Filters & Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-          {/* Mobile filter trigger (below md only; the inline panel stays at >=768px) */}
-          <div className="md:hidden">
-            <Button
-              type="button"
-              onClick={() => setIsFilterSheetOpen(true)}
-              aria-haspopup="dialog"
-              aria-expanded={isFilterSheetOpen}
-              className="w-full h-11 justify-between text-sm font-semibold shadow-sm cursor-pointer"
-            >
-              <span className="flex items-center gap-2">
-                <Filter className="h-4 w-4" />
-                Filters
-              </span>
-              <span className="flex items-center gap-2">
-                {activeFilterCount > 0 && (
-                  <span className="h-5 min-w-5 px-1.5 rounded-full bg-primary-foreground/20 text-primary-foreground text-xs font-bold flex items-center justify-center">
-                    {activeFilterCount}
-                  </span>
-                )}
-                <ChevronDown className="h-4 w-4" />
-              </span>
-            </Button>
+        {/* Main Browse Container */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 max-md:mt-10 md:order-2">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end gap-4 mb-8">
+            <div>
+              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                Find a company that&apos;s right for you
+              </h2>
+              <p className="text-muted-foreground mt-2 text-sm sm:text-base">
+                Explore verified employers and discover opportunities that align with your career goals, values, and expectations.
+              </p>
+            </div>
+            <div className="text-sm font-semibold text-muted-foreground bg-muted/40 px-3 py-1.5 rounded-xl border border-border select-none">
+              Showing {companies.length} of {total} {total === 1 ? "Company" : "Companies"}
+            </div>
           </div>
 
-          {/* Filters Sidebar (inline at >=768px; below md the same panel renders in the sheet) */}
-          <div className="hidden md:block lg:col-span-1 bg-white/85 dark:bg-card/75 backdrop-blur-xl border border-border/80 rounded-2xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.3)] h-fit sticky top-24">
-            {filterPanel}
-          </div>
-
-          {/* Results List */}
-          <div className="lg:col-span-3 flex flex-col gap-6">
-            <AnimatePresence mode="wait">
-              {isLoading ? (
-                <motion.div
-                  key="loading-skeletons"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.2 }}
-                  className="flex flex-col gap-6"
-                >
-                  {[1, 2, 3, 4].map((i) => (
-                    <CompanyBrowseSkeleton key={i} />
-                  ))}
-                </motion.div>
-              ) : companies.length === 0 ? (
-                <motion.div
-                  key="empty-companies"
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="flex flex-col items-center justify-center border border-dashed rounded-3xl py-20 px-4 bg-muted/10 text-center"
-                >
-                  <SlidersHorizontal className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
-                  <h3 className="text-lg font-bold text-foreground mb-1">No employers found</h3>
-                  <p className="text-sm text-muted-foreground max-w-sm">
-                    We couldn&apos;t find any companies matching your filter criteria. Try adjusting your settings.
-                  </p>
-                  <Button
-                    variant="outline"
-                    onClick={handleResetFilters}
-                    className="mt-6 rounded-xl font-semibold cursor-pointer"
-                  >
-                    Reset all filters
-                  </Button>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`companies-grid-${appliedSearch}-${appliedLocation}-${industry}-${size}-${page}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.25 }}
-                  className="flex flex-col gap-6"
-                >
-                  {/* Company Browse Cards */}
-                  <div className="flex flex-col gap-6">
-                    {companies.map((c, idx) => (
-                      <CompanyBrowseCard key={c.company_id} company={c} index={idx} />
-                    ))}
-                  </div>
-
-                  {/* Pagination Controls */}
-                  {totalPages > 1 && (
-                    <div className="flex items-center justify-between border-t border-border pt-6 mt-4">
-                      <Button
-                        variant="outline"
-                        disabled={page === 1 || isLoading}
-                        onClick={() => setPage((p) => Math.max(p - 1, 1))}
-                        className="rounded-xl font-medium cursor-pointer"
-                      >
-                        Previous
-                      </Button>
-                      <span className="text-sm font-semibold text-muted-foreground">
-                        Page {page} of {totalPages}
-                      </span>
-                      <Button
-                        variant="outline"
-                        disabled={page === totalPages || isLoading}
-                        onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
-                        className="rounded-xl font-medium cursor-pointer"
-                      >
-                        Next
-                      </Button>
-                    </div>
+          {/* 2. Filters & Content Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            {/* Mobile filter trigger (below md only; the inline panel stays at >=768px) */}
+            <div className="md:hidden">
+              <Button
+                type="button"
+                onClick={() => setIsFilterSheetOpen(true)}
+                aria-haspopup="dialog"
+                aria-expanded={isFilterSheetOpen}
+                className="w-full h-11 justify-between text-sm font-semibold shadow-sm cursor-pointer"
+              >
+                <span className="flex items-center gap-2">
+                  <Filter className="h-4 w-4" />
+                  Filters
+                </span>
+                <span className="flex items-center gap-2">
+                  {activeFilterCount > 0 && (
+                    <span className="h-5 min-w-5 px-1.5 rounded-full bg-primary-foreground/20 text-primary-foreground text-xs font-bold flex items-center justify-center">
+                      {activeFilterCount}
+                    </span>
                   )}
-                </motion.div>
-              )}
-            </AnimatePresence>
+                  <ChevronDown className="h-4 w-4" />
+                </span>
+              </Button>
+            </div>
+
+            {/* Filters Sidebar (inline at >=768px; below md the same panel renders in the sheet) */}
+            <div className="hidden md:block lg:col-span-1 bg-white/85 dark:bg-card/75 backdrop-blur-xl border border-border/80 rounded-2xl p-6 shadow-[0_4px_20px_rgba(0,0,0,0.04)] dark:shadow-[0_4px_20px_rgba(0,0,0,0.3)] h-fit sticky top-24">
+              {filterPanel}
+            </div>
+
+            {/* Results List */}
+            <div className="lg:col-span-3 flex flex-col gap-6">
+              <AnimatePresence mode="wait">
+                {isLoading ? (
+                  <motion.div
+                    key="loading-skeletons"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex flex-col gap-6"
+                  >
+                    {[1, 2, 3, 4].map((i) => (
+                      <CompanyBrowseSkeleton key={i} />
+                    ))}
+                  </motion.div>
+                ) : companies.length === 0 ? (
+                  <motion.div
+                    key="empty-companies"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="flex flex-col items-center justify-center border border-dashed rounded-3xl py-20 px-4 bg-muted/10 text-center"
+                  >
+                    <SlidersHorizontal className="w-12 h-12 text-muted-foreground mb-4 opacity-50" />
+                    <h3 className="text-lg font-bold text-foreground mb-1">No employers found</h3>
+                    <p className="text-sm text-muted-foreground max-w-sm">
+                      We couldn&apos;t find any companies matching your filter criteria. Try adjusting your settings.
+                    </p>
+                    <Button
+                      variant="outline"
+                      onClick={handleResetFilters}
+                      className="mt-6 rounded-xl font-semibold cursor-pointer"
+                    >
+                      Reset all filters
+                    </Button>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key={`companies-grid-${appliedSearch}-${appliedLocation}-${industry}-${size}-${page}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="flex flex-col gap-6"
+                  >
+                    {/* Company Browse Cards */}
+                    <div className="flex flex-col gap-6">
+                      {companies.map((c, idx) => (
+                        <CompanyBrowseCard key={c.company_id} company={c} index={idx} />
+                      ))}
+                    </div>
+
+                    {/* Pagination Controls */}
+                    {totalPages > 1 && (
+                      <div className="flex items-center justify-between border-t border-border pt-6 mt-4">
+                        <Button
+                          variant="outline"
+                          disabled={page === 1 || isLoading}
+                          onClick={() => setPage((p) => Math.max(p - 1, 1))}
+                          className="rounded-xl font-medium cursor-pointer"
+                        >
+                          Previous
+                        </Button>
+                        <span className="text-sm font-semibold text-muted-foreground">
+                          Page {page} of {totalPages}
+                        </span>
+                        <Button
+                          variant="outline"
+                          disabled={page === totalPages || isLoading}
+                          onClick={() => setPage((p) => Math.min(p + 1, totalPages))}
+                          className="rounded-xl font-medium cursor-pointer"
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
+
+          {/* 3. Mobile Filter Sheet (below md only; the inline panel stays at >=768px) */}
+          <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
+            <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto overscroll-contain p-0 pb-4">
+              <SheetHeader className="border-b pb-3">
+                <SheetTitle className="text-base flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-primary" />
+                  Filter Companies
+                </SheetTitle>
+              </SheetHeader>
+              <div className="px-4 pt-4">{filterPanel}</div>
+            </SheetContent>
+          </Sheet>
+        </div>
+        {/* 3. Research Experience Guide Section */}
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 border-b border-border mb-10 md:mb-16 md:order-1">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-12 items-start">
+            <div className="lg:sticky lg:top-24">
+              <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
+                Explore companies with confidence
+              </h2>
+              <p className="text-muted-foreground mt-3 text-sm sm:text-base leading-relaxed">
+                Get to know potential employers in one place — from their mission and workplace culture to open positions and employee insights.
+              </p>
+            </div>
+
+            <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
+              {/* About Card */}
+              <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">About</h3>
+                  <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                    Learn what the company does, what it stands for, where it&apos;s located, and the story behind its organization.
+                  </p>
+                </div>
+              </div>
+
+              {/* Life & Culture Card */}
+              <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
+
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">Life & Culture</h3>
+                  <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                    Discover the company&apos;s values, workplace culture, benefits, and what they aim to offer their people.
+                  </p>
+                </div>
+              </div>
+
+              {/* Open Jobs Card */}
+              <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
+                  <Briefcase className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">Open Jobs</h3>
+                  <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                    Explore current opportunities, compare roles, and find positions that match your skills, experience, and career goals.
+                  </p>
+                </div>
+              </div>
+
+              {/* Salary Insights Card */}
+              <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">Salary Insights</h3>
+                  <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                    Get a better understanding of compensation expectations and make more informed career decisions.
+                  </p>
+                </div>
+              </div>
+
+              {/* Employee Reviews Card */}
+              <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4 sm:col-span-2">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                  <MessageSquare className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-foreground text-sm">Employee Reviews</h3>
+                  <p className="text-muted-foreground text-xs leading-relaxed mt-1">
+                    Hear from people with experience at the company and gain additional perspectives before you apply.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* 3. Mobile Filter Sheet (below md only; the inline panel stays at >=768px) */}
-        <Sheet open={isFilterSheetOpen} onOpenChange={setIsFilterSheetOpen}>
-          <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto overscroll-contain p-0 pb-4">
-            <SheetHeader className="border-b pb-3">
-              <SheetTitle className="text-base flex items-center gap-2">
-                <Filter className="h-4 w-4 text-primary" />
-                Filter Companies
-              </SheetTitle>
-            </SheetHeader>
-            <div className="px-4 pt-4">{filterPanel}</div>
-          </SheetContent>
-        </Sheet>
-      </div>
-      {/* 3. Research Experience Guide Section */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 md:py-16 border-b border-border mb-10 md:mb-16 md:order-1">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 md:gap-12 items-start">
-          <div className="lg:sticky lg:top-24">
-            <h2 className="text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
-              Explore companies with confidence
-            </h2>
-            <p className="text-muted-foreground mt-3 text-sm sm:text-base leading-relaxed">
-              Get to know potential employers in one place — from their mission and workplace culture to open positions and employee insights.
-            </p>
-          </div>
-
-          <div className="lg:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-6">
-            {/* About Card */}
-            <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
-              <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <Building2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground text-sm">About</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed mt-1">
-                  Learn what the company does, what it stands for, where it&apos;s located, and the story behind its organization.
-                </p>
-              </div>
-            </div>
-
-            {/* Life & Culture Card */}
-            <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
-
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground text-sm">Life & Culture</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed mt-1">
-                  Discover the company&apos;s values, workplace culture, benefits, and what they aim to offer their people.
-                </p>
-              </div>
-            </div>
-
-            {/* Open Jobs Card */}
-            <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
-              <div className="w-10 h-10 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0">
-                <Briefcase className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground text-sm">Open Jobs</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed mt-1">
-                  Explore current opportunities, compare roles, and find positions that match your skills, experience, and career goals.
-                </p>
-              </div>
-            </div>
-
-            {/* Salary Insights Card */}
-            <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center shrink-0">
-                <DollarSign className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground text-sm">Salary Insights</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed mt-1">
-                  Get a better understanding of compensation expectations and make more informed career decisions.
-                </p>
-              </div>
-            </div>
-
-            {/* Employee Reviews Card */}
-            <div className="bg-card border border-border rounded-2xl p-5 hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all duration-300 flex gap-4 sm:col-span-2">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
-                <MessageSquare className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-foreground text-sm">Employee Reviews</h3>
-                <p className="text-muted-foreground text-xs leading-relaxed mt-1">
-                  Hear from people with experience at the company and gain additional perspectives before you apply.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
       </div>
     </div>
   );

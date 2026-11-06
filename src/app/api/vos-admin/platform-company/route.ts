@@ -92,18 +92,18 @@ function normalizePlatformCompany(raw: Record<string, unknown> | null) {
   const meta =
     typeof raw.metadata === "string"
       ? (() => {
-          try {
-            return JSON.parse(raw.metadata as string);
-          } catch {
-            return {};
-          }
-        })()
+        try {
+          return JSON.parse(raw.metadata as string);
+        } catch {
+          return {};
+        }
+      })()
       : (raw.metadata as Record<string, unknown> | null) || {};
 
   return {
     ...raw,
     metadata: meta,
-    platform_name: (raw.platform_name as string) || (meta.platform_name as string) || (raw.company_name as string) || "VOS Sync",
+    platform_name: (raw.platform_name as string) || (meta.platform_name as string) || (raw.company_name as string) || "LinkBridge",
     platform_icon: (raw.platform_icon as string) || (meta.platform_icon as string) || "Briefcase",
     support_hours_days: (raw.support_hours_days as string) || (meta.support_hours_days as string) || "Mon–Fri",
     support_hours_time: (raw.support_hours_time as string) || (meta.support_hours_time as string) || "8am–5pm",
@@ -207,12 +207,12 @@ async function handleUpdateCompanyRecord(
   const existingMetadata =
     typeof body.metadata === "string"
       ? (() => {
-          try {
-            return JSON.parse(body.metadata);
-          } catch {
-            return {};
-          }
-        })()
+        try {
+          return JSON.parse(body.metadata);
+        } catch {
+          return {};
+        }
+      })()
       : (body.metadata as Record<string, unknown> | null) || {};
 
   const updatedMetadata = {

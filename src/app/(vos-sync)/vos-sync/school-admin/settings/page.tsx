@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Admin Settings | VOS Sync",
+  title: "Admin Settings | LinkBridge",
   description: "Manage personal administrator account details and workspace settings.",
 };
 

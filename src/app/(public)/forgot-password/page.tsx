@@ -12,9 +12,9 @@ import PasswordRequirementsChecklist from "@/components/auth/PasswordRequirement
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  InputOTP,
-  InputOTPGroup,
-  InputOTPSlot,
+    InputOTP,
+    InputOTPGroup,
+    InputOTPSlot,
 } from "@/components/ui/input-otp"
 
 type Step = "EMAIL" | "OTP" | "NEW_PASSWORD"
@@ -39,7 +39,7 @@ function ForgotPasswordForm() {
     const [otp, setOtp] = React.useState("")
     const [newPassword, setNewPassword] = React.useState("")
     const [confirmPassword, setConfirmPassword] = React.useState("")
-    
+
     // UI states
     const [showPw, setShowPw] = React.useState(false)
     const [showConfirmPw, setShowConfirmPw] = React.useState(false)
@@ -58,9 +58,9 @@ function ForgotPasswordForm() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email }),
             })
-            
+
             const data = await res.json().catch(() => null)
-            
+
             if (!res.ok) {
                 toast.error("Error", { description: data?.message || "Failed to request password reset" })
                 return
@@ -105,9 +105,9 @@ function ForgotPasswordForm() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ email, userId, otp, newPassword }),
             })
-            
+
             const data = await res.json().catch(() => null)
-            
+
             if (!res.ok) {
                 toast.error("Reset failed", { description: data?.message || "Failed to reset password." })
                 if (data?.message?.toLowerCase().includes("expired")) {
@@ -128,12 +128,12 @@ function ForgotPasswordForm() {
     return (
         <main className="max-md:items-start min-h-dvh flex-grow flex items-center justify-center py-4 md:py-8 px-4 md:px-6 bg-background text-foreground font-sans">
             <div className="max-w-[1280px] w-full grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-0 items-stretch md:min-h-[700px] bg-card rounded-xl shadow-sm border overflow-hidden">
-                
+
                 {/* Left Side: Illustration */}
                 <div className="hidden lg:flex flex-col justify-center p-10 lg:p-16 bg-muted/30 border-r relative overflow-hidden">
                     <div className="absolute -top-24 -left-24 w-64 h-64 bg-primary/20 rounded-full blur-3xl"></div>
                     <div className="absolute -bottom-24 -right-24 w-64 h-64 bg-secondary/30 rounded-full blur-3xl"></div>
-                    
+
                     <div className="relative z-10">
                         <div className="mb-10">
                             <span className="text-xl font-bold text-primary mb-2 block">LinkBridge</span>
@@ -188,7 +188,7 @@ function ForgotPasswordForm() {
                             </div>
                             <span className="text-xl font-bold text-foreground">LinkBridge</span>
                         </div>
-                        
+
                         {step === "EMAIL" && (
                             <form onSubmit={handleEmailSubmit} className="space-y-6 fade-in">
                                 <div className="mb-8">
@@ -198,10 +198,10 @@ function ForgotPasswordForm() {
 
                                 <div>
                                     <label className="text-sm font-medium text-foreground block mb-1.5" htmlFor="email">Email ID</label>
-                                    <Input 
-                                        id="email" 
-                                        type="email" 
-                                        placeholder="e.g. name@company.com" 
+                                    <Input
+                                        id="email"
+                                        type="email"
+                                        placeholder="e.g. name@company.com"
                                         value={email}
                                         onChange={(e) => setEmail(e.target.value)}
                                         disabled={loading}
@@ -240,10 +240,10 @@ function ForgotPasswordForm() {
                                 <Button type="submit" className="w-full h-11 text-base font-medium" disabled={loading || otp.length < 6}>
                                     Verify Code
                                 </Button>
-                                
+
                                 <div className="text-center">
-                                    <button 
-                                        type="button" 
+                                    <button
+                                        type="button"
                                         onClick={() => setStep("EMAIL")}
                                         className="max-md:py-3.5 max-md:-my-3.5 text-sm text-primary hover:underline"
                                     >
@@ -265,17 +265,17 @@ function ForgotPasswordForm() {
                                         <div>
                                             <label className="text-sm font-medium text-foreground block mb-1.5" htmlFor="new-password">New Password</label>
                                             <div className="relative">
-                                                <Input 
-                                                    id="new-password" 
-                                                    type={showPw ? "text" : "password"} 
-                                                    placeholder="Enter new password" 
+                                                <Input
+                                                    id="new-password"
+                                                    type={showPw ? "text" : "password"}
+                                                    placeholder="Enter new password"
                                                     value={newPassword}
                                                     onChange={(e) => setNewPassword(e.target.value)}
                                                     disabled={loading}
                                                     className="h-11 pr-12"
                                                 />
-                                                <button 
-                                                    type="button" 
+                                                <button
+                                                    type="button"
                                                     onClick={() => setShowPw(s => !s)}
                                                     disabled={loading}
                                                     className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
@@ -284,21 +284,21 @@ function ForgotPasswordForm() {
                                                 </button>
                                             </div>
                                         </div>
-                                        
+
                                         <div>
                                             <label className="text-sm font-medium text-foreground block mb-1.5" htmlFor="confirm-password">Confirm Password</label>
                                             <div className="relative">
-                                                <Input 
-                                                    id="confirm-password" 
-                                                    type={showConfirmPw ? "text" : "password"} 
-                                                    placeholder="Confirm new password" 
+                                                <Input
+                                                    id="confirm-password"
+                                                    type={showConfirmPw ? "text" : "password"}
+                                                    placeholder="Confirm new password"
                                                     value={confirmPassword}
                                                     onChange={(e) => setConfirmPassword(e.target.value)}
                                                     disabled={loading}
                                                     className="h-11 pr-12"
                                                 />
-                                                <button 
-                                                    type="button" 
+                                                <button
+                                                    type="button"
                                                     onClick={() => setShowConfirmPw(s => !s)}
                                                     disabled={loading}
                                                     className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
@@ -308,7 +308,7 @@ function ForgotPasswordForm() {
                                             </div>
                                         </div>
                                     </div>
-                                    
+
                                     <PasswordRequirementsChecklist password={newPassword} confirmPassword={confirmPassword} className="mt-1" />
                                 </div>
 

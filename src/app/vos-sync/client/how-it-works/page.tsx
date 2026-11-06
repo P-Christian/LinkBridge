@@ -4,8 +4,8 @@ import HowItWorksModule from "@/modules/public/how-it-works";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "How VOS Sync Works — Employer Guide",
-  description: "Learn how to verify your company, post vacancies, screen candidates, and hire top talent on VOS Sync.",
+  title: "How LinkBridge Works — Employer Guide",
+  description: "Learn how to verify your company, post vacancies, screen candidates, and hire top talent on LinkBridge.",
 };
 
 export default function ClientHowItWorksPage() {

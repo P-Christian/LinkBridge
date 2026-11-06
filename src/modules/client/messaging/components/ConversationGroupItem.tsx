@@ -3,7 +3,7 @@
 // src/modules/client/messaging/components/ConversationGroupItem.tsx
 
 import React, { useState } from "react";
-import { Briefcase, ChevronDown, Archive } from "lucide-react";
+import { Briefcase, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Conversation } from "../types";
 import { cn } from "@/lib/utils";
@@ -114,9 +114,9 @@ export default function ConversationGroupItem({
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 28, mass: 0.8 }}
-            className="overflow-hidden bg-zinc-50/40 dark:bg-zinc-900/30"
+            className="overflow-hidden"
           >
-            <div className="px-3 py-1.5 space-y-1">
+            <div className="py-0.5 space-y-0.5">
               {items.map((conv, idx) => {
                 const isSubActive = conv.conversation_id === activeConversationId;
                 const subUnread = conv.unread_count ?? 0;
@@ -136,19 +136,19 @@ export default function ConversationGroupItem({
                       onClick={() => onSelect(conv)}
                       aria-current={isSubActive ? "true" : undefined}
                       className={cn(
-                        "relative flex w-full items-start gap-2.5 rounded-xl pl-9 pr-3 py-2.5 text-left transition-all duration-150",
+                        "relative flex w-full items-start gap-2.5 px-4 py-2 text-left transition-colors pl-9 cursor-pointer",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
                         isSubActive
-                          ? "bg-indigo-50/90 text-indigo-950 dark:bg-indigo-950/50 dark:text-indigo-200 shadow-xs ring-1 ring-indigo-200/80 dark:ring-indigo-800/60 font-medium"
+                          ? "bg-indigo-50/90 text-indigo-950 dark:bg-indigo-950/50 dark:text-indigo-200 font-medium"
                           : "hover:bg-zinc-100/80 dark:hover:bg-zinc-800/50 text-zinc-600 dark:text-zinc-300"
                       )}
                     >
-                      {/* Smooth active capsule indicator */}
+                      {/* Active indicator with smooth shared layout motion */}
                       {isSubActive && (
                         <motion.span
-                          layoutId="activeSubIndicatorClient"
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-1 rounded-full bg-indigo-600 dark:bg-indigo-400"
-                          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                          layoutId="active-conversation-indicator-client"
+                          className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-indigo-600 dark:bg-indigo-400"
+                          transition={{ type: "spring", stiffness: 600, damping: 40, mass: 0.2 }}
                         />
                       )}
 
@@ -195,21 +195,7 @@ export default function ConversationGroupItem({
                           )}
                         </div>
                       </div>
-                    </button>
-
-                    {/* Quick Archive for specific thread */}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setArchiveTargetId(conv.conversation_id);
-                      }}
-                      title={conv.archived_by_client ? "Move to inbox" : "Archive"}
-                      aria-label={conv.archived_by_client ? "Move to inbox" : "Archive conversation"}
-                      className="absolute right-2 top-2.5 hidden h-6 w-6 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 opacity-0 shadow-xs transition hover:bg-zinc-100 hover:text-zinc-700 group-hover:opacity-100 md:flex dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                    >
-                      <Archive className="h-3 w-3" />
-                    </button>
+                    </button>                   
                   </motion.div>
                 );
               })}

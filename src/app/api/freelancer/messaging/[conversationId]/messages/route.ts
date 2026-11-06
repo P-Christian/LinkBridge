@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { checkRestriction } from "@/lib/status-validator";
 import { getPHTimeString } from "@/lib/utils";
 import { encryptMessage, safeDecryptMessage } from "@/lib/message-encryption";
@@ -6,7 +6,7 @@ import { encryptMessage, safeDecryptMessage } from "@/lib/message-encryption";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
 import { pageParams } from "@/lib/server/paging";
-import { toId } from "@/lib/server/route";
+import { json, toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -41,15 +41,13 @@ export async function GET(
     // positive integer may reach them.
     const convId = toId(conversationId);
     if (convId === null) {
-      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+      return json({ error: "Invalid conversation ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session || !isFreelancerSession(session)) {
-      return NextResponse.json(
-        { error: session ? "Forbidden: Freelancer access required." : "Unauthorized." },
-        { status: session ? 403 : 401 }
-      );
+      return json(
+        { error: session ? "Forbidden: Freelancer access required." : "Unauthorized." }, session ? 403 : 401);
     }
 
     const userId = Number(session.userId);
@@ -62,9 +60,9 @@ export async function GET(
     if (!convRes.ok) {
       const errText = await convRes.text();
       console.error("Directus conversation lookup error:", errText);
-      return NextResponse.json(
+      return json(
         { error: "Failed to fetch conversation details." },
-        { status: convRes.status }
+        convRes.status
       );
     }
 
@@ -72,14 +70,12 @@ export async function GET(
     const conv = Array.isArray(convJson.data) ? convJson.data[0] : convJson.data;
 
     if (!conv) {
-      return NextResponse.json(
-        { error: `Conversation #${convId} not found.` },
-        { status: 404 }
-      );
+      return json(
+        { error: `Conversation #${convId} not found.` }, 404);
     }
 
     if (conv.client_id !== userId && conv.freelancer_id !== userId) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      return json({ error: "Forbidden." }, 403);
     }
 
     const { limit, offset } = pageParams(new URL(req.url).searchParams);
@@ -93,10 +89,8 @@ export async function GET(
     );
 
     if (!msgsRes.ok) {
-      return NextResponse.json(
-        { error: "Failed to fetch messages." },
-        { status: msgsRes.status }
-      );
+      return json(
+        { error: "Failed to fetch messages." }, msgsRes.status);
     }
 
     const msgsJson = await msgsRes.json();
@@ -607,6 +601,7 @@ export async function GET(
         message_content: string;
         message_type: string;
         attachments?: Record<string, unknown>[];
+        is_deleted?: boolean;
       }
     >();
 
@@ -615,7 +610,7 @@ export async function GET(
         const replyRes = await fetch(
           `${DIRECTUS_BASE}/items/vs_message?filter[message_id][_in]=${replyIds.join(
             ","
-          )}&fields=message_id,sender_id,message_type,message_content`,
+          )}&fields=message_id,sender_id,message_type,message_content,is_deleted`,
           { headers: getHeaders(), cache: "no-store" }
         );
         if (replyRes.ok) {
@@ -640,17 +635,20 @@ export async function GET(
           }
 
           for (const rm of replyItems) {
-            const dec = safeDecryptMessage(rm.message_content as string | null);
+            const isRemoved = Boolean(rm.is_deleted);
+            const dec = isRemoved ? null : safeDecryptMessage(rm.message_content as string | null);
             const sId = rm.sender_id as number;
             const resolvedName = userNamesMap.get(sId);
             const sName =
               sId === userId
                 ? "You"
                 : (resolvedName || conv.company_name || conv.client_name || "Client");
-            const replyAtts = attachmentsMap.get(rm.message_id as number) ?? [];
+            const replyAtts = isRemoved ? [] : (attachmentsMap.get(rm.message_id as number) ?? []);
             const firstAtt = replyAtts[0] as { file_name?: string } | undefined;
             const fallbackFileName = firstAtt?.file_name ?? "";
-            const displayContent = dec
+            const displayContent = isRemoved
+              ? "This message was removed"
+              : dec
               ? (dec.length > 120 ? dec.slice(0, 120) + "..." : dec)
               : fallbackFileName;
 
@@ -661,6 +659,7 @@ export async function GET(
               message_content: displayContent,
               message_type: (rm.message_type as string) || "TEXT",
               attachments: replyAtts,
+              is_deleted: isRemoved,
             });
           }
         }
@@ -732,13 +731,11 @@ export async function GET(
       };
     }).reverse();
 
-    return NextResponse.json({ messages: enriched, celebration });
+    return json({ messages: enriched, celebration });
   } catch (err: unknown) {
     console.error("GET /api/freelancer/messaging/[id]/messages error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }
 
@@ -752,15 +749,13 @@ export async function POST(
     const { conversationId } = await params;
     const convId = toId(conversationId);
     if (convId === null) {
-      return NextResponse.json({ error: "Invalid conversation ID." }, { status: 400 });
+      return json({ error: "Invalid conversation ID." }, 400);
     }
 
     const session = await authenticateRequest(req);
     if (!session || !isFreelancerSession(session)) {
-      return NextResponse.json(
-        { error: session ? "Forbidden: Freelancer access required." : "Unauthorized." },
-        { status: session ? 403 : 401 }
-      );
+      return json(
+        { error: session ? "Forbidden: Freelancer access required." : "Unauthorized." }, session ? 403 : 401);
     }
 
     const userId = Number(session.userId);
@@ -768,10 +763,8 @@ export async function POST(
     // Validate SEND_MESSAGES Restriction
     const isRestricted = await checkRestriction(userId, "SEND_MESSAGES");
     if (isRestricted) {
-      return NextResponse.json(
-        { error: "Your messaging privileges are temporarily suspended." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Your messaging privileges are temporarily suspended." }, 403);
     }
 
     const body = await req.json().catch(() => null);
@@ -781,10 +774,8 @@ export async function POST(
       : [];
 
     if (!body?.message_content && incomingAttachments.length === 0) {
-      return NextResponse.json(
-        { error: "message_content or attachments required." },
-        { status: 400 }
-      );
+      return json(
+        { error: "message_content or attachments required." }, 400);
     }
 
     const convRes = await fetch(
@@ -795,9 +786,9 @@ export async function POST(
     if (!convRes.ok) {
       const errText = await convRes.text();
       console.error("Directus conversation lookup error (POST):", errText);
-      return NextResponse.json(
+      return json(
         { error: "Failed to fetch conversation details." },
-        { status: convRes.status }
+        convRes.status
       );
     }
 
@@ -805,21 +796,17 @@ export async function POST(
     const conv = Array.isArray(convJson.data) ? convJson.data[0] : convJson.data;
 
     if (!conv) {
-      return NextResponse.json(
-        { error: `Conversation #${convId} not found.` },
-        { status: 404 }
-      );
+      return json(
+        { error: `Conversation #${convId} not found.` }, 404);
     }
 
     if (conv.client_id !== userId && conv.freelancer_id !== userId) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      return json({ error: "Forbidden." }, 403);
     }
 
     if (conv.status === "BLOCKED") {
-      return NextResponse.json(
-        { error: "Conversation is blocked." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Conversation is blocked." }, 403);
     }
 
     const nowPH = getPHTimeString();
@@ -855,10 +842,8 @@ export async function POST(
     const msgJson = await msgRes.json();
 
     if (!msgRes.ok) {
-      return NextResponse.json(
-        { error: msgJson.errors?.[0]?.message ?? "Failed to send message." },
-        { status: msgRes.status }
-      );
+      return json(
+        { error: msgJson.errors?.[0]?.message ?? "Failed to send message." }, msgRes.status);
     }
 
     const newMessage = msgJson.data;
@@ -948,7 +933,7 @@ export async function POST(
       }
     }
 
-    return NextResponse.json(
+    return json(
       {
         message: {
           ...newMessage,
@@ -960,14 +945,10 @@ export async function POST(
           pinned_at: null,
           pinned_by: null,
         },
-      },
-      { status: 201 }
-    );
+      }, 201);
   } catch (err: unknown) {
     console.error("POST /api/freelancer/messaging/[id]/messages error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

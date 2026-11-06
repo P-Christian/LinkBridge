@@ -10,9 +10,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Messages | VOS Sync Freelancer Portal",
+  title: "Messages | LinkBridge Freelancer Portal",
   description:
-    "Chat with clients and employers regarding your job applications on VOS Sync.",
+    "Chat with clients and employers regarding your job applications on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

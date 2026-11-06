@@ -23,7 +23,7 @@ export function LoadingScreen({ error, onRetry }: { readonly error: string | nul
         <div className="text-center max-w-sm px-4">
           <h1 className="text-2xl font-medium text-primary mb-3">We couldn&apos;t load your invitation</h1>
           <p role="alert" className="text-sm text-muted-foreground mb-6">{error}</p>
-      <Button type="button" onClick={onRetry} className="min-h-11 rounded-full px-8 py-3">Try again</Button>
+          <Button type="button" onClick={onRetry} className="min-h-11 rounded-full px-8 py-3">Try again</Button>
         </div>
       ) : (
         <div className="flex flex-col items-center" role="status" aria-label="Loading invitation">
@@ -58,7 +58,7 @@ export function PreviewScreen({ preview, hasSession, loginHref, busy, onCreateAc
           <GraduationCap className="h-7 w-7" aria-hidden="true" />
         </div>
         <h1 className="text-3xl font-medium text-primary">You&apos;re invited, {preview.studentFirstName}!</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{preview.schoolName} has invited you to link your student record to a VOS Sync account.</p>
+        <p className="mt-2 text-sm text-muted-foreground">{preview.schoolName} has invited you to link your student record to a LinkBridge account.</p>
       </div>
       <div className="rounded-xl border border-border bg-card p-6 max-md:p-5 shadow-sm">
         <dl className="space-y-4 max-md:space-y-3 text-sm">
@@ -87,7 +87,7 @@ export function PreviewScreen({ preview, hasSession, loginHref, busy, onCreateAc
         ) : (
           <>
             <p className="text-center text-sm text-muted-foreground">
-              Already have a VOS Sync account? Sign in and we&apos;ll link this invitation to it.
+              Already have a LinkBridge account? Sign in and we&apos;ll link this invitation to it.
             </p>
             <div className="grid gap-3 sm:grid-cols-2">
               <Button type="button" onClick={onCreateAccount} className="min-h-11 rounded-full">Create a new account</Button>
@@ -127,7 +127,7 @@ export function AcceptNoticeScreen({ notice, error, busy, onConfirm, onBack, ste
       </h1>
       <div className="mb-6 space-y-3 text-sm text-muted-foreground leading-relaxed">
         <p>
-          Your already-verified VOS Sync account email matches the school email
+          Your already-verified LinkBridge account email matches the school email
           on this invitation. We&apos;ll reuse that verification to link your
           student record.
         </p>
@@ -143,7 +143,7 @@ export function AcceptNoticeScreen({ notice, error, busy, onConfirm, onBack, ste
           type="button"
           onClick={onConfirm}
           disabled={busy}
-            className="min-h-11 w-full py-6 rounded-full text-base"
+          className="min-h-11 w-full py-6 rounded-full text-base"
         >
           {busy ? (
             <>
@@ -174,7 +174,7 @@ export function SuccessScreen({ preview }: { readonly preview: ValidStudentInvit
         You&apos;re all set{preview ? `, ${preview.studentFirstName}` : ""}!
       </h1>
       <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-        Your VOS Sync account is now linked to{" "}
+        Your LinkBridge account is now linked to{" "}
         <strong className="text-foreground">
           {preview?.schoolName ?? "your school"}
         </strong>

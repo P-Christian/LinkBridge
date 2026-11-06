@@ -8,7 +8,7 @@ import { MapPin, Briefcase, BookmarkPlus, BookmarkCheck, GraduationCap, Eye } fr
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { TalentCard as TalentCardType, AvailabilityStatus, AVAILABILITY_LABELS } from "../types";
+import { TalentCard as TalentCardType } from "../types";
 import { getInitials, matchScoreColor, formatExperienceYears, truncate, getImageUrl } from "../utils/talentUtils";
 
 interface TalentCardProps {
@@ -29,11 +29,8 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
   const scoreClass = matchScoreColor(talent.match_score);
   const avatarSrc = getImageUrl(talent.profile_image_url);
 
-  const isAvailable =
-    talent.availability_status === "AVAILABLE" || talent.availability_status === "IMMEDIATELY_AVAILABLE";
-  const availabilityLabel =
-    AVAILABILITY_LABELS[talent.availability_status as AvailabilityStatus] ??
-    (isAvailable ? "Available" : "Employed");
+  // const isAvailable =
+  //   talent.availability_status === "AVAILABLE" || talent.availability_status === "IMMEDIATELY_AVAILABLE";
 
   const hasScore = talent.match_score !== null && talent.match_score !== undefined;
   const relevantYears = talent.relevant_experience_years ?? talent.experience_years;
@@ -182,22 +179,7 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
       )}
 
       {/* Footer: availability + actions */}
-      <div className="mt-auto flex items-center justify-between gap-2 border-t border-border/60 pt-3">
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium",
-            isAvailable
-              ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-              : "border-border bg-muted text-muted-foreground"
-          )}
-        >
-          <span
-            aria-hidden
-            className={cn("h-1.5 w-1.5 rounded-full", isAvailable ? "bg-emerald-500" : "bg-muted-foreground/50")}
-          />
-          {availabilityLabel}
-        </span>
-
+      <div className="mt-auto flex items-center justify-end gap-2 border-t border-border/60 pt-3">
         <div className="flex gap-1.5">
           <motion.div whileTap={{ scale: 0.95 }}>
             <Button

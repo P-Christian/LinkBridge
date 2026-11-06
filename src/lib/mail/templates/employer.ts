@@ -11,8 +11,8 @@ export interface EmployerMailParams {
   baseUrl?: string;
 }
 
-const PLATFORM_NAME = process.env.NEXT_PUBLIC_APP_NAME || "VOS-Sync";
- 
+const PLATFORM_NAME = process.env.NEXT_PUBLIC_APP_NAME || "LinkBridge";
+
 
 // 1. Upon Account Creation and OTP Verified (To Employer)
 

@@ -53,12 +53,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   if (!article) {
     return {
-      title: "Article Not Found | VOS Sync",
+      title: "Article Not Found | LinkBridge",
     };
   }
 
   return {
-    title: `${article.seo_title || article.title} | VOS Sync Career Advice`,
+    title: `${article.seo_title || article.title} | LinkBridge Career Advice`,
     description: article.seo_description || article.excerpt,
     openGraph: {
       title: article.seo_title || article.title,
@@ -81,15 +81,15 @@ export default async function ArticleReaderPage({ params }: PageProps) {
 
   const publishedDate = article.published_at
     ? new Date(article.published_at).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      })
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    })
     : new Date(article.created_at).toLocaleDateString("en-US", {
-        month: "long",
-        day: "numeric",
-        year: "numeric",
-      });
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
 
   return (
     <article className="min-h-screen bg-background text-foreground pt-24 pb-20 md:pt-32 md:pb-28">

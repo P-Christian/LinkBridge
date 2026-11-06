@@ -55,12 +55,34 @@ export async function GET(req: NextRequest) {
     const userId = Number(session.userId);
 
     const { searchParams } = new URL(req.url);
+    const countOnly = searchParams.get("count_only") === "true";
     const unreadOnly = searchParams.get("unread_only") === "true";
     const starredOnly = searchParams.get("starred_only") === "true";
+
+    // Fast path: sidebar and badge polling only needs the unread count
+    if (countOnly) {
+      try {
+        const countRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_employer_notification?filter[user_id][_eq]=${userId}&filter[is_read][_eq]=0&limit=0&meta=filter_count`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        let unreadCount = 0;
+        if (countRes.ok) {
+          const countJson = await countRes.json();
+          unreadCount = countJson.meta?.filter_count ?? 0;
+        }
+        return NextResponse.json({ unreadCount, unread_count: unreadCount, notifications: [] });
+      } catch (countErr: unknown) {
+        console.warn("[Employer notifications] Count fetch error:", countErr instanceof Error ? countErr.message : countErr);
+        return NextResponse.json({ unreadCount: 0, unread_count: 0, notifications: [] });
+      }
+    }
+
     // Shared clamp: ?limit=abc used to reach Directus as limit=NaN (a 400 the
     // panel shows as a failed list), ?limit=-1 is Directus's "no limit" sentinel
     // and would read the whole table, and a negative offset shifts the range.
-    const { limit, offset } = pageParams(searchParams);
+    const { limit: rawLimit, offset } = pageParams(searchParams);
+    const limit = searchParams.has("limit") ? Math.min(rawLimit, 100) : 20;
 
     // Build filter query against vs_employer_notification
     let filterQuery = `filter[user_id][_eq]=${userId}`;
@@ -120,7 +142,11 @@ export async function GET(req: NextRequest) {
       entity_id: null,
     }));
 
-    return NextResponse.json({ notifications });
+    const unreadCount = unreadOnly
+      ? notifications.length
+      : notifications.filter((n) => !n.is_read).length;
+
+    return NextResponse.json({ notifications, unreadCount, unread_count: unreadCount });
   } catch (err: unknown) {
     console.error("GET /api/client/notifications error:", err);
     return NextResponse.json(

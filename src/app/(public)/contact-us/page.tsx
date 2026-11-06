@@ -5,8 +5,8 @@ import { getContactCompany } from "@/modules/contact/server/getContactCompany";
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: "Contact Us | VOS Sync",
-  description: "Get in touch with the VOS Sync team. We're here to help with hiring, job searching, and any questions you have.",
+  title: "Contact Us | LinkBridge",
+  description: "Get in touch with the LinkBridge team. We're here to help with hiring, job searching, and any questions you have.",
 };
 
 export default async function ContactPage() {

@@ -317,8 +317,8 @@ export default function NotificationsModule() {
                       className={cn(
                         "relative flex shrink-0 cursor-pointer items-center whitespace-nowrap rounded-full border px-3 py-1.5 max-md:min-h-10 text-xs font-medium transition-colors",
                         isSelected
-                          ? "border-primary text-primary-foreground"
-                          : "border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
+                          ? " border-none text-primary-foreground"
+                          : "  border-none bg-background text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                     >
                       {/* Sliding highlight that follows the selected tab */}

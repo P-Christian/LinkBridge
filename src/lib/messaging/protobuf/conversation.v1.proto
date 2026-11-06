@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package messaging.v1;
+
+// Conversation list payload for GET /api/client/messaging.
+//
+// Field numbers are permanent: never reuse a number once it has been shipped,
+// and retire removed fields with `reserved` instead.
+//
+// This carries only what the client conversation UI reads. Server-side
+// authorization columns (client_id, status, archived_by_freelancer,
+// archived_at, job_id, created_at, updated_at) are deliberately absent.
+message Conversation {
+  uint32 conversation_id = 1;
+  // Grouping key for the conversation list and the report target.
+  uint32 freelancer_id = 2;
+  string conversation_type = 3;
+  bool archived_by_client = 4;
+  uint32 unread_count = 5;
+  optional string last_message_at = 6;
+  optional string last_message_preview = 7;
+  optional string other_party_name = 8;
+  optional string other_party_avatar = 9;
+  optional string other_party_email = 10;
+  optional string job_title = 11;
+}
+
+message ConversationListResponse {
+  repeated Conversation conversations = 1;
+}

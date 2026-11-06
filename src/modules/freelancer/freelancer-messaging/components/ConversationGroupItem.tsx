@@ -136,9 +136,9 @@ export default function ConversationGroupItem({
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 28, mass: 0.8 }}
-            className="overflow-hidden bg-muted/20"
+            className="overflow-hidden"
           >
-            <div className="px-3 py-1.5 space-y-1">
+            <div className="py-0.5 space-y-0.5">
               {items.map((conv, idx) => {
                 const isSubActive = conv.conversation_id === activeConversationId;
                 const subUnread = conv.unread_count ?? 0;
@@ -159,19 +159,19 @@ export default function ConversationGroupItem({
                       onClick={() => onSelect(conv)}
                       aria-current={isSubActive ? "true" : undefined}
                       className={cn(
-                        "relative flex w-full items-start gap-2.5 rounded-xl pl-9 pr-3 py-2.5 text-left transition-all duration-150 cursor-pointer",
+                        "relative flex w-full items-start gap-2.5 px-4 py-2 text-left transition-colors cursor-pointer pl-9",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
                         isSubActive
-                          ? "bg-primary/10 dark:bg-primary/15 text-foreground ring-1 ring-primary/25 shadow-xs font-medium"
-                          : "hover:bg-muted text-muted-foreground hover:text-foreground"
+                          ? "bg-primary/10 dark:bg-primary/15 text-foreground font-medium"
+                          : "hover:bg-muted/70 text-muted-foreground hover:text-foreground"
                       )}
                     >
-                      {/* Smooth active capsule indicator */}
+                      {/* Active indicator with smooth shared layout motion */}
                       {isSubActive && (
                         <motion.span
-                          layoutId="activeSubIndicatorFreelancer"
-                          className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-1 rounded-full bg-primary"
-                          transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                          layoutId="active-conversation-indicator-freelancer"
+                          className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-primary"
+                          transition={{ type: "spring", stiffness: 600, damping: 40, mass: 0.2 }}
                         />
                       )}
 

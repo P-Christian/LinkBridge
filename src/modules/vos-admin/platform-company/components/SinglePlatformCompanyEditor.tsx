@@ -166,9 +166,8 @@ const CharCounter = ({ current = 0, max }: { current?: number; max: number }) =>
   const isMax = current >= max;
   return (
     <span
-      className={`text-[10px] font-mono transition-colors ${
-        isMax ? "text-destructive font-semibold" : isNear ? "text-amber-500" : "text-muted-foreground"
-      }`}
+      className={`text-[10px] font-mono transition-colors ${isMax ? "text-destructive font-semibold" : isNear ? "text-amber-500" : "text-muted-foreground"
+        }`}
     >
       {current}/{max}
     </span>
@@ -183,12 +182,12 @@ export function SinglePlatformCompanyEditor({
   const [formData, setFormData] = useState<PlatformCompanyFormData>({
     slug: company.slug || "vos-sync",
     company_code: company.company_code || "VTC",
-    company_name: company.company_name || "VOS Sync",
+    company_name: company.company_name || "LinkBridge",
     company_legal_name: company.company_legal_name || "Vertex Technologies Corporation",
     platform_name:
       company.platform_name ||
       ((company.metadata as Record<string, unknown> | null)?.platform_name as string) ||
-      "VOS Sync",
+      "LinkBridge",
     platform_icon:
       company.platform_icon ||
       ((company.metadata as Record<string, unknown> | null)?.platform_icon as string) ||
@@ -635,7 +634,7 @@ export function SinglePlatformCompanyEditor({
     }));
 
     parsedMetadata.values = finalValues;
-    parsedMetadata.platform_name = formData.platform_name?.trim() || "VOS Sync";
+    parsedMetadata.platform_name = formData.platform_name?.trim() || "LinkBridge";
     parsedMetadata.platform_icon = formData.platform_icon?.trim() || "Briefcase";
     parsedMetadata.support_hours_days = formData.support_hours_days?.trim() || "Mon–Fri";
     parsedMetadata.support_hours_time = formData.support_hours_time?.trim() || "8am–5pm";
@@ -756,7 +755,7 @@ export function SinglePlatformCompanyEditor({
                       maxLength={60}
                       value={formData.platform_name || ""}
                       onChange={(e) => handleChange("platform_name", e.target.value)}
-                      placeholder="e.g. VOS Sync"
+                      placeholder="e.g. LinkBridge"
                       className="rounded-xl h-10 text-xs transition-all"
                     />
                     <p className="text-[11px] text-muted-foreground">
@@ -1674,9 +1673,8 @@ export function SinglePlatformCompanyEditor({
                   value={metadataJsonText}
                   onChange={(e) => setMetadataJsonText(e.target.value)}
                   placeholder='{\n  "stats": [\n    { "label": "Talent Community", "value": "20,000+" }\n  ]\n}'
-                  className={`font-mono text-xs min-h-[220px] rounded-xl transition-all ${
-                    !isMetadataValid ? "border-destructive/60 focus-visible:ring-destructive/30" : ""
-                  }`}
+                  className={`font-mono text-xs min-h-[220px] rounded-xl transition-all ${!isMetadataValid ? "border-destructive/60 focus-visible:ring-destructive/30" : ""
+                    }`}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Directly stores customizable metrics (stats, milestones, SEO attributes). Core Values and Support Hours are automatically synchronized here.

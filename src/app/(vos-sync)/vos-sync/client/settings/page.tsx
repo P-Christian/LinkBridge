@@ -10,9 +10,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Employer Settings | VOS Sync Employer Portal",
+  title: "Employer Settings | LinkBridge Employer Portal",
   description:
-    "Manage account preferences, password security, company team roles, and authorized integrations on VOS Sync.",
+    "Manage account preferences, password security, company team roles, and authorized integrations on LinkBridge.",
 };
 
 const COOKIE_NAME = "vos_sync_access_token";

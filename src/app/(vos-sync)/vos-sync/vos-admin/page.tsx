@@ -2,7 +2,7 @@ import React from "react";
 import { SchoolAdminDashboard } from "../../../../modules/vos-admin";
 
 export const metadata = {
-    title: "School Admin Portal - VOS Sync",
+    title: "School Admin Portal - LinkBridge",
     description: "Dedicated portal for managing post-graduates and school tasks.",
 };
 

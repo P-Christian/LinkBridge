@@ -202,7 +202,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
 
     if (notice === "already_connected") {
       toast.info("Already connected", {
-        description: "This Google account is already linked to your VOS Sync account.",
+        description: "This Google account is already linked to your LinkBridge account.",
       });
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.delete("notice");
@@ -254,9 +254,9 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
 
     if (error) {
       const errorMap: Record<string, string> = {
-        google_already_linked: "This Google account is already linked to another VOS Sync user. Linking is blocked.",
-        linkedin_already_linked: "This LinkedIn account is already linked to another VOS Sync user. Linking is blocked.",
-        facebook_already_linked: "This Facebook account is already linked to another VOS Sync user. Linking is blocked.",
+        google_already_linked: "This Google account is already linked to another LinkBridge user. Linking is blocked.",
+        linkedin_already_linked: "This LinkedIn account is already linked to another LinkBridge user. Linking is blocked.",
+        facebook_already_linked: "This Facebook account is already linked to another LinkBridge user. Linking is blocked.",
         link_unauthorized: "Authentication session verification failed. Please try again.",
         session_expired: "Your active session expired during linking. Please log in again.",
         oauth_callback_failed: "Could not complete social account authentication.",
@@ -322,7 +322,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
           setConnectingProvider(null);
           if (response.notice === "already_connected") {
             toast.info("Already connected", {
-              description: "This account is already linked to your VOS Sync profile.",
+              description: "This account is already linked to your LinkBridge profile.",
             });
             return;
           }
@@ -348,8 +348,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
             provider === "google"
               ? "Google"
               : provider === "linkedin"
-              ? "LinkedIn"
-              : "Facebook";
+                ? "LinkedIn"
+                : "Facebook";
           toast.success(`${providerLabel} account connected`, {
             description: `Your ${providerLabel} identity was successfully linked to this account.`,
           });
@@ -375,9 +375,9 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
           }
 
           const errorMap: Record<string, string> = {
-            google_already_linked: "This Google account is already linked to another VOS Sync user. Linking is blocked.",
-            linkedin_already_linked: "This LinkedIn account is already linked to another VOS Sync user. Linking is blocked.",
-            facebook_already_linked: "This Facebook account is already linked to another VOS Sync user. Linking is blocked.",
+            google_already_linked: "This Google account is already linked to another LinkBridge user. Linking is blocked.",
+            linkedin_already_linked: "This LinkedIn account is already linked to another LinkBridge user. Linking is blocked.",
+            facebook_already_linked: "This Facebook account is already linked to another LinkBridge user. Linking is blocked.",
             link_unauthorized: "Authentication session verification failed. Please try again.",
             session_expired: "Your active session expired during linking. Please log in again.",
             oauth_callback_failed: "Could not complete social account authentication.",
@@ -402,8 +402,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
         provider === "google"
           ? googleStatus
           : provider === "linkedin"
-          ? linkedinStatus
-          : facebookStatus;
+            ? linkedinStatus
+            : facebookStatus;
       if (!currentStatus?.has_password) {
         setNoPasswordProvider(provider);
         return;
@@ -433,8 +433,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
         provider === "google"
           ? "Google"
           : provider === "linkedin"
-          ? "LinkedIn"
-          : "Facebook";
+            ? "LinkedIn"
+            : "Facebook";
       toast.success("Account disconnected", {
         description: `Your ${providerLabel} account has been disconnected successfully.`,
       });
@@ -452,26 +452,26 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
     confirmProvider === "google"
       ? googleStatus?.email
       : confirmProvider === "linkedin"
-      ? linkedinStatus?.email
-      : confirmProvider === "facebook"
-      ? facebookStatus?.email
-      : "";
+        ? linkedinStatus?.email
+        : confirmProvider === "facebook"
+          ? facebookStatus?.email
+          : "";
 
   const activeDisconnectName =
     confirmProvider === "google"
       ? googleStatus?.name
       : confirmProvider === "linkedin"
-      ? linkedinStatus?.name
-      : confirmProvider === "facebook"
-      ? facebookStatus?.name
-      : "";
+        ? linkedinStatus?.name
+        : confirmProvider === "facebook"
+          ? facebookStatus?.name
+          : "";
 
   const activeDisconnectLabel =
     confirmProvider === "google"
       ? "Google"
       : confirmProvider === "linkedin"
-      ? "LinkedIn"
-      : "Facebook";
+        ? "LinkedIn"
+        : "Facebook";
 
   return (
     <div className="space-y-4 pt-6 ">
@@ -482,7 +482,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
             Connected Accounts & Social Logins
           </h4>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Link external federated providers to enable fast, single-click sign-in to your VOS Sync account.
+            Link external federated providers to enable fast, single-click sign-in to your LinkBridge account.
           </p>
         </div>
       </div>
@@ -892,10 +892,10 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                     {conflictModal.provider === "facebook"
                       ? "Facebook"
                       : conflictModal.provider === "linkedin"
-                      ? "LinkedIn"
-                      : "Google"}
+                        ? "LinkedIn"
+                        : "Google"}
                   </strong>{" "}
-                  account is already linked to another account on VOS Sync.
+                  account is already linked to another account on LinkBridge.
                 </DialogDescription>
               </div>
             </div>
@@ -917,8 +917,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                 conflictModal.provider === "facebook"
                   ? "Facebook"
                   : conflictModal.provider === "linkedin"
-                  ? "LinkedIn"
-                  : "Google";
+                    ? "LinkedIn"
+                    : "Google";
 
               return (
                 <div className="space-y-2 pt-1">
@@ -933,8 +933,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                           conflictModal.provider === "linkedin"
                             ? "https://www.linkedin.com/m/logout"
                             : conflictModal.provider === "facebook"
-                            ? "https://www.facebook.com"
-                            : "https://accounts.google.com/Logout";
+                              ? "https://www.facebook.com"
+                              : "https://accounts.google.com/Logout";
                         window.open(logoutUrl, "_blank", "noopener,noreferrer");
                         setConflictModal({ open: false, provider: "facebook", email: null });
                         toast.info(`Signed out of ${providerLabel}`, {
@@ -962,7 +962,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                         }}
                       >
                         <LogIn className="w-3.5 h-3.5 mr-1.5 shrink-0" />
-                        <span>Switch to this VOS Sync account</span>
+                        <span>Switch to this LinkBridge account</span>
                       </Button>
                     )}
                   </div>

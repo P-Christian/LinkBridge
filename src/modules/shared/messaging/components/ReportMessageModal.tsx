@@ -40,12 +40,12 @@ const REPORT_REASONS: { code: MessageReportReasonCode; label: string; descriptio
   {
     code: "OFF_PLATFORM_PAYMENT",
     label: "Off-platform payment or communication",
-    description: "Soliciting payments or sensitive communications outside VOS Sync.",
+    description: "Soliciting payments or sensitive communications outside LinkBridge.",
   },
   {
     code: "OTHER",
     label: "Other issue",
-    description: "Any other behavior violating VOS Sync community guidelines.",
+    description: "Any other behavior violating LinkBridge community guidelines.",
   },
 ];
 
@@ -130,7 +130,7 @@ export default function ReportMessageModal({
               {messageId ? "Report message" : "Report conversation"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              {reportedUserName ? `Reporting ${reportedUserName}` : "Help us keep VOS Sync safe"}
+              {reportedUserName ? `Reporting ${reportedUserName}` : "Help us keep LinkBridge safe"}
             </p>
           </div>
         </div>
@@ -144,11 +144,10 @@ export default function ReportMessageModal({
                 return (
                   <label
                     key={r.code}
-                    className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-left transition ${
-                      checked
+                    className={`flex cursor-pointer items-start gap-2.5 rounded-xl border p-2.5 text-left transition ${checked
                         ? "border-destructive/40 bg-destructive/[0.06] text-foreground"
                         : "border-border/60 bg-card/60 text-muted-foreground hover:border-primary/20 hover:text-foreground"
-                    }`}
+                      }`}
                   >
                     <input
                       type="radio"

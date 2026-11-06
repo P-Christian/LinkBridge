@@ -105,7 +105,15 @@ export function buildTalentSearchParams(
   for (const school of filters.schools) {
     params.append("school_id", school.id !== null ? String(school.id) : school.name);
   }
-  if (filters.experience_level) params.set("experience_level", filters.experience_level);
+  const expLevels = (filters.experience_levels && filters.experience_levels.length > 0)
+    ? filters.experience_levels
+    : filters.experience_level ? [filters.experience_level] : [];
+  for (const level of expLevels) {
+    params.append("experience_level", level);
+  }
+  for (const ws of filters.work_setups ?? []) {
+    params.append("work_setup", ws);
+  }
   if (jobId) params.set("job_id", jobId);
   params.set("page", String(page));
   params.set("limit", String(limit));

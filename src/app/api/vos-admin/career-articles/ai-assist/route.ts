@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
 
     switch (action) {
       case "generate_draft":
-        systemInstruction = `You are a high-level Career Coach and Content Strategist for VOS Sync (a platform connecting tech talent, graduates, and companies).
+        systemInstruction = `You are a high-level Career Coach and Content Strategist for LinkBridge (a platform connecting tech talent, graduates, and companies).
 Generate a compelling, well-structured career advice article based on the provided topic.
 Return strict JSON with the following schema:
 {

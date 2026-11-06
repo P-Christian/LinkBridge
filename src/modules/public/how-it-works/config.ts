@@ -3,7 +3,7 @@ import type { FaqItem, RoleGuide, RoleKey, StepAction } from "./types";
 
 /* ---------- Shared constants (change once, updates everywhere) ---------- */
 
-export const BRAND = "VOS Sync";
+export const BRAND = "LinkBridge";
 
 export const ROUTES = {
   signup: {

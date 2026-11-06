@@ -161,7 +161,7 @@ export async function GET(req: NextRequest) {
         return res;
       }
 
-      // Enforce cross-account email uniqueness: if LinkedIn email belongs to another VOS Sync user
+      // Enforce cross-account email uniqueness: if LinkedIn email belongs to another LinkBridge user
       const conflictingAccount = await getUserByEmail(normalizedEmail);
       if (
         conflictingAccount &&
@@ -347,7 +347,7 @@ export async function GET(req: NextRequest) {
 
       // Branch 2: Identity not linked
       if (emailUser) {
-        // Email exists in VOS Sync: reject login and show "LinkedIn account not connected"
+        // Email exists in LinkBridge: reject login and show "LinkedIn account not connected"
         createAuditRecordRepo({
           event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
@@ -355,7 +355,7 @@ export async function GET(req: NextRequest) {
           status: "DENIED",
           actor_type: "USER",
           actor_user_id: emailUser.user_id,
-          reason: `LinkedIn login rejected: Email ${normalizedEmail} exists in VOS Sync but LinkedIn identity is not connected`,
+          reason: `LinkedIn login rejected: Email ${normalizedEmail} exists in LinkBridge but LinkedIn identity is not connected`,
         });
 
         const errorUrl = new URL(`/login?error=linkedin_not_connected&email=${encodeURIComponent(normalizedEmail)}`, requestOrigin);
@@ -366,7 +366,7 @@ export async function GET(req: NextRequest) {
         clearTxCookie(res);
         return res;
       } else {
-        // Email does not exist in VOS Sync: reject login and direct to signup
+        // Email does not exist in LinkBridge: reject login and direct to signup
         createAuditRecordRepo({
           event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
@@ -398,7 +398,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. A provider email is not proof that the caller owns the VOS Sync
+    // 2. A provider email is not proof that the caller owns the LinkBridge
     // account, so sign-up never links on it (SEC-009). The login flow already
     // refuses the same thing; linking is done from an authenticated session.
     if (!user) {

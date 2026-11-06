@@ -67,6 +67,7 @@ export interface QuotedMessage {
   message_content?: string | null;
   message_type?: MessageType;
   attachments?: MessageAttachment[];
+  is_deleted?: boolean;
 }
 
 export interface Message {

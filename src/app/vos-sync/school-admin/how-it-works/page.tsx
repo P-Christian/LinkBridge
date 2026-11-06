@@ -4,8 +4,8 @@ import HowItWorksModule from "@/modules/public/how-it-works";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "How VOS Sync Works — Academic Institution Guide",
-  description: "Learn how to manage course catalogs, verify student degrees, and issue education credentials on VOS Sync.",
+  title: "How LinkBridge Works — Academic Institution Guide",
+  description: "Learn how to manage course catalogs, verify student degrees, and issue education credentials on LinkBridge.",
 };
 
 export default function SchoolAdminHowItWorksPage() {

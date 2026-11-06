@@ -204,17 +204,7 @@ export function MatchingTaxonomyEditor() {
     }
   };
 
-  const handleToggleCategoryActive = async (cat: JobCategory, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = cat.is_active === false;
-    const ok = await editCategory({
-      category_id: cat.category_id,
-      is_active: updated,
-    });
-    if (ok) {
-      toast.success(`Category "${cat.category_name}" marked as ${updated ? "Active" : "Inactive"}.`);
-    }
-  };
+
 
   const handleDeleteCategory = (cat: JobCategory, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -255,17 +245,7 @@ export function MatchingTaxonomyEditor() {
     setRoleModalOpen(true);
   };
 
-  const handleToggleRoleActive = async (role: StandardRole, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = role.is_active === false;
-    const ok = await editRole({
-      role_id: role.role_id,
-      is_active: updated,
-    });
-    if (ok) {
-      toast.success(`Role "${role.role_name}" marked as ${updated ? "Active" : "Inactive"}.`);
-    }
-  };
+
 
   const handleSaveRole = async () => {
     if (!roleNameInput.trim()) {
@@ -475,19 +455,6 @@ export function MatchingTaxonomyEditor() {
                     <div className="flex items-center gap-1 self-end sm:self-auto shrink-0" onClick={(e) => e.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={(e) => handleToggleCategoryActive(cat, e)}
-                        className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
-                          cat.is_active !== false
-                            ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
-                            : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                        }`}
-                        title={cat.is_active !== false ? "Deactivate Category" : "Activate Category"}
-                      >
-                        <Power className="h-3 w-3" />
-                        {cat.is_active !== false ? "Deactivate" : "Activate"}
-                      </button>
-                      <button
-                        type="button"
                         onClick={(e) => openAddRoleForCategory(cat.category_id, e)}
                         className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 border border-indigo-200 dark:border-indigo-800 transition-all flex items-center gap-1 cursor-pointer"
                       >
@@ -573,19 +540,6 @@ export function MatchingTaxonomyEditor() {
                                     className="flex items-center gap-1.5 self-end sm:self-auto shrink-0"
                                     onClick={(e) => e.stopPropagation()}
                                   >
-                                    <button
-                                      type="button"
-                                      onClick={(e) => handleToggleRoleActive(role, e)}
-                                      className={`px-2.5 py-1 text-[11px] font-bold rounded-lg border transition-all flex items-center gap-1 cursor-pointer ${
-                                        role.is_active !== false
-                                          ? "bg-zinc-100 hover:bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:hover:bg-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700"
-                                          : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800"
-                                      }`}
-                                      title={role.is_active !== false ? "Deactivate Role" : "Activate Role"}
-                                    >
-                                      <Power className="h-3 w-3" />
-                                      {role.is_active !== false ? "Deactivate" : "Activate"}
-                                    </button>
                                     <button
                                       type="button"
                                       onClick={() => setSelectedRoleForDetail(role)}

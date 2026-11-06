@@ -7,10 +7,13 @@
     "build": "next build",
     "start": "next start -p 4000",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node ./node_modules/jiti/lib/jiti-cli.mjs src/modules/matching-engine/__tests__/index.test.ts",
+    "proto:gen": "cd src/lib/messaging/protobuf && buf generate"
   },
   "dependencies": {
     "@base-ui/react": "^1.1.0",
+    "@bufbuild/protobuf": "^2.16.0",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
     "@fortawesome/fontawesome-svg-core": "^7.3.0",
@@ -70,6 +73,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@bufbuild/buf": "^1.75.0",
+    "@bufbuild/protoc-gen-es": "^2.16.0",
     "@tailwindcss/postcss": "^4",
     "@types/bcrypt": "^5.0.2",
     "@types/node": "^20",

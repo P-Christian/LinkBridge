@@ -3,7 +3,7 @@ import React from "react";
 import { AuditTrailPage } from "@/modules/vos-admin/audit-trail";
 
 export const metadata = {
-  title: "Audit Trail | VOS Sync Admin",
+  title: "Audit Trail | LinkBridge Admin",
   description: "Centralized immutable audit trail for security and governance monitoring.",
 };
 

@@ -90,6 +90,12 @@ interface TalentResumeRow {
   uploaded_at?: string | null;
 }
 
+interface TalentJobPreferenceRow {
+  id: number;
+  work_setup?: string | null;
+  preferred_location?: string | null;
+}
+
 function toProtectedAssetUrl(fileReference: string): string {
   const raw = String(fileReference || "");
   const fileId = raw.includes("/assets/")
@@ -154,7 +160,7 @@ export async function GET(
     // Directus was unreachable, so an outage was indistinguishable from a
     // candidate who has no skills, no history and no education.
     // ────────────────────────────────────────────
-    const [userRes, profileRows, skillsData, workData, eduData, certData, socialData, savedRows] =
+    const [userRes, profileRows, skillsData, workData, eduData, certData, socialData, savedRows, jobPrefRows] =
       await Promise.all([
         // Basic user info
         directusSettled<DirectusRow<TalentUserRow>>(`/items/vs_user/${talentUserId}`, {
@@ -190,6 +196,10 @@ export async function GET(
               query: `filter[company_id][_eq]=${companyId}&filter[applicant_user_id][_eq]=${talentUserId}&fields=saved_applicant_id,notes&limit=1`,
             })
           : Promise.resolve([]),
+        // Job preferences (work setup)
+        directusItems<TalentJobPreferenceRow>("vs_job_preferences", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,work_setup,preferred_location&limit=1`,
+        }).catch(() => []),
       ]);
 
     if (!userRes.ok) {
@@ -299,7 +309,7 @@ export async function GET(
         employment_type: w.employment_type ?? null,
         start_date: w.start_date ?? null,
         end_date: w.end_date ?? null,
-        is_current_role: w.is_current_role ?? false,
+        is_current_role: Boolean(w.is_current_role),
         description: w.job_description ?? null,
         skills: workSkillMap.get(w.id) ?? [],
       })),
@@ -334,6 +344,7 @@ export async function GET(
       })),
       is_saved: isSaved,
       saved_notes: savedNotes,
+      work_setup: jobPrefRows[0]?.work_setup ?? null,
     };
 
     return NextResponse.json({ profile });

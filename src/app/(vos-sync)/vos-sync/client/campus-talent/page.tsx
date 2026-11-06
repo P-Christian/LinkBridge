@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export const metadata = {
-  title: "Campus Talent | VOS Sync Client Portal",
+  title: "Campus Talent | LinkBridge Client Portal",
   description:
     "Discover and match academic candidates from verified schools. AI-powered campus talent discovery for recruiters.",
 };

@@ -169,7 +169,7 @@ export function SchoolVerificationModule() {
               Approve School Verification
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs text-muted-foreground mt-1">
-              Are you sure you want to approve verification for <strong className="text-foreground">{approveConfirmSchool?.school_name}</strong>? This will grant the institution active verified status on VOS Sync.
+              Are you sure you want to approve verification for <strong className="text-foreground">{approveConfirmSchool?.school_name}</strong>? This will grant the institution active verified status on LinkBridge.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-4">

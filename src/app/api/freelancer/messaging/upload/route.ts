@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import {
   MESSAGING_ATTACHMENT_UPLOAD_POLICY,
@@ -20,23 +21,19 @@ export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
     // Parity with /api/client/messaging/upload: this endpoint stores a file and
     // hands back a path that becomes an attachment row, so it belongs to the
     // portal that can actually send one.
     if (!isFreelancerSession(session)) {
-      return NextResponse.json(
-        { error: "Freelancer account required." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Freelancer account required." }, 403);
     }
 
     if (!DIRECTUS_BASE) {
-      return NextResponse.json(
-        { error: "Directus base URL not configured." },
-        { status: 500 }
-      );
+      return json(
+        { error: "Directus base URL not configured." }, 500);
     }
 
     const formData = await req.formData();
@@ -46,10 +43,8 @@ export async function POST(req: NextRequest) {
       file = getUploadedFile(formData);
       await validateUploadedFile(file, MESSAGING_ATTACHMENT_UPLOAD_POLICY);
     } catch (error: unknown) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Invalid file." },
-        { status: 400 }
-      );
+      return json(
+        { error: error instanceof Error ? error.message : "Invalid file." }, 400);
     }
 
     const uploadForm = new FormData();
@@ -69,10 +64,8 @@ export async function POST(req: NextRequest) {
     if (!uploadRes.ok) {
       const text = await uploadRes.text();
       console.error("Directus file upload error:", text);
-      return NextResponse.json(
-        { error: "Failed to upload file." },
-        { status: uploadRes.status }
-      );
+      return json(
+        { error: "Failed to upload file." }, uploadRes.status);
     }
 
     const uploadJson = await uploadRes.json();
@@ -80,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     const fileUrl = `/api/assets/${fileData.id}`;
 
-    return NextResponse.json({
+    return json({
       file_id: fileData.id,
       file_name: fileData.filename_download || file.name,
       file_path: fileUrl,
@@ -89,9 +82,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     console.error("POST /api/freelancer/messaging/upload error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

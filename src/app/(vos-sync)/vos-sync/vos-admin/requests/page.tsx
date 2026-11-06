@@ -4,7 +4,7 @@ import { getEducationVerificationMode } from "@/modules/education-verification/a
 import { reconcileParkedAttendanceRequests } from "@/modules/freelancer/freelancer-profile/services/attendance-request.repo";
 
 export const metadata = {
-  title: "Request Management | VOS Sync",
+  title: "Request Management | LinkBridge",
 };
 
 export default async function RequestsRoute() {

@@ -12,6 +12,7 @@ import { orderEducation } from "@/modules/client/education/order-education";
 import { debugLog } from "./talent-search.helpers";
 import type {
   BulkCertRow,
+  BulkJobPreferenceRow,
   BulkSocialRow,
   BulkUserRow,
   BulkWorkRow,
@@ -28,6 +29,7 @@ export type CandidateRows = {
   edu: TalentEducationBulkRow[];
   certs: BulkCertRow[];
   social: BulkSocialRow[];
+  jobPreference?: BulkJobPreferenceRow | null;
 };
 
 export type NormalizedCandidateItem = CandidateRows & { normalized: NormalizedProfile };

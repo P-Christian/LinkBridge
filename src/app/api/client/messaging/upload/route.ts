@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import {
   MESSAGING_ATTACHMENT_UPLOAD_POLICY,
@@ -22,17 +23,15 @@ export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
     if (!isClientSession(session)) {
-      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+      return json({ error: "Client account required." }, 403);
     }
 
     if (!DIRECTUS_BASE) {
-      return NextResponse.json(
-        { error: "Directus base URL not configured." },
-        { status: 500 }
-      );
+      return json(
+        { error: "Directus base URL not configured." }, 500);
     }
 
     // Parse multipart form data
@@ -43,10 +42,8 @@ export async function POST(req: NextRequest) {
       file = getUploadedFile(formData);
       await validateUploadedFile(file, MESSAGING_ATTACHMENT_UPLOAD_POLICY);
     } catch (error: unknown) {
-      return NextResponse.json(
-        { error: error instanceof Error ? error.message : "Invalid file." },
-        { status: 400 }
-      );
+      return json(
+        { error: error instanceof Error ? error.message : "Invalid file." }, 400);
     }
 
     // Forward to Directus files endpoint
@@ -67,10 +64,8 @@ export async function POST(req: NextRequest) {
     if (!uploadRes.ok) {
       const text = await uploadRes.text();
       console.error("Directus file upload error:", text);
-      return NextResponse.json(
-        { error: "Failed to upload file." },
-        { status: uploadRes.status }
-      );
+      return json(
+        { error: "Failed to upload file." }, uploadRes.status);
     }
 
     const uploadJson = await uploadRes.json();
@@ -79,7 +74,7 @@ export async function POST(req: NextRequest) {
     // Construct the public URL
     const fileUrl = `/api/assets/${fileData.id}`;
 
-    return NextResponse.json({
+    return json({
       file_id: fileData.id,
       file_name: fileData.filename_download || file.name,
       file_path: fileUrl,
@@ -88,9 +83,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     console.error("POST /api/client/messaging/upload error:", err);
-    return NextResponse.json(
-      { error: safeErrorMessage(err, "Internal server error") },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

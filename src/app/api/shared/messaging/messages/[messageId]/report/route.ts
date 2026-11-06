@@ -1,4 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
 import { authenticateRequest } from "@/lib/authenticated-session";
 import { getPHTimeString } from "@/lib/utils";
 import { safeErrorMessage } from "@/lib/api-error";
@@ -29,7 +30,7 @@ export async function POST(
 
     const session = await authenticateRequest(req);
     if (!session?.userId) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
     }
 
     const reporterUserId = Number(session.userId);
@@ -48,7 +49,7 @@ export async function POST(
       "OTHER",
     ];
     if (!reason_code || !ALLOWED_REASONS.includes(reason_code)) {
-      return NextResponse.json({ error: "A valid report reason is required." }, { status: 400 });
+      return json({ error: "A valid report reason is required." }, 400);
     }
 
     let targetMessageId = msgIdNum > 0 ? msgIdNum : 0;
@@ -65,11 +66,11 @@ export async function POST(
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!msgRes.ok) {
-        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+        return json({ error: "Message not found." }, 404);
       }
       const msgData = (await msgRes.json())?.data;
       if (!msgData) {
-        return NextResponse.json({ error: "Message not found." }, { status: 404 });
+        return json({ error: "Message not found." }, 404);
       }
       targetConversationId = Number(msgData.conversation_id);
       if (!targetReportedUserId && Number(msgData.sender_id) !== reporterUserId) {
@@ -78,10 +79,8 @@ export async function POST(
     }
 
     if (!targetConversationId || targetConversationId <= 0) {
-      return NextResponse.json(
-        { error: "Cannot submit report: invalid conversation ID." },
-        { status: 400 }
-      );
+      return json(
+        { error: "Cannot submit report: invalid conversation ID." }, 400);
     }
 
     // Membership gate: only the two parties of the thread may report in it.
@@ -90,7 +89,7 @@ export async function POST(
       { headers: getHeaders(), cache: "no-store" }
     );
     if (!convRes.ok) {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+      return json({ error: "Conversation not found." }, 404);
     }
     const convData = (await convRes.json())?.data;
     if (
@@ -98,10 +97,8 @@ export async function POST(
       (Number(convData.client_id) !== reporterUserId &&
         Number(convData.freelancer_id) !== reporterUserId)
     ) {
-      return NextResponse.json(
-        { error: "Forbidden: You are not a participant in this conversation." },
-        { status: 403 }
-      );
+      return json(
+        { error: "Forbidden: You are not a participant in this conversation." }, 403);
     }
     const counterpartId =
       reporterUserId === Number(convData.client_id)
@@ -115,10 +112,8 @@ export async function POST(
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!msgRes.ok) {
-        return NextResponse.json(
-          { error: "Cannot submit report: no valid message found in this conversation." },
-          { status: 400 }
-        );
+        return json(
+          { error: "Cannot submit report: no valid message found in this conversation." }, 400);
       }
       const list = (await msgRes.json())?.data ?? [];
       if (list.length > 0) {
@@ -130,20 +125,16 @@ export async function POST(
     }
 
     if (!targetMessageId || targetMessageId <= 0) {
-      return NextResponse.json(
-        { error: "Cannot submit report: no valid message found in this conversation." },
-        { status: 400 }
-      );
+      return json(
+        { error: "Cannot submit report: no valid message found in this conversation." }, 400);
     }
 
     // A two-party thread has exactly one reportable user: the other participant.
     if (targetReportedUserId !== counterpartId) targetReportedUserId = counterpartId;
 
     if (!targetReportedUserId || targetReportedUserId <= 0) {
-      return NextResponse.json(
-        { error: "Cannot submit report: could not resolve reported user." },
-        { status: 400 }
-      );
+      return json(
+        { error: "Cannot submit report: could not resolve reported user." }, 400);
     }
 
     const now = getPHTimeString();
@@ -175,25 +166,23 @@ export async function POST(
         errText.includes("Duplicate entry") ||
         errText.includes("uq_msg_report_user")
       ) {
-        return NextResponse.json({
+        return json({
           success: true,
           message: "You have already submitted a report for this conversation or message.",
         });
       }
       console.error("Directus vs_message_report insert failed:", errText);
-      return NextResponse.json(
-        { error: "Failed to submit report. Please try again later." },
-        { status: postRes.status >= 400 && postRes.status < 600 ? postRes.status : 500 }
-      );
+      return json(
+        { error: "Failed to submit report. Please try again later." }, postRes.status >= 400 && postRes.status < 600 ? postRes.status : 500);
     }
 
-    return NextResponse.json({
+    return json({
       success: true,
       message: "Thank you. Your report has been submitted and will be reviewed by our moderation team.",
     });
   } catch (err: unknown) {
     const message = safeErrorMessage(err, "Internal server error");
     console.error("Error in POST /api/shared/messaging/messages/[messageId]/report:", message);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return json({ error: message }, 500);
   }
 }

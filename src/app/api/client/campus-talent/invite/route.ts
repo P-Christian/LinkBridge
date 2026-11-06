@@ -181,7 +181,7 @@ function buildInvitationHtml(
       <strong style="color: #0c4a6e;">${jobTitleEscaped}</strong>
       ${courseNameEscaped ? `<p style="margin: 4px 0; color: #475569; font-size: 14px;">Matched to your program: ${courseNameEscaped}</p>` : ""}
     </div>
-    <p style="color: #475569;">${isRegisteredUser ? "Click the button below to view the job posting:" : "Click the button below to register on VOS Sync and view the full opportunity:"}</p>
+    <p style="color: #475569;">${isRegisteredUser ? "Click the button below to view the job posting:" : "Click the button below to register on LinkBridge and view the full opportunity:"}</p>
     <div style="text-align: center; margin: 32px 0;">
       <a href="${actionLink}"
          style="background: #0ea5e9; color: #fff; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
@@ -201,24 +201,24 @@ function buildInvitationHtml(
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Invitation to Connect on VOS Sync</title>
+  <title>Invitation to Connect on LinkBridge</title>
 </head>
 <body style="font-family: Arial, sans-serif; background: #f5f5f5; margin: 0; padding: 32px;">
   <div style="max-width: 600px; margin: 0 auto; background: #fff; border-radius: 8px; padding: 40px; border: 1px solid #e5e7eb;">
-    <h2 style="color: #1e293b; margin-top: 0;">Connect with ${companyName} on VOS Sync!</h2>
+    <h2 style="color: #1e293b; margin-top: 0;">Connect with ${companyName} on LinkBridge!</h2>
     <p style="color: #475569;">Hello <strong>${studentName}</strong>,</p>
     <p style="color: #475569;">
-      <strong>${companyName}</strong> has discovered your academic profile${schoolText} on VOS Sync and invites you to join the talent network.
+      <strong>${companyName}</strong> has discovered your academic profile${schoolText} on LinkBridge and invites you to join the talent network.
     </p>
     <div style="background: #f0f9ff; border-left: 4px solid #0ea5e9; padding: 16px; margin: 24px 0; border-radius: 4px;">
       <strong style="color: #0c4a6e;">Campus Talent Network</strong>
       <p style="margin: 4px 0; color: #475569; font-size: 14px;">Register your verified student profile to connect with hiring teams, showcase your projects, and access career opportunities.</p>
     </div>
-    <p style="color: #475569;">Click the button below to register your account on VOS Sync:</p>
+    <p style="color: #475569;">Click the button below to register your account on LinkBridge:</p>
     <div style="text-align: center; margin: 32px 0;">
       <a href="${actionLink}"
          style="background: #0ea5e9; color: #fff; padding: 14px 28px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">
-        Register on VOS Sync
+        Register on LinkBridge
       </a>
     </div>
     <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">
@@ -392,7 +392,7 @@ export async function POST(req: NextRequest) {
                 applicant_user_id: registeredUserId,
                 job_id: safeJobId,
                 subject: safeJobTitle ? `Job Opportunity: ${safeJobTitle}` : "Career Invitation",
-                message: `You have been invited by ${companyName || "a partner employer"} for the position: ${safeJobTitle || "Open Role"} on VOS Sync.`,
+                message: `You have been invited by ${companyName || "a partner employer"} for the position: ${safeJobTitle || "Open Role"} on LinkBridge.`,
                 status: "PENDING",
                 created_by: userId,
                 created_at: nowPH,
@@ -428,7 +428,7 @@ export async function POST(req: NextRequest) {
     let emailSent = false;
     const emailSubject = safeJobTitle
       ? `Career Opportunity: ${safeJobTitle} at ${invitationPayload.companyName}`
-      : `Invitation to connect with ${invitationPayload.companyName} on VOS Sync`;
+      : `Invitation to connect with ${invitationPayload.companyName} on LinkBridge`;
 
     try {
       await transporter.sendMail({

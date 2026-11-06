@@ -18,7 +18,7 @@ Analyze the following student employment metrics for ${stats.schoolName || 'the 
 
 Metrics Summary:
 - Total Enrolled Students / Cohort Size: ${stats.totalStudents}
-- Registered on VOS-Sync Platform: ${stats.registeredStudents}
+- Registered on LinkBridge Platform: ${stats.registeredStudents}
 - Total Hired Graduates: ${stats.hiredCount}
 - Overall Placement Rate: ${stats.placementRate}%
 - Active Pipeline (Interviewing/Under Review): ${stats.activePipelineCount}
@@ -27,16 +27,16 @@ Metrics Summary:
 
 Course Placement Breakdown:
 ${stats.courseStatsSummary
-  .map(
-    (c) =>
-      `- ${c.courseName}: ${c.placementRate}% placement rate (${c.hiredCount} hired)`
-  )
-  .join('\n')}
+      .map(
+        (c) =>
+          `- ${c.courseName}: ${c.placementRate}% placement rate (${c.hiredCount} hired)`
+      )
+      .join('\n')}
 
 Top Hiring Employers:
 ${stats.topCompaniesSummary
-  .map((comp) => `- ${comp.companyName}: ${comp.hiredCount} graduates hired`)
-  .join('\n')}
+      .map((comp) => `- ${comp.companyName}: ${comp.hiredCount} graduates hired`)
+      .join('\n')}
 
 Please return ONLY a valid JSON object matching this exact schema:
 {

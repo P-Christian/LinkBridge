@@ -42,26 +42,25 @@ export function invitationTemplate(data: InvitationTemplateData) {
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e4e4e7; border-radius: 16px; padding: 32px; background-color: #ffffff; color: #18181b;">
         <div style="border-bottom: 1px solid #f4f4f5; padding-bottom: 20px; margin-bottom: 24px;">
-          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">VOS Sync</h1>
+          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">LinkBridge</h1>
           <p style="font-size: 12px; color: #71717a; margin: 4px 0 0 0;">Job Invitation</p>
         </div>
 
         <h2 style="font-size: 18px; font-weight: 700; color: #09090b; margin-top: 0;">Hello ${safeCandidateName || "Candidate"},</h2>
         
         <p style="font-size: 14px; line-height: 1.6; color: #3f3f46;">
-          Great news! <strong>${safeCompanyName}</strong> has reviewed your profile on <strong>VOS Sync</strong> and extended a direct job opportunity invitation to you.
+          Great news! <strong>${safeCompanyName}</strong> has reviewed your profile on <strong>LinkBridge</strong> and extended a direct job opportunity invitation to you.
         </p>
 
         <!-- Message Box (No 'Message from Company' header) -->
-        ${
-          safeMessage
-            ? `
+        ${safeMessage
+        ? `
         <div style="background-color: #f8fafc; border-left: 4px solid #14a800; padding: 16px; border-radius: 8px; margin: 20px 0;">
           <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeMessage}</p>
         </div>
         `
-            : ""
-        }
+        : ""
+      }
 
         <!-- Job Overview Section -->
         <div style="background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 24px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.03);">
@@ -73,19 +72,17 @@ export function invitationTemplate(data: InvitationTemplateData) {
               <td style="padding: 6px 0; color: #64748b; font-weight: 600; width: 140px;">🏢 Company:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 700;">${safeCompanyName}</td>
             </tr>
-            ${
-              safeJobTitle
-                ? `
+            ${safeJobTitle
+        ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">💼 Position:</td>
               <td style="padding: 6px 0; color: #14a800; font-weight: 700;">${safeJobTitle}</td>
             </tr>
             `
-                : ""
-            }
-            ${
-              safeJobLocation || safeWorkArrangement
-                ? `
+        : ""
+      }
+            ${safeJobLocation || safeWorkArrangement
+        ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📍 Location:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">
@@ -93,33 +90,30 @@ export function invitationTemplate(data: InvitationTemplateData) {
               </td>
             </tr>
             `
-                : ""
-            }
-            ${
-              safeJobType
-                ? `
+        : ""
+      }
+            ${safeJobType
+        ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">⏰ Employment Type:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeJobType}</td>
             </tr>
             `
-                : ""
-            }
-            ${
-              safeSalaryRange
-                ? `
+        : ""
+      }
+            ${safeSalaryRange
+        ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">💰 Compensation:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeSalaryRange}</td>
             </tr>
             `
-                : ""
-            }
+        : ""
+      }
           </table>
 
-          ${
-            safeJobDescription
-              ? `
+          ${safeJobDescription
+        ? `
           <div style="margin-top: 16px; border-top: 1px dashed #e2e8f0; padding-top: 14px;">
             <h4 style="font-size: 12px; font-weight: 700; color: #64748b; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.05em;">
               Job Description:
@@ -129,8 +123,8 @@ export function invitationTemplate(data: InvitationTemplateData) {
             </div>
           </div>
           `
-              : ""
-          }
+        : ""
+      }
         </div>
 
         <div style="text-align: center; margin: 24px 0 28px 0;">
@@ -140,11 +134,11 @@ export function invitationTemplate(data: InvitationTemplateData) {
         </div>
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can review your active invitations and messages anytime by logging into your <a href="${targetUrl}" style="color: #14a800; font-weight: 600;">VOS Sync Portal</a>.
+          You can review your active invitations and messages anytime by logging into your <a href="${targetUrl}" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">
-          Sent by VOS Sync Recruitment System &bull; Automatic notification
+          Sent by LinkBridge Recruitment System &bull; Automatic notification
         </div>
       </div>
     `,
