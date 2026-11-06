@@ -8,7 +8,7 @@ import { MapPin, Briefcase, BookmarkPlus, BookmarkCheck, GraduationCap, Eye } fr
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { TalentCard as TalentCardType, AvailabilityStatus, AVAILABILITY_LABELS } from "../types";
+import { TalentCard as TalentCardType } from "../types";
 import { getInitials, matchScoreColor, formatExperienceYears, truncate, getImageUrl } from "../utils/talentUtils";
 
 interface TalentCardProps {
@@ -29,11 +29,8 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
   const scoreClass = matchScoreColor(talent.match_score);
   const avatarSrc = getImageUrl(talent.profile_image_url);
 
-  const isAvailable =
-    talent.availability_status === "AVAILABLE" || talent.availability_status === "IMMEDIATELY_AVAILABLE";
-  const availabilityLabel =
-    AVAILABILITY_LABELS[talent.availability_status as AvailabilityStatus] ??
-    (isAvailable ? "Available" : "Employed");
+  // const isAvailable =
+  //   talent.availability_status === "AVAILABLE" || talent.availability_status === "IMMEDIATELY_AVAILABLE";
 
   const hasScore = talent.match_score !== null && talent.match_score !== undefined;
   const relevantYears = talent.relevant_experience_years ?? talent.experience_years;

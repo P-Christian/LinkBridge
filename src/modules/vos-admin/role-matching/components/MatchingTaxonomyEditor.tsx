@@ -204,17 +204,7 @@ export function MatchingTaxonomyEditor() {
     }
   };
 
-  const handleToggleCategoryActive = async (cat: JobCategory, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = cat.is_active === false;
-    const ok = await editCategory({
-      category_id: cat.category_id,
-      is_active: updated,
-    });
-    if (ok) {
-      toast.success(`Category "${cat.category_name}" marked as ${updated ? "Active" : "Inactive"}.`);
-    }
-  };
+
 
   const handleDeleteCategory = (cat: JobCategory, e: React.MouseEvent) => {
     e.stopPropagation();
@@ -255,17 +245,7 @@ export function MatchingTaxonomyEditor() {
     setRoleModalOpen(true);
   };
 
-  const handleToggleRoleActive = async (role: StandardRole, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const updated = role.is_active === false;
-    const ok = await editRole({
-      role_id: role.role_id,
-      is_active: updated,
-    });
-    if (ok) {
-      toast.success(`Role "${role.role_name}" marked as ${updated ? "Active" : "Inactive"}.`);
-    }
-  };
+
 
   const handleSaveRole = async () => {
     if (!roleNameInput.trim()) {

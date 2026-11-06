@@ -17,11 +17,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   MapPin, Briefcase, GraduationCap, Award, Link2, FileText,
   Send, BookmarkPlus, BookmarkCheck, AlertCircle, Download, ExternalLink,
-  Sparkles, Loader2, Check, Mail, Banknote, Building2, Globe, ChevronRight, ChevronDown, ChevronUp, Laptop,
+  Sparkles, Loader2, Check, Mail, Banknote, Building2, ChevronRight, ChevronDown, ChevronUp, Laptop,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
-import { TalentProfile, MatchBreakdown, AvailabilityStatus, AVAILABILITY_LABELS } from "../types";
-import { formatExperienceYears, formatDateRange, getInitials, matchScoreColor, getPlatformIcon, getImageUrl } from "../utils/talentUtils";
+import { cn } from "@/lib/utils"; 
+import { TalentProfile, MatchBreakdown,  } from "../types";
+import { formatExperienceYears, formatDateRange, getInitials,   getPlatformIcon, getImageUrl } from "../utils/talentUtils";
 import { getCachedExplanation, setCachedExplanation } from "@/lib/gemini/useExplanationCache";
 import { orderEducation } from "@/modules/client/education/order-education";
 
@@ -58,12 +58,12 @@ const drawerFootMotion = {
   transition: { duration: 0.3, delay: 0.16, ease: EASE_OUT },
 };
 
-const tabContentMotion = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.2, ease: EASE_OUT },
-};
+// const tabContentMotion = {
+//   initial: { opacity: 0, y: 10 },
+//   animate: { opacity: 1, y: 0 },
+//   exit: { opacity: 0, y: -8 },
+//   transition: { duration: 0.2, ease: EASE_OUT },
+// };
 
 /** Top-to-bottom cascade container for tabs and lists */
 const listStaggerContainer = {
@@ -137,7 +137,7 @@ function formatSalary(value: number | string | null | undefined): string | null 
 
 function ExpandableText({
   text,
-  threshold = 220,
+  // threshold = 220,
   clamp = "line-clamp-3",
   className,
   animateWords = false,
@@ -258,7 +258,6 @@ function GlanceCard({
 export default function TalentProfileDrawer({
   open,
   profile,
-  matchScore,
   matchBreakdown,
   aiExplanation,
   searchKeyword,
@@ -285,21 +284,28 @@ export default function TalentProfileDrawer({
   const [skillsExceedsTwoLines, setSkillsExceedsTwoLines] = useState(false);
 
   // Professional summary animation triggers once per sheet open session
-  const animatedSummaryUserIdRef = useRef<number | null>(null);
+  const [animatedSummaryUserId, setAnimatedSummaryUserId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) {
-      animatedSummaryUserIdRef.current = null;
+      queueMicrotask(() => {
+        setAnimatedSummaryUserId(null);
+      });
     }
   }, [open]);
 
-  const shouldAnimateSummary = Boolean(open && !loading && profile && animatedSummaryUserIdRef.current !== profile.user_id);
+  const shouldAnimateSummary = Boolean(
+    open && !loading && profile && animatedSummaryUserId !== profile.user_id
+  );
 
   useEffect(() => {
-    if (open && !loading && profile?.user_id) {
-      animatedSummaryUserIdRef.current = profile.user_id;
+    if (open && !loading && profile?.user_id && animatedSummaryUserId !== profile.user_id) {
+      const uid = profile.user_id;
+      queueMicrotask(() => {
+        setAnimatedSummaryUserId(uid);
+      });
     }
-  }, [open, loading, profile?.user_id]);
+  }, [open, loading, profile?.user_id, animatedSummaryUserId]);
 
   useEffect(() => {
     const el = skillsContainerRef.current;
@@ -385,7 +391,7 @@ export default function TalentProfileDrawer({
   const activeExplanation = aiExplanation || lazyExplanation;
 
   const initials = profile ? getInitials(profile.name) : "";
-  const scoreClass = matchScore !== undefined ? matchScoreColor(matchScore) : "";
+  // const scoreClass = matchScore !== undefined ? matchScoreColor(matchScore) : "";
   const avatarSrc = profile ? getImageUrl(profile.profile_image_url) : "";
   const orderedEducation = profile
     ? orderEducation(profile.education, {
@@ -396,12 +402,7 @@ export default function TalentProfileDrawer({
       })
     : [];
 
-  const isAvailable =
-    profile?.availability_status === "AVAILABLE" || profile?.availability_status === "IMMEDIATELY_AVAILABLE";
-  const availabilityLabel = profile
-    ? AVAILABILITY_LABELS[profile.availability_status as AvailabilityStatus] ??
-      (isAvailable ? "Available" : "Employed")
-    : "";
+
 
   const currentRole = profile
     ? profile.work_experience.find((e) => e.is_current_role) ?? profile.work_experience[0] ?? null

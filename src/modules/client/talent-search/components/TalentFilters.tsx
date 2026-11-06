@@ -2,7 +2,7 @@
 
 // src/modules/client/talent-search/components/TalentFilters.tsx
 
-import React, { useId, useState } from "react";
+import React, {  useState } from "react";
 import { Filter, ChevronDown, X, Check } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
 } from "../types";
 import AutocompleteFilterField from "./AutocompleteFilterField";
 
-const EASE_OUT = [0.16, 1, 0.3, 1] as const;
+ 
 
 interface TalentFiltersProps {
   filters: TalentFiltersValue;
@@ -101,7 +101,7 @@ function TagChips({ tags, onRemove, removePrefix }: { tags: FilterTag[]; onRemov
 export default function TalentFiltersPanel({ filters, onFilterChange, onApply }: TalentFiltersProps) {
   // The desktop sidebar and the mobile sheet can both be mounted, so the shared
   // highlight is scoped to one panel instance.
-  const panelId = useId();
+ 
 
   const addSkill = (name: string) => {
     const trimmed = name.trim();

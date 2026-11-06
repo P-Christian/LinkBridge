@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { Briefcase, Instagram, Youtube } from "lucide-react";
+import {  Instagram, Youtube } from "lucide-react";
 import { SlideUp } from "@/components/shared/MotionContainer";
 import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
 import { useAuthSession } from "@/hooks/useAuthSession";
