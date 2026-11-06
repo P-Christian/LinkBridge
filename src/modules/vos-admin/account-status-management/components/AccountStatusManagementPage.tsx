@@ -11,22 +11,35 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { ShieldAlert, ShieldCheck, AlertOctagon, Eye, AlertTriangle, Search } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { ShieldAlert, ShieldCheck, AlertOctagon, Eye, AlertTriangle, Search, Filter } from "lucide-react";
 
 export function AccountStatusManagementPage() {
   const { users, total, loading, fetchUsers, fetchUserDetail, changeStatus, resolveAppealCase } = useAccountStatus();
 
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchInput, setSearchInput] = useState<string>("");
+  const [debouncedSearch, setDebouncedSearch] = useState<string>("");
+  const [appealsOnly, setAppealsOnly] = useState<boolean>(false);
   const [page, setPage] = useState<number>(1);
   const [limit, setLimit] = useState<number>(10);
 
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [detailOpen, setDetailOpen] = useState<boolean>(false);
 
+  // Debounce search query input to avoid repetitive network fetch calls
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchInput);
+      setPage(1);
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
   const loadData = useCallback(() => {
-    fetchUsers(statusFilter, searchQuery, page, limit);
-  }, [fetchUsers, statusFilter, searchQuery, page, limit]);
+    fetchUsers(statusFilter, debouncedSearch, page, limit, appealsOnly);
+  }, [fetchUsers, statusFilter, debouncedSearch, page, limit, appealsOnly]);
 
   useEffect(() => {
     loadData();
@@ -180,9 +193,13 @@ export function AccountStatusManagementPage() {
             <div className="p-3 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-lg">
               <ShieldCheck className="h-6 w-6" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase">General Eligibility</p>
-              <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Healthy</p>
+              {loading && users.length === 0 ? (
+                <Skeleton className="h-7 w-20 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Healthy</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -192,9 +209,13 @@ export function AccountStatusManagementPage() {
             <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 rounded-lg">
               <AlertTriangle className="h-6 w-6" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase">Limited Users</p>
-              <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Active Gates</p>
+              {loading && users.length === 0 ? (
+                <Skeleton className="h-7 w-24 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Active Gates</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -204,9 +225,13 @@ export function AccountStatusManagementPage() {
             <div className="p-3 bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-400 rounded-lg">
               <ShieldAlert className="h-6 w-6" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase">Suspended / Blocked</p>
-              <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Containment</p>
+              {loading && users.length === 0 ? (
+                <Skeleton className="h-7 w-24 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Containment</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -216,9 +241,13 @@ export function AccountStatusManagementPage() {
             <div className="p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-lg">
               <AlertOctagon className="h-6 w-6" />
             </div>
-            <div>
+            <div className="flex-1 min-w-0">
               <p className="text-xs font-semibold text-muted-foreground uppercase">Deletion / Holds</p>
-              <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Grace & Audit</p>
+              {loading && users.length === 0 ? (
+                <Skeleton className="h-7 w-24 mt-1" />
+              ) : (
+                <p className="text-2xl font-bold mt-1 text-zinc-900 dark:text-zinc-100">Grace & Audit</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -226,21 +255,19 @@ export function AccountStatusManagementPage() {
 
       {/* Main Table Card */}
       <Card className="p-6 bg-white dark:bg-zinc-900 border dark:border-zinc-800 shadow-sm rounded-xl">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-6">
-          <h2 className="text-xl font-semibold">User Account States</h2>
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            <div className="relative w-full sm:w-[260px]">
+        {/* Toolbar: Searchbar at the start, no table title, filters beside it */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mb-6">
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full">
+            <div className="relative w-full sm:w-[280px]">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
               <Input
                 placeholder="Search name or email..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value);
-                  setPage(1);
-                }}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 className="pl-9 bg-white dark:bg-zinc-900 dark:border-zinc-800 h-10 text-sm"
               />
             </div>
+
             <SearchableSelect
               value={statusFilter}
               onValueChange={(val) => { setStatusFilter(val); setPage(1); }}
@@ -248,25 +275,77 @@ export function AccountStatusManagementPage() {
               placeholder="Filter by Status"
               triggerClassName="w-full sm:w-[200px] bg-white dark:bg-zinc-900 dark:border-zinc-800 h-10"
             />
+
+            <Button
+              type="button"
+              variant={appealsOnly ? "default" : "outline"}
+              size="sm"
+              onClick={() => {
+                setAppealsOnly((prev) => !prev);
+                setPage(1);
+              }}
+              className={`h-10 text-xs font-semibold transition-all flex items-center gap-1.5 w-full sm:w-auto ${
+                appealsOnly
+                  ? "bg-amber-600 hover:bg-amber-700 text-white dark:bg-amber-500 dark:hover:bg-amber-600"
+                  : "border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 bg-amber-50/50 dark:bg-amber-950/20 hover:bg-amber-100 dark:hover:bg-amber-950/40"
+              }`}
+            >
+              <Filter className="h-3.5 w-3.5" />
+              <span>Pending Appeals Only ⏳</span>
+            </Button>
           </div>
         </div>
 
-        <DataTable
-          columns={columns}
-          data={users}
-          onSearch={(val) => { setSearchQuery(val); setPage(1); }}
-          isLoading={loading}
-          manualPagination={true}
-          pageCount={Math.ceil(total / limit)}
-          pagination={{
-            pageIndex: page - 1,
-            pageSize: limit,
-          }}
-          onPaginationChange={(newPagination) => {
-            setPage(newPagination.pageIndex + 1);
-            setLimit(newPagination.pageSize);
-          }}
-        />
+        {loading ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
+              <div className="p-4 border-b bg-muted/10 grid grid-cols-6 gap-4">
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-4 w-16" />
+                <Skeleton className="h-4 w-28" />
+                <Skeleton className="h-4 w-24" />
+                <Skeleton className="h-4 w-16 ml-auto" />
+              </div>
+              <div className="p-4 space-y-4">
+                {Array.from({ length: 5 }).map((_, idx) => (
+                  <div key={idx} className="grid grid-cols-6 gap-4 items-center">
+                    <Skeleton className="h-4 w-32" />
+                    <Skeleton className="h-4 w-44" />
+                    <Skeleton className="h-5 w-20 rounded-full" />
+                    <Skeleton className="h-5 w-24 rounded-full" />
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-8 w-28 ml-auto rounded-md" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between px-2 pt-2">
+              <Skeleton className="h-4 w-32" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-8 w-24" />
+                <Skeleton className="h-8 w-32" />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <DataTable
+            columns={columns}
+            data={users}
+            onSearch={(val) => { setSearchInput(val); }}
+            isLoading={loading}
+            manualPagination={true}
+            pageCount={Math.ceil(total / limit)}
+            pagination={{
+              pageIndex: page - 1,
+              pageSize: limit,
+            }}
+            onPaginationChange={(newPagination) => {
+              setPage(newPagination.pageIndex + 1);
+              setLimit(newPagination.pageSize);
+            }}
+          />
+        )}
       </Card>
 
       <AccountStatusDetailModal

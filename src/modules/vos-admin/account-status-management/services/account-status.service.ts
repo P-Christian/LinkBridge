@@ -6,9 +6,10 @@ export async function getAccountStatusUsers(
   statusFilter?: string,
   search?: string,
   page: number = 1,
-  limit: number = 10
+  limit: number = 10,
+  appealsOnly?: boolean
 ): Promise<{ users: AccountStatusUser[]; total: number }> {
-  return fetchAccountStatusUsersRepo(statusFilter, search, page, limit);
+  return fetchAccountStatusUsersRepo(statusFilter, search, page, limit, appealsOnly);
 }
 
 export async function getAccountStatusDetail(userId: number): Promise<AccountStatusUser | null> {

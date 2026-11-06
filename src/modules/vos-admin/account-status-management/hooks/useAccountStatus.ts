@@ -32,7 +32,8 @@ export function useAccountStatus() {
     statusFilter?: string,
     search?: string,
     page: number = 1,
-    limit: number = 10
+    limit: number = 10,
+    appealsOnly?: boolean
   ) => {
     setLoading(true);
     setError(null);
@@ -43,6 +44,7 @@ export function useAccountStatus() {
       const params = new URLSearchParams();
       if (statusFilter && statusFilter !== 'ALL') params.append('statusFilter', statusFilter);
       if (search && search.trim()) params.append('search', search.trim());
+      if (appealsOnly) params.append('appealsOnly', 'true');
       params.append('page', String(page));
       params.append('limit', String(limit));
 
