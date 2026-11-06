@@ -98,8 +98,8 @@ export async function POST(req: Request) {
             const schoolCheckRes = await fetch(schoolCheckUrl, { headers: getHeaders(), cache: 'no-store' });
             const schoolCheckJson = await schoolCheckRes.json();
             if (schoolCheckJson.data && schoolCheckJson.data.length > 0) {
-                return NextResponse.json({
-                    error: `A school named "${school_name}" is already registered in "${city_municipality}". If this is your school, please contact LinkBridge support.`
+                return NextResponse.json({ 
+                    error: `A school named "${school_name}" is already registered in "${city_municipality}". If this is your school, please contact LinkBridge support.` 
                 }, { status: 409 });
             }
         }

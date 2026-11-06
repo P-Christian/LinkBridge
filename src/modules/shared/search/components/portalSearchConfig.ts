@@ -51,7 +51,7 @@ export interface PortalSearchConfig {
 }
 
 /**
- * NOTE: only the /vos-sync/client/* routes below are copied from your existing code.
+ * NOTE: only the /linkbridge/client/* routes below are copied from your existing code.
  * Every route marked TODO(verify) is a guess — fix it to match your real routes.
  */
 export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
@@ -67,7 +67,7 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     quickActions: [
       {
         label: "Post a job",
-        href: "/vos-sync/client/jobs",
+        href: "/linkbridge/client/jobs",
         icon: PlusCircle,
         iconClass: "text-primary",
         hint: "Create new listing",
@@ -75,7 +75,7 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
       },
       {
         label: "Schedule interview",
-        href: "/vos-sync/client/interviews",
+        href: "/linkbridge/client/interviews",
         icon: Calendar,
         iconClass: "text-blue-500",
         hint: "Book candidate session",
@@ -84,15 +84,15 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     ],
     pagesHeading: "Client Portal Pages",
     pages: [
-      { label: "Dashboard", href: "/vos-sync/client/dashboard", icon: LayoutDashboard, iconClass: "text-primary", hint: "G then D" },
-      { label: "Manage Jobs", href: "/vos-sync/client/jobs", icon: Briefcase, iconClass: "text-blue-500", hint: "G then J" },
-      { label: "Review All Applicants", href: "/vos-sync/client/applicants", icon: FileText, iconClass: "text-amber-500", keywords: "pipeline candidates" },
-      { label: "Shortlisted Candidates", href: "/vos-sync/client/applicants?status=SHORTLISTED", icon: Users, iconClass: "text-emerald-500" },
-      { label: "Talent Search Directory", href: "/vos-sync/client/talent-search", icon: Search, iconClass: "text-indigo-500" },
-      { label: "Interview Calendar", href: "/vos-sync/client/interviews", icon: Calendar, iconClass: "text-muted-foreground", keywords: "schedule" },
-      { label: "ATS Pipeline", href: "/vos-sync/client/ats-pipeline", icon: Workflow, iconClass: "text-muted-foreground", keywords: "stages configuration" },
-      { label: "Company Profile", href: "/vos-sync/client/company-profile", icon: Building, iconClass: "text-muted-foreground" },
-      { label: "Configuration & Team", href: "/vos-sync/client/settings", icon: Settings, iconClass: "text-muted-foreground", keywords: "team settings" },
+      { label: "Dashboard", href: "/linkbridge/client/dashboard", icon: LayoutDashboard, iconClass: "text-primary", hint: "G then D" },
+      { label: "Manage Jobs", href: "/linkbridge/client/jobs", icon: Briefcase, iconClass: "text-blue-500", hint: "G then J" },
+      { label: "Review All Applicants", href: "/linkbridge/client/applicants", icon: FileText, iconClass: "text-amber-500", keywords: "pipeline candidates" },
+      { label: "Shortlisted Candidates", href: "/linkbridge/client/applicants?status=SHORTLISTED", icon: Users, iconClass: "text-emerald-500" },
+      { label: "Talent Search Directory", href: "/linkbridge/client/talent-search", icon: Search, iconClass: "text-indigo-500" },
+      { label: "Interview Calendar", href: "/linkbridge/client/interviews", icon: Calendar, iconClass: "text-muted-foreground", keywords: "schedule" },
+      { label: "ATS Pipeline", href: "/linkbridge/client/ats-pipeline", icon: Workflow, iconClass: "text-muted-foreground", keywords: "stages configuration" },
+      { label: "Company Profile", href: "/linkbridge/client/company-profile", icon: Building, iconClass: "text-muted-foreground" },
+      { label: "Configuration & Team", href: "/linkbridge/client/settings", icon: Settings, iconClass: "text-muted-foreground", keywords: "team settings" },
     ],
   },
 
@@ -107,17 +107,17 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     logProfileViews: false,
     quickActions: [
       // TODO(verify) all freelancer routes
-      { label: "Browse jobs", href: "/vos-sync/freelancer/jobs", icon: Briefcase, iconClass: "text-blue-500", hint: "Find work", keywords: "find opportunities" },
-      { label: "My applications", href: "/vos-sync/freelancer/applications", icon: FileText, iconClass: "text-amber-500", hint: "Track status" },
+      { label: "Browse jobs", href: "/linkbridge/freelancer/jobs", icon: Briefcase, iconClass: "text-blue-500", hint: "Find work", keywords: "find opportunities" },
+      { label: "My applications", href: "/linkbridge/freelancer/applications", icon: FileText, iconClass: "text-amber-500", hint: "Track status" },
     ],
     pagesHeading: "Freelancer Pages",
     pages: [
-      { label: "Dashboard", href: "/vos-sync/freelancer/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
-      { label: "My Profile", href: "/vos-sync/freelancer/profile", icon: UserCircle, iconClass: "text-muted-foreground", keywords: "resume portfolio" },
-      { label: "Interviews", href: "/vos-sync/freelancer/interviews", icon: Calendar, iconClass: "text-muted-foreground" },
-      { label: "Messages", href: "/vos-sync/freelancer/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
-      { label: "Notifications", href: "/vos-sync/freelancer/notifications", icon: Bell, iconClass: "text-muted-foreground" },
-      { label: "Settings", href: "/vos-sync/freelancer/settings", icon: Settings, iconClass: "text-muted-foreground" },
+      { label: "Dashboard", href: "/linkbridge/freelancer/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
+      { label: "My Profile", href: "/linkbridge/freelancer/profile", icon: UserCircle, iconClass: "text-muted-foreground", keywords: "resume portfolio" },
+      { label: "Interviews", href: "/linkbridge/freelancer/interviews", icon: Calendar, iconClass: "text-muted-foreground" },
+      { label: "Messages", href: "/linkbridge/freelancer/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
+      { label: "Notifications", href: "/linkbridge/freelancer/notifications", icon: Bell, iconClass: "text-muted-foreground" },
+      { label: "Settings", href: "/linkbridge/freelancer/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],
   },
 
@@ -132,17 +132,17 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     logProfileViews: false,
     quickActions: [
       // TODO(verify) all school-admin routes
-      { label: "View students", href: "/vos-sync/school-admin/students", icon: GraduationCap, iconClass: "text-emerald-500", hint: "Manage roster" },
-      { label: "Partner companies", href: "/vos-sync/school-admin/partners", icon: Building, iconClass: "text-violet-500", hint: "Hiring partners" },
+      { label: "View students", href: "/linkbridge/school-admin/students", icon: GraduationCap, iconClass: "text-emerald-500", hint: "Manage roster" },
+      { label: "Partner companies", href: "/linkbridge/school-admin/partners", icon: Building, iconClass: "text-violet-500", hint: "Hiring partners" },
     ],
     pagesHeading: "School Portal Pages",
     pages: [
-      { label: "Dashboard", href: "/vos-sync/school-admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
-      { label: "School Profile", href: "/vos-sync/school-admin/school-profile", icon: School, iconClass: "text-muted-foreground" },
-      { label: "Students", href: "/vos-sync/school-admin/students", icon: Users, iconClass: "text-emerald-500" },
-      { label: "Messages", href: "/vos-sync/school-admin/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
-      { label: "Notifications", href: "/vos-sync/school-admin/notifications", icon: Bell, iconClass: "text-muted-foreground" },
-      { label: "Settings", href: "/vos-sync/school-admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
+      { label: "Dashboard", href: "/linkbridge/school-admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
+      { label: "School Profile", href: "/linkbridge/school-admin/school-profile", icon: School, iconClass: "text-muted-foreground" },
+      { label: "Students", href: "/linkbridge/school-admin/students", icon: Users, iconClass: "text-emerald-500" },
+      { label: "Messages", href: "/linkbridge/school-admin/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
+      { label: "Notifications", href: "/linkbridge/school-admin/notifications", icon: Bell, iconClass: "text-muted-foreground" },
+      { label: "Settings", href: "/linkbridge/school-admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],
   },
 
@@ -157,30 +157,30 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     logProfileViews: false,
     quickActions: [
       // TODO(verify) all admin routes
-      { label: "Review verifications", href: "/vos-sync/admin/verifications", icon: ShieldCheck, iconClass: "text-emerald-500", hint: "Pending accounts" },
+      { label: "Review verifications", href: "/linkbridge/admin/verifications", icon: ShieldCheck, iconClass: "text-emerald-500", hint: "Pending accounts" },
     ],
     pagesHeading: "Admin Pages",
     pages: [
-      { label: "Dashboard", href: "/vos-sync/admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
-      { label: "Users", href: "/vos-sync/admin/users", icon: Users, iconClass: "text-blue-500" },
-      { label: "Companies", href: "/vos-sync/admin/companies", icon: Building, iconClass: "text-violet-500" },
-      { label: "Schools", href: "/vos-sync/admin/schools", icon: GraduationCap, iconClass: "text-emerald-500" },
-      { label: "Settings", href: "/vos-sync/admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
+      { label: "Dashboard", href: "/linkbridge/admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
+      { label: "Users", href: "/linkbridge/admin/users", icon: Users, iconClass: "text-blue-500" },
+      { label: "Companies", href: "/linkbridge/admin/companies", icon: Building, iconClass: "text-violet-500" },
+      { label: "Schools", href: "/linkbridge/admin/schools", icon: GraduationCap, iconClass: "text-emerald-500" },
+      { label: "Settings", href: "/linkbridge/admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],
   },
 };
 
 /**
  * Work out which portal we're in. Public profile pages live outside any portal
- * (/vos-sync/public/...) and carry ?portal=... so the sidebar stays consistent;
+ * (/linkbridge/public/...) and carry ?portal=... so the sidebar stays consistent;
  * we honour that too.
  */
 export function resolvePortal(pathname?: string | null, portalParam?: string | null): Portal {
   const p = pathname ?? "";
-  if (p.startsWith("/vos-sync/client")) return "client";
-  if (p.startsWith("/vos-sync/school-admin")) return "school-admin";
-  if (p.startsWith("/vos-sync/admin")) return "admin";
-  if (p.startsWith("/vos-sync/freelancer")) return "freelancer";
+  if (p.startsWith("/linkbridge/client")) return "client";
+  if (p.startsWith("/linkbridge/school-admin")) return "school-admin";
+  if (p.startsWith("/linkbridge/admin")) return "admin";
+  if (p.startsWith("/linkbridge/freelancer")) return "freelancer";
 
   if (portalParam === "client" || portalParam === "school-admin" || portalParam === "admin" || portalParam === "freelancer") {
     return portalParam;
@@ -189,5 +189,5 @@ export function resolvePortal(pathname?: string | null, portalParam?: string | n
 }
 
 export function publicProfileHref(portal: Portal, entityType: EntityType, userId: number): string {
-  return `/vos-sync/public/${entityType}/${userId}?portal=${portal}`;
+  return `/linkbridge/public/${entityType}/${userId}?portal=${portal}`;
 }

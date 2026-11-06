@@ -822,7 +822,7 @@ export async function POST(req: NextRequest) {
         category: "INTERVIEW",
         title: "New Interview Scheduled",
         message: `You have an interview scheduled with ${companyName} for ${formatInterviewDateTime(scheduledAt)}.`,
-        action_url: "/vos-sync/freelancer/applications",
+        action_url: "/linkbridge/freelancer/applications",
       }).catch((e) => console.error("Error sending notification:", e));
     });
 
@@ -841,7 +841,7 @@ export async function POST(req: NextRequest) {
             category: "TEAM_ACTIVITY",
             title: "Team Activity: Interview Scheduled",
             message: `A team member scheduled an interview for "${jobTitle}" on ${formatInterviewDateTime(scheduledAt)}.`,
-            action_url: `/vos-sync/client/interviews`,
+            action_url: `/linkbridge/client/interviews`,
           }).catch((e) => console.error("Error sending team activity notification:", e));
         }
       });

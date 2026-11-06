@@ -64,20 +64,20 @@ export function resolveRoleDestination(
   const id = Number(roleId);
 
   if (id === 1 || normalizedRole === "FREELANCER") {
-    return "/vos-sync/freelancer/dashboard";
+    return "/linkbridge/freelancer/dashboard";
   }
   if (id === 2 || normalizedRole === "CLIENT" || normalizedRole === "EMPLOYER") {
-    return "/vos-sync/client/dashboard";
+    return "/linkbridge/client/dashboard";
   }
   if (id === 3 || normalizedRole === "ADMIN") {
-    return "/vos-sync/vos-admin";
+    return "/linkbridge/admin";
   }
   if (
     id === 4 ||
     normalizedRole === "SCH_ADMIN" ||
     normalizedRole === "SCHOOL_ADMIN"
   ) {
-    return "/vos-sync/school-admin";
+    return "/linkbridge/school-admin";
   }
 
   return "/main-dashboard";

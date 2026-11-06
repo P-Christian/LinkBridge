@@ -30,7 +30,7 @@ export function invitationTemplate(data: InvitationTemplateData) {
 
   const rawTargetUrl =
     actionUrl ||
-    `${getBaseUrl(customBaseUrl)}/vos-sync/freelancer/applications`;
+    `${getBaseUrl(customBaseUrl)}/linkbridge/freelancer/applications`;
   const targetUrl = encodeURI(rawTargetUrl);
 
   const subjectTitle = jobTitle

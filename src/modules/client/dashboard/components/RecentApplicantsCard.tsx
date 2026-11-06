@@ -19,11 +19,11 @@ export default function RecentApplicantsCard({ applicants }: RecentApplicantsCar
   const router = useRouter();
 
   const handleNavigateAll = useCallback(() => {
-    router.push("/vos-sync/client/applicants");
+    router.push("/linkbridge/client/applicants");
   }, [router]);
 
   const handleNavigateApplicant = useCallback((appId: number) => {
-    router.push(`/vos-sync/client/applicants?applicantId=${appId}`);
+    router.push(`/linkbridge/client/applicants?applicantId=${appId}`);
   }, [router]);
 
   const getInitials = (name: string) => {
@@ -134,7 +134,7 @@ export default function RecentApplicantsCard({ applicants }: RecentApplicantsCar
                 </p>
                 <Button
                   size="sm"
-                  onClick={() => router.push("/vos-sync/client/jobs")}
+                  onClick={() => router.push("/linkbridge/client/jobs")}
                   className="rounded-xl font-semibold text-xs h-8 px-4 mt-2"
                 >
                   Boost Your Job Posts

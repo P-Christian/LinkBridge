@@ -95,7 +95,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
   );
 
   const openJobQuery = job.job_id ? `?open_job=${job.job_id}` : "";
-  const targetPath = `/vos-sync/freelancer/jobs${openJobQuery}`;
+  const targetPath = `/linkbridge/freelancer/jobs${openJobQuery}`;
   const loginHref = `/login?next=${encodeURIComponent(targetPath)}`;
   const signupHref = `/signup?next=${encodeURIComponent(targetPath)}`;
   const companyUrl = job.company_code
@@ -255,7 +255,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
               <div className="flex flex-wrap items-center gap-3">
                 {isOwnJob ? (
                   <Button asChild size="sm" className="font-bold text-xs gap-1.5 shadow-xs cursor-pointer">
-                    <Link href="/vos-sync/client/jobs" className="flex items-center gap-2">
+                    <Link href="/linkbridge/client/jobs" className="flex items-center gap-2">
                       <Building2 className="h-4 w-4" />
                       Manage Jobs
                     </Link>
@@ -263,7 +263,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
                 ) : (
                   <>
                     <Button asChild size="sm" className="font-bold text-xs gap-1.5 shadow-xs cursor-pointer">
-                      <Link href="/vos-sync/client/jobs" className="flex items-center gap-2">
+                      <Link href="/linkbridge/client/jobs" className="flex items-center gap-2">
                         <Building2 className="h-4 w-4" />
                         Go to Client Portal
                       </Link>

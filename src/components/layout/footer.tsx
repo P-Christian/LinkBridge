@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import {  Instagram, Youtube } from "lucide-react";
+import { Instagram, Youtube } from "lucide-react";
 import { SlideUp } from "@/components/shared/MotionContainer";
 import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
 import { useAuthSession } from "@/hooks/useAuthSession";
@@ -100,8 +100,8 @@ export function Footer() {
 
   const candidateLinks = session.isJobSeeker
     ? [
-      { label: "Find Jobs", href: "/vos-sync/freelancer/jobs" },
-      { label: "My Applications", href: "/vos-sync/freelancer/applications" },
+      { label: "Find Jobs", href: "/linkbridge/freelancer/jobs" },
+      { label: "My Applications", href: "/linkbridge/freelancer/applications" },
       { label: "Browse Companies", href: "/companies" },
       { label: "Career Advice", href: "/career-advice" },
     ]
@@ -114,10 +114,10 @@ export function Footer() {
 
   const employerLinks = session.isEmployer
     ? [
-      { label: "Post a Job", href: "/vos-sync/client/jobs" },
-      { label: "Applicants", href: "/vos-sync/client/applicants" },
-      { label: "Talent Search", href: "/vos-sync/client/talent-search" },
-      { label: "Dashboard", href: "/vos-sync/client/dashboard" },
+      { label: "Post a Job", href: "/linkbridge/client/jobs" },
+      { label: "Applicants", href: "/linkbridge/client/applicants" },
+      { label: "Talent Search", href: "/linkbridge/client/talent-search" },
+      { label: "Dashboard", href: "/linkbridge/client/dashboard" },
     ]
     : [
       { label: "Post a Job", href: "/signup?role=employer" },
@@ -130,11 +130,11 @@ export function Footer() {
       <SlideUp className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 mb-12">
           <div className="col-span-2 lg:col-span-2">
-            <Link
-              href="/"
-              className="group inline-flex items-center gap-2 mb-4 transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 rounded-lg"
-            >
-              <div className="w-9 h-9 bg-none dark:bg-none rounded-lg flex items-center justify-center overflow-hidden p-1.5 transition-all duration-300 ease-out group-hover:-rotate-6 group-hover:scale-110 group-active:scale-95 group-hover:drop-shadow-[0_4px_12px_rgba(37,99,235,0.35)]">
+            <div className="flex items-center gap-2 mb-4">
+              <div
+                className="flex items-center justify-center overflow-hidden shrink-0"
+                style={{ width: 28, height: 28, minWidth: 28, minHeight: 28 }}
+              >
                 {company?.platform_icon &&
                   (company.platform_icon.startsWith("/") ||
                     company.platform_icon.startsWith("http") ||
@@ -142,26 +142,28 @@ export function Footer() {
                   <Image
                     src={formatAssetUrl(company.platform_icon) || company.platform_icon}
                     alt={company?.platform_name || "LinkBridge"}
-                    width={20}
-                    height={20}
-                    className="w-8 h-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                    width={28}
+                    height={28}
+                    className="object-contain shrink-0"
+                    style={{ width: 28, height: 28 }}
                     unoptimized
                   />
                 ) : (
                   <Image
-                    src="/linkbridge.png"
-                    alt={company?.platform_name || "LinkBridge"}
-                    width={20}
-                    height={20}
-                    className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                    src="/Link-Bridge-logo.png"
+                    alt="LinkBridge"
+                    width={28}
+                    height={28}
+                    className="object-contain shrink-0"
+                    style={{ width: 28, height: 28 }}
                     unoptimized
                   />
                 )}
               </div>
-              <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent transition-all duration-300 ease-out group-hover:brightness-115 group-hover:drop-shadow-[0_2px_10px_rgba(37,99,235,0.25)] motion-reduce:transition-none">
+              <span className="text-xl font-bold tracking-tight text-foreground">
                 {company?.platform_name || "LinkBridge"}
               </span>
-            </Link>
+            </div>
             <p className="text-muted-foreground max-w-sm mb-6 text-sm leading-relaxed">
               {brandDescription}
             </p>

@@ -272,7 +272,7 @@ export async function GET(req: NextRequest) {
         name: String(c.company_name || "Company Applicant"),
         submittedAt: (c.created_at as string) || null,
         detail: "Company Verification Review Required",
-        reviewUrl: `/vos-sync/vos-admin/company-verification?companyId=${c.company_id}`,
+        reviewUrl: `/linkbridge/admin/company-verification?companyId=${c.company_id}`,
       })),
       ...pendingSchools.map((s, i) => ({
         id: (s.school_id as string | number) ?? `school-${i}`,
@@ -280,7 +280,7 @@ export async function GET(req: NextRequest) {
         name: String(s.school_name || "School Applicant"),
         submittedAt: (s.created_at as string) || null,
         detail: "Institutional Accreditation Review Required",
-        reviewUrl: `/vos-sync/vos-admin/school-verification?schoolId=${s.school_id}`,
+        reviewUrl: `/linkbridge/admin/school-verification?schoolId=${s.school_id}`,
       })),
     ]
       .sort((a, b) => {

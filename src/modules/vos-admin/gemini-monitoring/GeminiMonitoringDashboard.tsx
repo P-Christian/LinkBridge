@@ -606,7 +606,7 @@ export default function GeminiMonitoringDashboard() {
                 <span>Refresh</span>
               </Button>
 
-              <Link href="/vos-sync/vos-admin/ai-config">
+              <Link href="/linkbridge/admin/ai-config">
                 <Button
                   variant="outline"
                   size="sm"
@@ -932,7 +932,7 @@ export default function GeminiMonitoringDashboard() {
               size="sm"
               className="h-9 px-4 text-xs rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-xs shrink-0 self-start sm:self-auto"
             >
-              <Link href="/vos-sync/vos-admin/gemini-monitoring/analytics">
+              <Link href="/linkbridge/admin/gemini-monitoring/analytics">
                 <span>View Full Surge Analytics</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>

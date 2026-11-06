@@ -166,8 +166,9 @@ const CharCounter = ({ current = 0, max }: { current?: number; max: number }) =>
   const isMax = current >= max;
   return (
     <span
-      className={`text-[10px] font-mono transition-colors ${isMax ? "text-destructive font-semibold" : isNear ? "text-amber-500" : "text-muted-foreground"
-        }`}
+      className={`text-[10px] font-mono transition-colors ${
+        isMax ? "text-destructive font-semibold" : isNear ? "text-amber-500" : "text-muted-foreground"
+      }`}
     >
       {current}/{max}
     </span>
@@ -180,10 +181,10 @@ export function SinglePlatformCompanyEditor({
   saving,
 }: SinglePlatformCompanyEditorProps) {
   const [formData, setFormData] = useState<PlatformCompanyFormData>({
-    slug: company.slug || "vos-sync",
-    company_code: company.company_code || "VTC",
+    slug: company.slug || "linkbridge",
+    company_code: company.company_code || "LKB",
     company_name: company.company_name || "LinkBridge",
-    company_legal_name: company.company_legal_name || "Vertex Technologies Corporation",
+    company_legal_name: company.company_legal_name || "LinkBridge Technologies Corporation",
     platform_name:
       company.platform_name ||
       ((company.metadata as Record<string, unknown> | null)?.platform_name as string) ||
@@ -219,9 +220,9 @@ export function SinglePlatformCompanyEditor({
     registration_no: company.registration_no || "",
     company_tin: company.company_tin || "",
     company_contact: company.company_contact || "+639451232521",
-    company_email: company.company_email || "contact@vosync.com",
-    support_email: company.support_email || "support@vosync.com",
-    company_website: company.company_website || "www.vosync.com",
+    company_email: company.company_email || "contact@linkbridge.com",
+    support_email: company.support_email || "support@linkbridge.com",
+    company_website: company.company_website || "https://linkbridge.com",
     company_logo: company.company_logo || "",
     company_cover: company.company_cover || "",
     company_facebook: company.company_facebook || "",
@@ -1015,7 +1016,7 @@ export function SinglePlatformCompanyEditor({
                     maxLength={100}
                     value={formData.company_email}
                     onChange={(e) => handleChange("company_email", e.target.value.trim())}
-                    placeholder="e.g. contact@vosync.com"
+                    placeholder="e.g. contact@linkbridge.com"
                     className="rounded-xl h-10 text-xs transition-all"
                     required
                   />
@@ -1032,7 +1033,7 @@ export function SinglePlatformCompanyEditor({
                     maxLength={100}
                     value={formData.support_email || ""}
                     onChange={(e) => handleChange("support_email", e.target.value.trim())}
-                    placeholder="e.g. support@vosync.com"
+                    placeholder="e.g. support@linkbridge.com"
                     className="rounded-xl h-10 text-xs transition-all"
                   />
                 </div>
@@ -1066,7 +1067,7 @@ export function SinglePlatformCompanyEditor({
                     maxLength={255}
                     value={formData.company_website || ""}
                     onChange={(e) => handleChange("company_website", e.target.value.trim())}
-                    placeholder="e.g. https://www.vosync.com"
+                    placeholder="e.g. https://linkbridge.com"
                     className="rounded-xl h-10 text-xs transition-all"
                   />
                 </div>
@@ -1673,8 +1674,9 @@ export function SinglePlatformCompanyEditor({
                   value={metadataJsonText}
                   onChange={(e) => setMetadataJsonText(e.target.value)}
                   placeholder='{\n  "stats": [\n    { "label": "Talent Community", "value": "20,000+" }\n  ]\n}'
-                  className={`font-mono text-xs min-h-[220px] rounded-xl transition-all ${!isMetadataValid ? "border-destructive/60 focus-visible:ring-destructive/30" : ""
-                    }`}
+                  className={`font-mono text-xs min-h-[220px] rounded-xl transition-all ${
+                    !isMetadataValid ? "border-destructive/60 focus-visible:ring-destructive/30" : ""
+                  }`}
                 />
                 <p className="text-[11px] text-muted-foreground">
                   Directly stores customizable metrics (stats, milestones, SEO attributes). Core Values and Support Hours are automatically synchronized here.

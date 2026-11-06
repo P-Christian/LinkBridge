@@ -269,7 +269,7 @@ export function PortalCommandPalette({ portal, open, onOpenChange, initialQuery 
                 <CommandItem
                   key={`job-${job.job_id}`}
                   value={`job ${job.job_title} ${job.department_name || ""} ${job.work_setup || ""} ${job.employment_type || ""} ${job.job_status || ""}`}
-                  onSelect={() => go(`/vos-sync/client/jobs?jobId=${job.job_id}`, job.job_title)}
+                  onSelect={() => go(`/linkbridge/client/jobs?jobId=${job.job_id}`, job.job_title)}
                   className="flex items-center gap-3 cursor-pointer py-2 px-3"
                 >
                   <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
@@ -309,7 +309,7 @@ export function PortalCommandPalette({ portal, open, onOpenChange, initialQuery 
                   key={`applicant-${app.application_id}`}
                   value={`applicant candidate ${app.applicant_name} ${app.job_title} ${app.stage_name || app.application_status}`}
                   onSelect={() =>
-                    go(`/vos-sync/client/applicants?search=${encodeURIComponent(app.applicant_name)}`, app.applicant_name)
+                    go(`/linkbridge/client/applicants?search=${encodeURIComponent(app.applicant_name)}`, app.applicant_name)
                   }
                   className="flex items-center gap-3 cursor-pointer py-2 px-3"
                 >

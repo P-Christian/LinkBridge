@@ -126,13 +126,13 @@ export function AdminPendingQueue({ items, totalPending, isLoading = false }: Ad
 
         <div className="mt-4 pt-3 border-t border-border/60 flex items-center justify-between text-xs text-muted-foreground">
           <Link
-            href="/vos-sync/vos-admin/company-verification"
+            href="/linkbridge/admin/company-verification"
             className="hover:text-primary transition-colors font-medium flex items-center gap-1"
           >
             All Companies <ArrowRight className="h-3 w-3" />
           </Link>
           <Link
-            href="/vos-sync/vos-admin/school-verification"
+            href="/linkbridge/admin/school-verification"
             className="hover:text-primary transition-colors font-medium flex items-center gap-1"
           >
             All Schools <ArrowRight className="h-3 w-3" />

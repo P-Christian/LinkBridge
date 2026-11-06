@@ -12,7 +12,7 @@ export interface EmployerMailParams {
 }
 
 const PLATFORM_NAME = process.env.NEXT_PUBLIC_APP_NAME || "LinkBridge";
-
+ 
 
 // 1. Upon Account Creation and OTP Verified (To Employer)
 
@@ -209,7 +209,7 @@ export function employerRejectionTemplate({ companyName, recipientName, rejectio
     rejectionReason || "The submitted business documents or information did not meet our verification criteria."
   );
   const contactSupport = escapeHtml(
-    supportEmail || process.env.SUPPORT_EMAIL || "support@vos-sync.com"
+    supportEmail || process.env.SUPPORT_EMAIL || "support@linkbridge.com"
   );
 
   const html = `

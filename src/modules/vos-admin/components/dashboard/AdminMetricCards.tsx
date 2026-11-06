@@ -51,7 +51,7 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       iconColor: 'text-amber-600 dark:text-amber-400',
       iconBgColor: 'bg-amber-500/10 border-amber-500/20',
       accentColor: 'border-t-amber-500',
-      href: '/vos-sync/vos-admin/company-verification',
+      href: '/linkbridge/admin/company-verification',
     },
     {
       title: 'Total Platform Users',
@@ -64,7 +64,7 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       iconColor: 'text-blue-600 dark:text-blue-400',
       iconBgColor: 'bg-blue-500/10 border-blue-500/20',
       accentColor: 'border-t-blue-500',
-      href: '/vos-sync/vos-admin/users',
+      href: '/linkbridge/admin/users',
     },
     {
       title: 'Verified Institutions',
@@ -76,7 +76,7 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       iconColor: 'text-emerald-600 dark:text-emerald-400',
       iconBgColor: 'bg-emerald-500/10 border-emerald-500/20',
       accentColor: 'border-t-emerald-500',
-      href: '/vos-sync/vos-admin/school-verification',
+      href: '/linkbridge/admin/school-verification',
     },
     {
       title: 'AI Engine Health',
@@ -103,7 +103,7 @@ export function AdminMetricCards({ kpis, isLoading = false }: AdminMetricCardsPr
       iconColor: 'text-purple-600 dark:text-purple-400',
       iconBgColor: 'bg-purple-500/10 border-purple-500/20',
       accentColor: 'border-t-purple-500',
-      href: '/vos-sync/vos-admin/gemini-monitoring',
+      href: '/linkbridge/admin/gemini-monitoring',
     },
   ];
 

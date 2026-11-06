@@ -190,7 +190,7 @@ export async function loginUser(
         const legacyStatus = String(user.user_status ?? "").trim().toUpperCase();
         const currentStatus = canonicalStatus || legacyStatus;
 
-        // Containment statuses are allowed to authenticate into the containment portal (/vos-sync/suspended)
+        // Containment statuses are allowed to authenticate into the containment portal (/linkbridge/suspended)
         if (
             currentStatus === "SUSPENDED" ||
             currentStatus === "BLOCKED" ||
@@ -253,7 +253,7 @@ export async function loginUser(
         { allowContainment: isContainmentStatus }
     );
 
-    const destination = isContainmentStatus ? "/vos-sync/suspended" : session.destination;
+    const destination = isContainmentStatus ? "/linkbridge/suspended" : session.destination;
 
     console.log(`[auth.service] User logged in: user_id=${user.user_id}, role_id=${user.role_id}, session_id=${sessionId}, destination=${destination}`);
 

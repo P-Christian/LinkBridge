@@ -128,8 +128,8 @@ export async function POST(req: NextRequest) {
     }
 
     const actionUrl = viewerRole === "FREELANCER"
-      ? `/vos-sync/public/freelancer/${viewerUserId}`
-      : `/vos-sync/public/client/${viewerUserId}`;
+      ? `/linkbridge/public/freelancer/${viewerUserId}`
+      : `/linkbridge/public/client/${viewerUserId}`;
 
     // Trigger notification
     await createNotification({

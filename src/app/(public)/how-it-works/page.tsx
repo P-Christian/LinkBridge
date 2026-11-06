@@ -11,7 +11,7 @@ export const metadata: Metadata = {
     title: "How LinkBridge Works | Step-by-Step Platform Roadmap",
     description:
       "Discover how LinkBridge connects verified employees, hiring companies, and academic institutions in a secure ecosystem.",
-    url: "https://vos-sync.com/how-it-works",
+    url: "https://linkbridge.com/how-it-works",
     siteName: "LinkBridge",
     type: "website",
   },

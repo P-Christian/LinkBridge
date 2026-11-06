@@ -51,7 +51,7 @@ export function useSmartRoleNavigation() {
             if (userRole === "employer" || userRole === "client") currentRoleDisplay = "an Employer";
             else if (userRole === "employee" || userRole === "freelancer") currentRoleDisplay = "an Employee";
             else if (userRole === "school" || userRole === "school_admin") currentRoleDisplay = "a School Admin";
-            else if (userRole === "admin") currentRoleDisplay = "a VOS Admin";
+            else if (userRole === "admin") currentRoleDisplay = "a Admin Portal";
 
             let targetDisplay = "School";
             if (role === "employer") targetDisplay = "Employer";

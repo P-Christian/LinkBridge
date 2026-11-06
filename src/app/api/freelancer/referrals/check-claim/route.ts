@@ -66,13 +66,13 @@ export async function GET(req: NextRequest) {
     }
 
     const claim = claims[0];
-
+    
     // Resolve referrer name and expiration
     const refRes = await fetch(
       `${DIRECTUS_BASE}/items/vs_job_referral/${claim.referral_id}?fields=expires_at,referrer_user_id.user_fname,referrer_user_id.user_lname`,
       { headers: getHeaders(), cache: "no-store" }
     );
-
+    
     let referrerName = "A LinkBridge User";
     let expiresAt: string | null = null;
     if (refRes.ok) {

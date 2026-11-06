@@ -278,7 +278,7 @@ export default function FindJobsModule({
 
   const handleApplyClick = (job: PublicJobPosting) => {
     if (session.isJobSeeker) {
-      router.push(`/vos-sync/freelancer/jobs?open_job=${job.job_id}`);
+      router.push(`/linkbridge/freelancer/jobs?open_job=${job.job_id}`);
       return;
     }
     if (session.isEmployer) {

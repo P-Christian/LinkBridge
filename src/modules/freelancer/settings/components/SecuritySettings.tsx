@@ -405,7 +405,7 @@ export default function SecuritySettings({
       </div>
 
       <div className="max-w-2xl">
-        <ConnectedAccountsCard returnTo="/vos-sync/freelancer/settings" />
+        <ConnectedAccountsCard returnTo="/linkbridge/freelancer/settings" />
       </div>
 
       {/* Choice B Password Change Confirmation Dialog */}

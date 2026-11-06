@@ -261,7 +261,7 @@ export function CompanyHeader({ company, onTabChange }: HeaderProps) {
                 className="rounded-xl font-semibold shadow-sm cursor-pointer h-11 md:h-9 w-full md:w-auto"
                 asChild
               >
-                <Link href="/vos-sync/client/jobs" className="flex items-center gap-2">
+                <Link href="/linkbridge/client/jobs" className="flex items-center gap-2">
                   <Building2 className="w-4 h-4" />
                   Go to Client Portal
                 </Link>

@@ -18,8 +18,7 @@ import { useTheme } from "next-themes";
 import { useThemeCurtain } from "@/components/theme/useThemeCurtain";
 import { toast } from "sonner";
 
-import { cn, formatAssetUrl } from "@/lib/utils";
-import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
+import { cn } from "@/lib/utils";
 import {
     Sidebar,
     SidebarContent,
@@ -169,7 +168,6 @@ export function DashboardSidebar({
     const pathname = usePathname();
     const { state } = useSidebar();
     const user = useUserProfile();
-    const { company } = usePrimaryPlatformCompany();
     const { theme, systemTheme } = useTheme();
     const { switchTheme } = useThemeCurtain();
     const [unreadMessages, setUnreadMessages] = React.useState(0);
@@ -258,13 +256,13 @@ export function DashboardSidebar({
                 }
 
                 if (hasNotificationsItem && !isCircuitBroken) {
-                    const isFreelancer = pathname?.startsWith("/vos-sync/freelancer") || pathname?.startsWith("/freelancer");
-                    const isClient = pathname?.startsWith("/vos-sync/client") || pathname?.startsWith("/client");
+                    const isFreelancer = pathname?.startsWith("/linkbridge/freelancer") || pathname?.startsWith("/freelancer");
+                    const isClient = pathname?.startsWith("/linkbridge/client") || pathname?.startsWith("/client");
 
                     const endpoint = isFreelancer
                         ? "/api/freelancer/notifications?unread_only=true"
                         : isClient
-                        ? "/api/client/notifications?count_only=true"
+                        ? "/api/client/notifications?unread_only=true&limit=100"
                         : null;
 
                     if (endpoint) {
@@ -360,17 +358,17 @@ export function DashboardSidebar({
     }, [user.verification_status, user.status]);
 
     const profileUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/company-profile";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/profile";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/profile";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/company-profile";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/profile";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/profile";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     const settingsUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/settings";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/settings";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/settings";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/settings";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/settings";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/settings";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     return (
@@ -391,48 +389,35 @@ export function DashboardSidebar({
             <SidebarHeader className="h-16 justify-center border-b border-border/60 px-2 py-0">
                 <SidebarMenu>
                     <SidebarMenuItem>
-                        <SidebarMenuButton size="lg" asChild tooltip={company?.platform_name || config.title || "LinkBridge"}>
+                        <SidebarMenuButton size="lg" asChild tooltip={config.title}>
                             <Link
                                 href={config.homeUrl || "/main-dashboard"}
                                 prefetch={true}
                                 className={cn(
-                                    "group/logo transition-[gap,background-color] hover:bg-sidebar-accent/50 active:scale-[0.99]",
+                                    "transition-[gap]",
                                     SIDEBAR_EASE,
                                     "group-data-[collapsible=icon]:!gap-0"
                                 )}
                             >
-                                <div className="flex aspect-square size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-all duration-300 ease-out group-hover/logo:scale-105 group-hover/logo:-rotate-3 group-hover/logo:drop-shadow-[0_4px_12px_rgba(37,99,235,0.35)] group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:rounded-lg">
-                                    {company?.platform_icon &&
-                                    (company.platform_icon.startsWith("/") ||
-                                        company.platform_icon.startsWith("http") ||
-                                        /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
-                                        <Image
-                                            src={formatAssetUrl(company.platform_icon) || company.platform_icon}
-                                            alt={company?.platform_name || config.title || "LinkBridge"}
-                                            width={40}
-                                            height={40}
-                                            className="max-h-8 max-w-9 object-contain transition-transform duration-300 ease-out group-hover/logo:scale-110 group-data-[collapsible=icon]:max-h-6 group-data-[collapsible=icon]:max-w-6"
-                                            priority
-                                            unoptimized
-                                        />
-                                    ) : (
-                                        <Image
-                                            src="/linkbridge.png"
-                                            alt={company?.platform_name || config.title || "LinkBridge"}
-                                            width={40}
-                                            height={40}
-                                            className="max-h-8 max-w-9 object-contain transition-transform duration-300 ease-out group-hover/logo:scale-110 group-data-[collapsible=icon]:max-h-6 group-data-[collapsible=icon]:max-w-6"
-                                            priority
-                                            unoptimized
-                                        />
-                                    )}
+                                <div
+                                    className="flex aspect-square items-center justify-center overflow-hidden shrink-0"
+                                    style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                                >
+                                    <Image
+                                        src="/Link-Bridge-logo.png"
+                                        alt="LinkBridge Logo"
+                                        width={32}
+                                        height={32}
+                                        unoptimized
+                                        priority
+                                        className="object-contain shrink-0"
+                                        style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                                    />
                                 </div>
 
                                 <div className={cn("grid flex-1 text-left text-sm leading-tight", LABEL_FADE)}>
-                                    <span className="truncate text-base font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent transition-all duration-300 ease-out group-hover/logo:brightness-115 group-hover/logo:drop-shadow-[0_2px_8px_rgba(37,99,235,0.25)]">
-                                        {company?.platform_name || config.title || "LinkBridge"}
-                                    </span>
-                                    <span className="mt-1 inline-flex w-fit items-center rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/15 transition-colors duration-300 group-hover/logo:bg-primary/15">
+                                    <span className="truncate font-bold text-base text-primary">{config.title}</span>
+                                    <span className="mt-1 inline-flex w-fit items-center rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary/70 ring-1 ring-inset ring-primary/15">
                                         {config.subtitle}
                                     </span>
                                 </div>

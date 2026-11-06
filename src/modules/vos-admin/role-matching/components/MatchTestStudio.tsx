@@ -284,7 +284,7 @@ export function MatchTestStudio() {
           <BreadcrumbList>
             <BreadcrumbItem>
               <BreadcrumbLink asChild>
-                <Link href="/vos-sync/vos-admin/job-roles" className="text-xs font-semibold text-muted-foreground hover:text-foreground">
+                <Link href="/linkbridge/admin/job-roles" className="text-xs font-semibold text-muted-foreground hover:text-foreground">
                   Matching Intelligence
                 </Link>
               </BreadcrumbLink>
@@ -302,7 +302,7 @@ export function MatchTestStudio() {
           </BreadcrumbList>
         </Breadcrumb>
 
-        <Link href="/vos-sync/vos-admin/job-roles">
+        <Link href="/linkbridge/admin/job-roles">
           <Button
             variant="outline"
             size="sm"

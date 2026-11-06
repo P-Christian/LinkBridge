@@ -5,14 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Download,
-  AlertTriangle,
-  Loader2,
-  Clock,
-  CheckCircle,
-  XCircle,
-  FileText,
+import { 
+  Download, 
+  AlertTriangle, 
+  Loader2, 
+  Clock, 
+  CheckCircle, 
+  XCircle, 
+  FileText, 
   LockKeyhole,
   ChevronDown,
   FileSpreadsheet,
@@ -62,7 +62,7 @@ interface ExportArtifactItem {
 export default function PrivacyDataRequests() {
   const [requests, setRequests] = useState<DataRequestItem[]>([]);
   const [artifacts, setArtifacts] = useState<ExportArtifactItem[]>([]);
-
+  
   // Loading states
   const [loading, setLoading] = useState(true);
   const [submittingExport, setSubmittingExport] = useState(false);
@@ -148,7 +148,7 @@ export default function PrivacyDataRequests() {
 
       toast.success("Account deactivation request submitted successfully. Processing deactivation...");
       setDeactivateInput("");
-
+      
       // Auto logout simulation or redirect
       setTimeout(() => {
         window.location.replace("/");
@@ -343,7 +343,7 @@ export default function PrivacyDataRequests() {
       doc.setFont("helvetica", "bold");
       doc.setFontSize(15);
       doc.setTextColor(15, 23, 42);
-      doc.text("LinkBridge - PERSONAL DATA EXPORT REPORT", margin, 22);
+      doc.text("LINKBRIDGE - PERSONAL DATA EXPORT REPORT", margin, 22);
 
       // Subtitle
       doc.setFont("helvetica", "normal");
@@ -511,7 +511,7 @@ export default function PrivacyDataRequests() {
       // Render footer on the final page
       renderFooter(doc);
 
-      doc.save(`vos_data_export_${artifact.artifact_id}.pdf`);
+            doc.save(`vos_data_export_${artifact.artifact_id}.pdf`);
       toast.success("PDF data export downloaded.", { id: toastId });
     } catch (err: unknown) {
       console.error(err);
@@ -541,8 +541,8 @@ export default function PrivacyDataRequests() {
               Request a portable archive containing your personal data, profile history, and applications in spreadsheet CSV or printable PDF document format.
             </CardDescription>
           </div>
-          <Button
-            onClick={handleCreateExport}
+          <Button 
+            onClick={handleCreateExport} 
             disabled={submittingExport}
             className="rounded-xl bg-primary text-primary-foreground font-semibold max-md:min-h-11"
           >
@@ -587,9 +587,9 @@ export default function PrivacyDataRequests() {
 
                       <div className="flex items-center gap-2 self-end sm:self-center">
                         {req.status === "initiated" && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
                             onClick={() => handleCancelRequest(req.request_id)}
                             disabled={cancellingId === req.request_id}
                             className="text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-lg max-md:min-h-11"

@@ -17,23 +17,39 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+function sanitizeBrandCopy(text: unknown, brandName: string): string | null {
+  if (typeof text !== "string" || !text) return null;
+  return text
+    .replace(/VOS Sync/gi, brandName)
+    .replace(/VOS-Sync/gi, brandName)
+    .replace(/vosync\.com/gi, "linkbridge.com");
+}
+
 function normalizePlatformCompany(raw: Record<string, unknown> | null) {
   if (!raw) return null;
   const meta =
     typeof raw.metadata === "string"
       ? (() => {
-        try {
-          return JSON.parse(raw.metadata as string);
-        } catch {
-          return {};
-        }
-      })()
+          try {
+            return JSON.parse(raw.metadata as string);
+          } catch {
+            return {};
+          }
+        })()
       : (raw.metadata as Record<string, unknown> | null) || {};
+
+  const brandName = (raw.platform_name as string) || (meta.platform_name as string) || (raw.company_name as string) || "LinkBridge";
 
   return {
     ...raw,
     metadata: meta,
-    platform_name: (raw.platform_name as string) || (meta.platform_name as string) || (raw.company_name as string) || "LinkBridge",
+    platform_name: brandName,
+    company_name: sanitizeBrandCopy(raw.company_name, brandName) || brandName,
+    company_tagline: sanitizeBrandCopy(raw.company_tagline, brandName) || raw.company_tagline,
+    company_short_description: sanitizeBrandCopy(raw.company_short_description, brandName) || raw.company_short_description,
+    company_description: sanitizeBrandCopy(raw.company_description, brandName) || raw.company_description,
+    company_mission: sanitizeBrandCopy(raw.company_mission, brandName) || raw.company_mission,
+    company_vision: sanitizeBrandCopy(raw.company_vision, brandName) || raw.company_vision,
     platform_icon: (raw.platform_icon as string) || (meta.platform_icon as string) || "Briefcase",
     support_hours_days: (raw.support_hours_days as string) || (meta.support_hours_days as string) || "Mon–Fri",
     support_hours_time: (raw.support_hours_time as string) || (meta.support_hours_time as string) || "8am–5pm",

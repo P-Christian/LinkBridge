@@ -175,7 +175,7 @@ export function CourseRequestsTab({ requests, claims, feedback, busy, onDecide, 
           return <span className="text-muted-foreground">-</span>;
         }
         const when = req.routed_at ? new Date(req.routed_at).toLocaleDateString() : "Unknown date";
-        const actor = req.routed_by == null ? "System auto-route" : `VOS Admin #${req.routed_by}`;
+        const actor = req.routed_by == null ? "System auto-route" : `Admin Portal #${req.routed_by}`;
         return (
           <span data-testid={`course-route-audit-${req.course_request_id}`}>
             {when} &middot; {actor}

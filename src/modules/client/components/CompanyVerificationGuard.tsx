@@ -232,14 +232,14 @@ export default function CompanyVerificationGuard({
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto pt-2">
               <Button
-                onClick={() => router.push("/vos-sync/client/company-profile")}
+                onClick={() => router.push("/linkbridge/client/company-profile")}
                 className="w-full sm:w-auto h-12 px-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-2xl font-bold text-sm shadow-md gap-2 transition-all border-0"
               >
                 Go to Company Profile <ArrowRight size={16} />
               </Button>
               <Button
                 variant="outline"
-                onClick={() => router.push("/vos-sync/client/dashboard")}
+                onClick={() => router.push("/linkbridge/client/dashboard")}
                 className="w-full sm:w-auto h-12 px-6 rounded-2xl text-sm font-semibold border-border"
               >
                 Return to Dashboard

@@ -34,7 +34,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
             type: "unreviewed_applicants",
             title: "7 new applicants need review",
             description: "Highest volume in: Senior Frontend Engineer",
-            actionUrl: "/vos-sync/client/applicants?status=APPLIED",
+            actionUrl: "/linkbridge/client/applicants?status=APPLIED",
             actionLabel: "Review Applicants",
             severity: "warning",
             dismissible: false,
@@ -44,7 +44,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
             type: "interview_outcome_pending",
             title: "1 interview outcome pending",
             description: "Requires completion or attendance status: David Chen",
-            actionUrl: "/vos-sync/client/interviews?tab=awaiting_outcome",
+            actionUrl: "/linkbridge/client/interviews?tab=awaiting_outcome",
             actionLabel: "Mark Outcome",
             severity: "urgent",
             dismissible: false,
@@ -55,7 +55,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
   // Quick schedule action
   const handleSchedule = useCallback((item: ActionRequiredItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/vos-sync/client/interviews?candidate=${encodeURIComponent(item.title)}`);
+    router.push(`/linkbridge/client/interviews?candidate=${encodeURIComponent(item.title)}`);
   }, [router]);
 
   const handleRowClick = useCallback((url: string) => {
@@ -101,7 +101,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => router.push("/vos-sync/client/notifications")}
+              onClick={() => router.push("/linkbridge/client/notifications")}
               className="text-sm md:text-xs font-semibold text-primary hover:text-primary/90 h-8 max-md:min-h-10 px-2.5 flex items-center gap-1 group"
             >
               Notification Center
