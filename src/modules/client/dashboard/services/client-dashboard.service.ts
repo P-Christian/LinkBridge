@@ -616,7 +616,7 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       count: pastUnresolvedInterviews.length,
       severity: "urgent" as const,
       actionLabel: "Mark Outcome",
-      actionUrl: "/vos-sync/client/interviews?tab=awaiting_outcome",
+      actionUrl: "/linkbridge/client/interviews?tab=awaiting_outcome",
       dismissible: false,
     });
   }
@@ -631,7 +631,7 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       count: unreviewedApplicants.length,
       severity: "urgent" as const,
       actionLabel: "Review Applicants",
-      actionUrl: "/vos-sync/client/applicants?status=APPLIED",
+      actionUrl: "/linkbridge/client/applicants?status=APPLIED",
       dismissible: false,
     });
   }
@@ -644,7 +644,7 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       description: "Submit complete documentation to unlock all hiring features",
       severity: "urgent" as const,
       actionLabel: "Complete Profile",
-      actionUrl: "/vos-sync/client/company-profile",
+      actionUrl: "/linkbridge/client/company-profile",
       dismissible: false,
     });
   }

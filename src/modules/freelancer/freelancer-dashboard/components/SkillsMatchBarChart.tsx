@@ -98,7 +98,7 @@ export function SkillsMatchBarChart({ recommendations = [], loading = false }: S
                         No skill match data available. Add skills to your profile to see your alignment with active jobs.
                     </p>
                     <Button variant="outline" size="sm" asChild className="text-xs">
-                        <Link href="/vos-sync/freelancer/profile">Update Skills & Profile</Link>
+                        <Link href="/linkbridge/freelancer/profile">Update Skills & Profile</Link>
                     </Button>
                 </div>
 

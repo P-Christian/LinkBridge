@@ -81,7 +81,7 @@ export const BookmarkList: React.FC<Props> = ({ bookmarks, onRemoveBookmark }) =
           </p>
         </div>
         <Button variant="outline" className="mt-2 max-md:min-h-11" asChild>
-          <Link href="/vos-sync/freelancer/jobs">
+          <Link href="/linkbridge/freelancer/jobs">
             Browse Jobs
           </Link>
         </Button>
@@ -112,7 +112,7 @@ export const BookmarkList: React.FC<Props> = ({ bookmarks, onRemoveBookmark }) =
               </div>
 
               <div className="flex-1 min-w-0 pr-8">
-                <Link href={`/vos-sync/freelancer/jobs/${job.job_id}`} className="max-md:min-h-11 max-md:flex max-md:items-center">
+                <Link href={`/linkbridge/freelancer/jobs/${job.job_id}`} className="max-md:min-h-11 max-md:flex max-md:items-center">
                   <h3 className="text-base md:text-sm font-semibold text-foreground truncate group-hover:text-primary transition-colors cursor-pointer">
                     {job.job_title}
                   </h3>
@@ -197,7 +197,7 @@ export const BookmarkList: React.FC<Props> = ({ bookmarks, onRemoveBookmark }) =
                 className="h-7 text-xs gap-1 text-primary hover:text-primary hover:bg-primary/10 rounded-lg px-2 max-md:min-h-11"
                 asChild
               >
-                <Link href={`/vos-sync/freelancer/jobs/${job.job_id}`}>
+                <Link href={`/linkbridge/freelancer/jobs/${job.job_id}`}>
                   View <ChevronRight className="h-3 w-3" />
                 </Link>
               </Button>

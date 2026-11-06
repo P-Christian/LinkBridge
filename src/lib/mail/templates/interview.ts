@@ -98,24 +98,26 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📌 Format:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeInterviewFormat}</td>
             </tr>
-            ${meetingLink
-        ? `
+            ${
+              meetingLink
+                ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🔗 Meeting Link:</td>
               <td style="padding: 6px 0;">${renderMeetingLink(meetingLink)}</td>
             </tr>
             `
-        : ""
-      }
-            ${meetingLocation
-        ? `
+                : ""
+            }
+            ${
+              meetingLocation
+                ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📍 Location:</td>
               <td style="padding: 6px 0; color: #0f172a;">${safeMeetingLocation}</td>
             </tr>
             `
-        : ""
-      }
+                : ""
+            }
           </table>
         </div>
 
@@ -125,18 +127,19 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
           </a>
         </div>
 
-        ${candidateNotes
-        ? `
+        ${
+          candidateNotes
+            ? `
         <div style="background-color: #f1f5f9; border-left: 4px solid #14a800; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Message from Employer:</p>
           <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeCandidateNotes}</p>
         </div>
         `
-        : ""
-      }
+            : ""
+        }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
+          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">
@@ -227,24 +230,26 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📌 Format:</td>
               <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeInterviewFormat}</td>
             </tr>
-            ${meetingLink
-        ? `
+            ${
+              meetingLink
+                ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🔗 Meeting Link:</td>
               <td style="padding: 6px 0;">${renderMeetingLink(meetingLink)}</td>
             </tr>
             `
-        : ""
-      }
-            ${meetingLocation
-        ? `
+                : ""
+            }
+            ${
+              meetingLocation
+                ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📍 Location:</td>
               <td style="padding: 6px 0; color: #0f172a;">${safeMeetingLocation}</td>
             </tr>
             `
-        : ""
-      }
+                : ""
+            }
           </table>
         </div>
 
@@ -254,18 +259,19 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
           </a>
         </div>
 
-        ${candidateNotes
-        ? `
+        ${
+          candidateNotes
+            ? `
         <div style="background-color: #f1f5f9; border-left: 4px solid #14a800; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Message from Employer:</p>
           <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeCandidateNotes}</p>
         </div>
         `
-        : ""
-      }
+            : ""
+        }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
+          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">

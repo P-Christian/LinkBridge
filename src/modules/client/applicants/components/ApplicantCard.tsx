@@ -315,7 +315,7 @@ export default function ApplicantCard({
 
               {/* Message Button */}
               <Link
-                href={`/vos-sync/client/messaging?freelancer_id=${applicant.user_id}&job_id=${applicant.job_id}`}
+                href={`/linkbridge/client/messaging?freelancer_id=${applicant.user_id}&job_id=${applicant.job_id}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <Button

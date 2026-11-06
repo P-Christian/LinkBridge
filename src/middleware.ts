@@ -6,12 +6,17 @@ import { getJwtVerificationSecret } from "@/modules/auth/registration/registrati
 import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
 
 const COOKIE_NAME = "vos_sync_access_token";
-const PROTECTED_PREFIXES = ["/dashboard", "/scm", "/fm", "/hrm", "/bia", "/arf", "/cafeteria", "/vos-sync", "/main-dashboard"];
+const PROTECTED_PREFIXES = ["/dashboard", "/scm", "/fm", "/hrm", "/bia", "/arf", "/cafeteria", "/linkbridge", "/linkbridge", "/main-dashboard"];
 const PUBLIC_FILE = /\.(.*)$/;
 
 function isProtectedPath(pathname: string) {
     const pathLower = pathname.toLowerCase();
-    if (pathLower === "/vos-sync/freelancer/jobs" || pathLower.startsWith("/vos-sync/freelancer/jobs/")) {
+    if (
+        pathLower === "/linkbridge/freelancer/jobs" ||
+        pathLower.startsWith("/linkbridge/freelancer/jobs/") ||
+        pathLower === "/linkbridge/freelancer/jobs" ||
+        pathLower.startsWith("/linkbridge/freelancer/jobs/")
+    ) {
         return false;
     }
     return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -46,13 +51,13 @@ export async function middleware(req: NextRequest) {
                 const userRoleName = typeof payload.role_name === "string" ? payload.role_name : (typeof payload.role === "string" ? payload.role : "");
                 const roleUpper = userRoleName.toUpperCase();
 
-                let roleDashboard = "/vos-sync/freelancer/dashboard";
+                let roleDashboard = "/linkbridge/freelancer/dashboard";
                 if (userRoleId === 2 || roleUpper === "CLIENT" || roleUpper === "EMPLOYER") {
-                    roleDashboard = "/vos-sync/client/dashboard";
+                    roleDashboard = "/linkbridge/client/dashboard";
                 } else if (userRoleId === 3 || roleUpper === "ADMIN" || roleUpper === "ADMINISTRATOR") {
-                    roleDashboard = "/vos-sync/vos-admin";
+                    roleDashboard = "/linkbridge/admin";
                 } else if (userRoleId === 4 || roleUpper === "SCHOOL_ADMIN" || roleUpper === "SCH_ADMIN" || roleUpper === "SCHOOL") {
-                    roleDashboard = "/vos-sync/school-admin";
+                    roleDashboard = "/linkbridge/school-admin";
                 }
 
                 // Break redirect loop if user is already on /login?next=<dashboard>
@@ -126,7 +131,8 @@ export async function middleware(req: NextRequest) {
 
         // Exclude suspended page, appeal API, and logout routes from redirection checks
         if (
-            pathLower !== "/vos-sync/suspended" &&
+            pathLower !== "/linkbridge/suspended" &&
+            pathLower !== "/linkbridge/suspended" &&
             !pathLower.startsWith("/api/account/appeal") &&
             !pathLower.startsWith("/api/auth/logout") &&
             pathLower !== "/logout"
@@ -152,7 +158,7 @@ export async function middleware(req: NextRequest) {
                     if (dbUser) {
                         if (!canAuthenticate(dbUser)) {
                             const url = req.nextUrl.clone();
-                            url.pathname = "/vos-sync/suspended";
+                            url.pathname = "/linkbridge/suspended";
                             return NextResponse.redirect(url);
                         }
 
@@ -182,24 +188,24 @@ export async function middleware(req: NextRequest) {
         let isAuthorized = true;
         const userRoleId = Number(payload.role_id);
 
-        if (pathLower.startsWith("/vos-sync/freelancer") && userRoleName !== "FREELANCER" && userRoleId !== 1) {
+        if ((pathLower.startsWith("/linkbridge/freelancer") || pathLower.startsWith("/linkbridge/freelancer")) && userRoleName !== "FREELANCER" && userRoleId !== 1) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/vos-admin") && userRoleName !== "ADMIN" && userRoleName !== "ADMINISTRATOR" && userRoleId !== 3) {
+        } else if ((pathLower.startsWith("/linkbridge/admin") || pathLower.startsWith("/linkbridge/admin")) && userRoleName !== "ADMIN" && userRoleName !== "ADMINISTRATOR" && userRoleId !== 3) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/client") && userRoleName !== "CLIENT" && userRoleName !== "EMPLOYER" && userRoleId !== 2) {
+        } else if ((pathLower.startsWith("/linkbridge/client") || pathLower.startsWith("/linkbridge/client")) && userRoleName !== "CLIENT" && userRoleName !== "EMPLOYER" && userRoleId !== 2) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/school-admin") && userRoleName !== "SCHOOL_ADMIN" && userRoleName !== "SCH_ADMIN" && userRoleName !== "SCHOOL" && userRoleId !== 4) {
+        } else if ((pathLower.startsWith("/linkbridge/school-admin") || pathLower.startsWith("/linkbridge/school-admin")) && userRoleName !== "SCHOOL_ADMIN" && userRoleName !== "SCH_ADMIN" && userRoleName !== "SCHOOL" && userRoleId !== 4) {
             isAuthorized = false;
         }
 
         if (!isAuthorized) {
-            let roleDashboard = "/vos-sync/freelancer/dashboard";
+            let roleDashboard = "/linkbridge/freelancer/dashboard";
             if (userRoleId === 2 || userRoleName === "CLIENT" || userRoleName === "EMPLOYER") {
-                roleDashboard = "/vos-sync/client/dashboard";
+                roleDashboard = "/linkbridge/client/dashboard";
             } else if (userRoleId === 3 || userRoleName === "ADMIN" || userRoleName === "ADMINISTRATOR") {
-                roleDashboard = "/vos-sync/vos-admin";
+                roleDashboard = "/linkbridge/admin";
             } else if (userRoleId === 4 || userRoleName === "SCHOOL_ADMIN" || userRoleName === "SCH_ADMIN" || userRoleName === "SCHOOL") {
-                roleDashboard = "/vos-sync/school-admin";
+                roleDashboard = "/linkbridge/school-admin";
             }
             const url = req.nextUrl.clone();
             url.pathname = roleDashboard;

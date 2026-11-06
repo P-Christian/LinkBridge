@@ -35,18 +35,19 @@ export function hiringTemplate(data: HiringTemplateData) {
           </p>
         </div>
 
-        ${notes
-        ? `
+        ${
+          notes
+            ? `
         <div style="background-color: #f8fafc; border-left: 4px solid #14a800; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Note from Employer:</p>
           <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeNotes}</p>
         </div>
         `
-        : ""
-      }
+            : ""
+        }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          Log into your <a href="${safeBaseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a> to view your active offer status.
+          Log into your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a> to view your active offer status.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">

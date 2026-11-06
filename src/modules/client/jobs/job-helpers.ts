@@ -209,4 +209,4 @@ export function formatPosted(value: string): string {
   return `Posted ${label}`;
 }
 
-export const applicantsHref = (jobId: number) => `/vos-sync/client/applicants?job_id=${jobId}`;
+export const applicantsHref = (jobId: number) => `/linkbridge/client/applicants?job_id=${jobId}`;

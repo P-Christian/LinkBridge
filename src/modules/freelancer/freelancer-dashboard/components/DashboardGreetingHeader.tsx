@@ -43,7 +43,7 @@ export function DashboardGreetingHeader() {
                     <span className="text-xs text-slate-400 dark:text-muted-foreground">Ready to apply!</span>
                 ) : (
                     <Link
-                        href="/vos-sync/freelancer/profile"
+                        href="/linkbridge/freelancer/profile"
                         className="text-xs text-primary font-medium hover:underline inline-flex items-center gap-1"
                     >
                         Complete now <ArrowRight className="w-3 h-3" />

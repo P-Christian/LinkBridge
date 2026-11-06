@@ -77,7 +77,7 @@ export default function SystemPill({ text }: Props) {
         </p>
         <div className="pt-2 border-t border-violet-500/10 flex justify-center">
           <Link
-            href={isFreelancer ? "/vos-sync/freelancer/applications" : "/vos-sync/client/interviews"}
+            href={isFreelancer ? "/linkbridge/freelancer/applications" : "/linkbridge/client/interviews"}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold shadow-xs transition"
           >
             <Calendar className="h-3.5 w-3.5" />
@@ -100,7 +100,7 @@ export default function SystemPill({ text }: Props) {
         </p>
         <div className="pt-2 border-t border-indigo-500/10 flex justify-center">
           <Link
-            href={isFreelancer ? "/vos-sync/freelancer/applications" : "/vos-sync/client/applicants"}
+            href={isFreelancer ? "/linkbridge/freelancer/applications" : "/linkbridge/client/applicants"}
             className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
           >
             <ClipboardCheck className="h-3.5 w-3.5" />

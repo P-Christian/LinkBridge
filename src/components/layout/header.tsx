@@ -194,41 +194,48 @@ export function Header() {
       initial={{ y: -80, opacity: 0 }}
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
-      className={`fixed top-0 w-full z-50 h-[72px] flex items-center border-b transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out motion-reduce:transition-none ${showScrolledBg
-        ? "bg-background/85 backdrop-blur-xl border-border/80 shadow-md shadow-primary/5"
-        : "bg-transparent border-transparent shadow-none"
-        }`}
+      className={`fixed top-0 w-full z-50 h-[72px] flex items-center border-b transition-[background-color,border-color,box-shadow,backdrop-filter] duration-300 ease-out motion-reduce:transition-none ${
+        showScrolledBg
+          ? "bg-background/85 backdrop-blur-xl border-border/80 shadow-md shadow-primary/5"
+          : "bg-transparent border-transparent shadow-none"
+      }`}
     >
       <div className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center">
         <Link
           href="/"
-          className="group flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg transition-transform duration-300 ease-out hover:scale-[1.02] active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          className="group flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-none transition-all duration-300 ease-out group-hover:-rotate-6 group-hover:scale-110 group-active:scale-95 group-hover:drop-shadow-[0_4px_12px_rgba(37,99,235,0.35)] overflow-hidden dark:bg-none">
+          <div
+            className="flex items-center justify-center overflow-hidden shrink-0"
+            style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+          >
             {company?.platform_icon &&
-              (company.platform_icon.startsWith("/") ||
-                company.platform_icon.startsWith("http") ||
-                /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
+            (company.platform_icon.startsWith("/") ||
+              company.platform_icon.startsWith("http") ||
+              /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
               <Image
                 src={formatAssetUrl(company.platform_icon) || company.platform_icon}
                 alt={company?.platform_name || "LinkBridge"}
-                width={24}
-                height={24}
-                className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                width={32}
+                height={32}
+                className="object-contain shrink-0"
+                style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
                 unoptimized
               />
             ) : (
               <Image
-                src="/linkbridge.png"
-                alt={company?.platform_name || "LinkBridge"}
-                width={24}
-                height={24}
-                className="h-8 w-8 object-contain transition-transform duration-300 ease-out group-hover:scale-105"
+                src="/Link-Bridge-logo.png"
+                alt="LinkBridge"
+                width={32}
+                height={32}
+                className="object-contain shrink-0"
+                style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
                 unoptimized
+                priority
               />
             )}
           </div>
-          <span className="text-xl font-bold tracking-tight bg-gradient-to-r from-[#2563EB] to-[#7C3AED] bg-clip-text text-transparent transition-all duration-300 ease-out group-hover:brightness-115 group-hover:drop-shadow-[0_2px_10px_rgba(37,99,235,0.25)] motion-reduce:transition-none">
+          <span className="text-xl font-bold tracking-tight text-foreground">
             {company?.platform_name || "LinkBridge"}
           </span>
         </Link>
@@ -303,13 +310,13 @@ export function Header() {
                 {user.role === "client" ? (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <Briefcase className="w-4 h-4 text-muted-foreground" />
                         Manage Jobs
                       </Link>
@@ -317,14 +324,14 @@ export function Header() {
                   </>
                 ) : user.role === "admin" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/vos-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       Admin Portal
                     </Link>
                   </DropdownMenuItem>
                 ) : user.role === "school" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       School Portal
                     </Link>
@@ -332,13 +339,13 @@ export function Header() {
                 ) : (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <FileText className="w-4 h-4 text-muted-foreground" />
                         My Applications
                       </Link>
@@ -450,37 +457,37 @@ export function Header() {
               {user.role === "client" ? (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/dashboard">
+                    <Link href="/linkbridge/client/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/jobs">
+                    <Link href="/linkbridge/client/jobs">
                       <Briefcase className="w-4 h-4" /> Manage Jobs
                     </Link>
                   </Button>
                 </>
               ) : user.role === "admin" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/vos-admin">
+                  <Link href="/linkbridge/admin">
                     <LayoutDashboard className="w-4 h-4" /> Admin Portal
                   </Link>
                 </Button>
               ) : user.role === "school" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/school-admin">
+                  <Link href="/linkbridge/school-admin">
                     <LayoutDashboard className="w-4 h-4" /> School Portal
                   </Link>
                 </Button>
               ) : (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/dashboard">
+                    <Link href="/linkbridge/freelancer/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/applications">
+                    <Link href="/linkbridge/freelancer/applications">
                       <FileText className="w-4 h-4" /> My Applications
                     </Link>
                   </Button>

@@ -223,7 +223,7 @@ export default function JobDetailPage({ jobId }: Props) {
         </div>
         <h2 className="text-lg font-bold text-foreground">Failed to load job listing</h2>
         <p className="text-sm text-muted-foreground">{error || "The job listing may have been closed or removed."}</p>
-        <Button variant="outline" size="sm" onClick={() => router.push("/vos-sync/freelancer/jobs")}>
+        <Button variant="outline" size="sm" onClick={() => router.push("/linkbridge/freelancer/jobs")}>
           Back to Jobs List
         </Button>
       </div>
@@ -239,7 +239,7 @@ export default function JobDetailPage({ jobId }: Props) {
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       {/* Back button */}
       <Link
-        href="/vos-sync/freelancer/jobs"
+        href="/linkbridge/freelancer/jobs"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium mb-2"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -457,14 +457,14 @@ export default function JobDetailPage({ jobId }: Props) {
                   </p>
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1.5">
                     <Link
-                      href="/vos-sync/freelancer/profile"
+                      href="/linkbridge/freelancer/profile"
                       className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors"
                     >
                       <span>Complete Profile Now</span>
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                     <Link
-                      href="/vos-sync/freelancer/bookmarks"
+                      href="/linkbridge/freelancer/bookmarks"
                       className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-amber-900 dark:text-amber-200 hover:bg-amber-200/50 dark:hover:bg-amber-900/40 transition-colors"
                     >
                       <Bookmark className="h-3.5 w-3.5" />
@@ -625,7 +625,7 @@ export default function JobDetailPage({ jobId }: Props) {
         onClose={() => setApplyModalOpen(false)}
         onSuccess={() => {
           setAlreadyApplied(true);
-          router.push("/vos-sync/freelancer/applications");
+          router.push("/linkbridge/freelancer/applications");
         }}
       />
 

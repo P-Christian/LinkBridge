@@ -45,7 +45,7 @@ export default function KpiSummaryGrid({ stats }: KpiSummaryGridProps) {
       value: stats.activeJobs ?? 0,
       deltaText: stats.activeJobsDelta || "Active listings",
       icon: Briefcase,
-      route: "/vos-sync/client/jobs",
+      route: "/linkbridge/client/jobs",
       tone: TONES.blue,
     },
     {
@@ -58,7 +58,7 @@ export default function KpiSummaryGrid({ stats }: KpiSummaryGridProps) {
             : `↓ ${Math.abs(stats.applicantsGrowthPercent)}% this month`
           : "Steady intake",
       icon: Users,
-      route: "/vos-sync/client/applicants",
+      route: "/linkbridge/client/applicants",
       tone: TONES.violet,
     },
     {
@@ -66,7 +66,7 @@ export default function KpiSummaryGrid({ stats }: KpiSummaryGridProps) {
       value: stats.shortlistedCount ?? 0,
       deltaText: stats.shortlistedWeeklyGrowth || "In review pipeline",
       icon: UserCheck,
-      route: "/vos-sync/client/applicants?status=SHORTLISTED",
+      route: "/linkbridge/client/applicants?status=SHORTLISTED",
       tone: TONES.emerald,
     },
     {
@@ -74,7 +74,7 @@ export default function KpiSummaryGrid({ stats }: KpiSummaryGridProps) {
       value: stats.upcomingInterviewsCount ?? 0,
       deltaText: stats.nextInterviewSummary || "Scheduled sessions",
       icon: Calendar,
-      route: "/vos-sync/client/interviews",
+      route: "/linkbridge/client/interviews",
       tone: TONES.amber,
     },
   ];

@@ -183,7 +183,7 @@ export default function HiredCard({ message }: Props) {
 
             {applicationId && (
               <Link
-                href={`/vos-sync/freelancer/applications`}
+                href={`/linkbridge/freelancer/applications`}
                 className="inline-flex items-center justify-center gap-1 px-3.5 py-2 rounded-full border border-emerald-500/25 bg-card/60 hover:bg-muted text-foreground text-xs font-medium transition max-md:min-h-11"
               >
                 <span>View Applications</span>
@@ -193,7 +193,7 @@ export default function HiredCard({ message }: Props) {
           </>
         ) : (
           <Link
-            href={`/vos-sync/client/applicants`}
+            href={`/linkbridge/client/applicants`}
             className="inline-flex items-center justify-center gap-1.5 px-4 py-2 rounded-full border border-emerald-500/30 bg-card/80 hover:bg-muted text-foreground text-xs font-semibold shadow-xs transition max-md:min-h-11"
           >
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />

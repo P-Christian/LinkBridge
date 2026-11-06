@@ -37,15 +37,15 @@ export interface PortalPageHeaderProps {
 export function PortalPageHeader(_props?: PortalPageHeaderProps) {
   void _props;
   const pathname = usePathname();
-  const isClientRoute = pathname?.startsWith("/vos-sync/client");
-  const isFreelancerRoute = pathname?.startsWith("/vos-sync/freelancer");
-  const isSchoolAdminRoute = pathname?.startsWith("/vos-sync/school-admin");
-  // const isVosAdminRoute = pathname?.startsWith("/vos-sync/vos-admin");
+  const isClientRoute = pathname?.startsWith("/linkbridge/client");
+  const isFreelancerRoute = pathname?.startsWith("/linkbridge/freelancer");
+  const isSchoolAdminRoute = pathname?.startsWith("/linkbridge/school-admin");
+  // const isVosAdminRoute = pathname?.startsWith("/linkbridge/admin");
 
   const helpRoute = React.useMemo(() => {
-    if (isClientRoute) return "/vos-sync/client/how-it-works";
-    if (isFreelancerRoute) return "/vos-sync/freelancer/how-it-works";
-    if (isSchoolAdminRoute) return "/vos-sync/school-admin/how-it-works";
+    if (isClientRoute) return "/linkbridge/client/how-it-works";
+    if (isFreelancerRoute) return "/linkbridge/freelancer/how-it-works";
+    if (isSchoolAdminRoute) return "/linkbridge/school-admin/how-it-works";
     return "/how-it-works";
   }, [isClientRoute, isFreelancerRoute, isSchoolAdminRoute]);
 

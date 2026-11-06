@@ -23,7 +23,7 @@ export const illustrationPath = (role: RoleKey, slug: string) =>
 // TODO(content): confirm with the compliance team. Steps and FAQ both read this.
 export const VERIFICATION_REVIEW_TIME = "3 - 4 business days";
 
-export const ADMIN_ACCOUNT_LABEL = "a VOS Admin";
+export const ADMIN_ACCOUNT_LABEL = "a Admin Portal";
 export const FALLBACK_ACCOUNT_LABEL = "another account type";
 
 export const PAGE_COPY = {

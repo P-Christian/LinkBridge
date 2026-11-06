@@ -209,8 +209,8 @@ export default function ApplicationCard({ message }: Props) {
   const pathname = usePathname();
   const isFreelancerPath = pathname?.includes("/freelancer/");
   const viewDetailsUrl = isFreelancerPath
-    ? "/vos-sync/freelancer/applications"
-    : "/vos-sync/client/applicants";
+    ? "/linkbridge/freelancer/applications"
+    : "/linkbridge/client/applicants";
 
   const initialData = (message as unknown as { system_card_data?: ApplicationCardData }).system_card_data ?? null;
   const [data, setData] = useState<ApplicationCardData | null>(initialData);

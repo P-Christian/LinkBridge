@@ -582,7 +582,7 @@ export function ArticleEditorInline({
                     {seoTitle || title || "Article Title Preview"} - LinkBridge
                   </p>
                   <p className="text-[11px] text-emerald-700 dark:text-emerald-500 font-mono">
-                    https://vos-sync.com/career-advice/{slug || "slug-preview"}
+                    https://linkbridge.com/career-advice/{slug || "slug-preview"}
                   </p>
                   <p className="text-muted-foreground text-[11px] line-clamp-2">
                     {seoDescription || excerpt || "Your meta description or teaser excerpt will display here in search results."}

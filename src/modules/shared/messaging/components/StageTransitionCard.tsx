@@ -177,7 +177,7 @@ export default function StageTransitionCard({ message }: Props) {
         <div className="mt-3 pt-2.5 border-t border-primary/10 flex justify-center">
           {isFreelancer ? (
             <Link
-              href={targetAppId ? `/vos-sync/freelancer/applications?action=assessment&application_id=${targetAppId}` : "/vos-sync/freelancer/applications"}
+              href={targetAppId ? `/linkbridge/freelancer/applications?action=assessment&application_id=${targetAppId}` : "/linkbridge/freelancer/applications"}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
             >
               <ClipboardCheck className="h-3.5 w-3.5" />
@@ -185,7 +185,7 @@ export default function StageTransitionCard({ message }: Props) {
             </Link>
           ) : (
             <Link
-              href={targetAppId ? `/vos-sync/client/applicants?application_id=${targetAppId}` : "/vos-sync/client/applicants"}
+              href={targetAppId ? `/linkbridge/client/applicants?application_id=${targetAppId}` : "/linkbridge/client/applicants"}
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
             >
               <ClipboardCheck className="h-3.5 w-3.5" />

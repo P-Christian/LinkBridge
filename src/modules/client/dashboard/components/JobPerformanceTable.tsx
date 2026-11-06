@@ -18,11 +18,11 @@ export default function JobPerformanceTable({ jobs }: JobPerformanceTableProps) 
   const router = useRouter();
 
   const handleNavigateAll = useCallback(() => {
-    router.push("/vos-sync/client/jobs");
+    router.push("/linkbridge/client/jobs");
   }, [router]);
 
   const handleNavigateJob = useCallback((jobId: number) => {
-    router.push(`/vos-sync/client/jobs?jobId=${jobId}`);
+    router.push(`/linkbridge/client/jobs?jobId=${jobId}`);
   }, [router]);
 
   const isActive = (st?: string) => {
@@ -79,7 +79,7 @@ export default function JobPerformanceTable({ jobs }: JobPerformanceTableProps) 
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => router.push("/vos-sync/client/jobs")}
+                  onClick={() => router.push("/linkbridge/client/jobs")}
                   className="text-sm md:text-xs font-semibold mt-1 max-md:min-h-10"
                 >
                   Create First Job

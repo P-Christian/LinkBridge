@@ -194,8 +194,8 @@ export function CourseRequestDecisionModal({
                 <div className="font-medium">Finalizing — claim persisted</div>
                 <p className="mt-1 text-muted-foreground">
                   The matched course is locked to this claim. Claim initiated by{" "}
-                  {claimInitiator !== null ? `VOS Admin #${claimInitiator}` : "a VOS Admin"}.
-                  Any currently authorized VOS Admin may resume approval for the same claim.
+                  {claimInitiator !== null ? `Admin Portal #${claimInitiator}` : "a Admin Portal"}.
+                  Any currently authorized Admin Portal may resume approval for the same claim.
                 </p>
                 <div className="mt-2 font-medium">
                   Locked course:{" "}

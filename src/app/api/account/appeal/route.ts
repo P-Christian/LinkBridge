@@ -189,7 +189,7 @@ export async function POST(req: NextRequest) {
               category: "Security & Compliance",
               title: "New Account Appeal Submitted",
               message: `${userDisplayName} has submitted an appeal for account suspension (Case #${createdCase.case_id}).`,
-              action_url: "/vos-sync/vos-admin/account-status",
+              action_url: "/linkbridge/admin/account-status",
             });
           }
         }

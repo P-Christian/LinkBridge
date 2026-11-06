@@ -103,7 +103,7 @@ export function RecentMessagesPreview({
                         <p className="text-xs text-slate-500 dark:text-muted-foreground mt-0.5">Your latest conversations</p>
                     </div>
                     <Link
-                        href="/vos-sync/freelancer/messaging"
+                        href="/linkbridge/freelancer/messaging"
                         className="text-xs font-semibold text-slate-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1 transition-colors"
                     >
                         View All <ArrowRight className="w-3.5 h-3.5" />
@@ -125,7 +125,7 @@ export function RecentMessagesPreview({
                             return (
                                 <Link
                                     key={conv.conversation_id}
-                                    href={`/vos-sync/freelancer/messaging?conversationId=${conv.conversation_id}`}
+                                    href={`/linkbridge/freelancer/messaging?conversationId=${conv.conversation_id}`}
                                     className="px-6 py-3.5 flex items-center justify-between hover:bg-slate-50/80 dark:hover:bg-muted/40 transition group cursor-pointer"
                                 >
                                     <div className="flex items-center gap-3.5 min-w-0 pr-3">

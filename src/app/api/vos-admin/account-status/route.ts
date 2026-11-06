@@ -149,8 +149,8 @@ export async function POST(req: NextRequest) {
 
     try {
       const actionUrl = targetStatus === "SUSPENDED" || targetStatus === "BLOCKED"
-        ? "/vos-sync/suspended"
-        : (userDetail.role === "CLIENT" ? "/vos-sync/client/dashboard" : "/vos-sync/freelancer/dashboard");
+        ? "/linkbridge/suspended"
+        : (userDetail.role === "CLIENT" ? "/linkbridge/client/dashboard" : "/linkbridge/freelancer/dashboard");
 
       await createNotification({
         event_type: "account_status_change",

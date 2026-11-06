@@ -1086,7 +1086,7 @@ export async function PATCH(
             category: "APPLICATION_STATUS_UPDATED",
             title: candidateTitle,
             message: candidateMessage,
-            action_url: "/vos-sync/freelancer/applications",
+            action_url: "/linkbridge/freelancer/applications",
           }).catch((err) => console.error("[Candidate Notification] Error:", err));
         }
 
@@ -1115,7 +1115,7 @@ export async function PATCH(
                 category: "TEAM_ACTIVITY",
                 title: "Team Activity",
                 message: `A team member ${statusLabel} for "${jobTitle}".`,
-                action_url: `/vos-sync/client/applicants/${id}`,
+                action_url: `/linkbridge/client/applicants/${id}`,
               }).catch((err) => console.error("[Team Activity Notification] Error:", err));
             }
           }

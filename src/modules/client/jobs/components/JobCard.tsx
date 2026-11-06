@@ -128,7 +128,7 @@ export default function JobCard({
   const totalApplicants = job.applicants_count ?? 0;
   const activeApplicants = job.active_applicants_count ?? totalApplicants;
   const hasApplicants = totalApplicants > 0;
-  const applicantsHref = `/vos-sync/client/applicants?job_id=${job.job_id}`;
+  const applicantsHref = `/linkbridge/client/applicants?job_id=${job.job_id}`;
 
   return (
     <motion.div

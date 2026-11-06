@@ -79,7 +79,7 @@ export function DashboardKpiStats({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 h-full">
             {/* Card 1: Action Required (Replaces duplicate Active Apps) */}
             <Link
-                href="/vos-sync/freelancer/applications"
+                href="/linkbridge/freelancer/applications"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-amber-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">
@@ -109,7 +109,7 @@ export function DashboardKpiStats({
 
             {/* Card 2: Top AI Match */}
             <Link
-                href="/vos-sync/freelancer/find-work"
+                href="/linkbridge/freelancer/find-work"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-indigo-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">
@@ -139,7 +139,7 @@ export function DashboardKpiStats({
 
             {/* Card 3: Recent Messages */}
             <Link
-                href="/vos-sync/freelancer/messaging"
+                href="/linkbridge/freelancer/messaging"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-emerald-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-emerald-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">

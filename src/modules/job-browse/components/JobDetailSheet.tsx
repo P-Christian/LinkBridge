@@ -262,7 +262,7 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
             </div>
 
             <a
-              href={`/vos-sync/freelancer/jobs/${job.job_id}`}
+              href={`/linkbridge/freelancer/jobs/${job.job_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline font-semibold shrink-0 mr-6"
@@ -508,7 +508,7 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
                   </p>
                   <div className="pt-1">
                     <a
-                      href="/vos-sync/freelancer/profile"
+                      href="/linkbridge/freelancer/profile"
                       className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 dark:text-amber-300 hover:underline"
                     >
                       Complete Profile Now <ArrowRight className="h-3 w-3" />

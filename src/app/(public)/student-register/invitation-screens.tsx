@@ -182,7 +182,7 @@ export function SuccessScreen({ preview }: { readonly preview: ValidStudentInvit
       </p>
       <div className="flex flex-col items-center gap-3">
         <Button asChild className="min-h-11 w-full py-6 rounded-full text-base">
-          <Link href="/vos-sync/freelancer/dashboard">
+          <Link href="/linkbridge/freelancer/dashboard">
             Go to your Job Seeker dashboard
           </Link>
         </Button>

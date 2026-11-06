@@ -89,8 +89,8 @@ export async function POST(req: NextRequest) {
             // Notify user of account activation
             try {
               const actionUrl = userDetail.role === "CLIENT"
-                ? "/vos-sync/client/dashboard"
-                : "/vos-sync/freelancer/dashboard";
+                ? "/linkbridge/client/dashboard"
+                : "/linkbridge/freelancer/dashboard";
 
               await createNotification({
                 event_type: "account_activated",

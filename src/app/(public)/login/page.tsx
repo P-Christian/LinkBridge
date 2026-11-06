@@ -200,13 +200,13 @@ function LoginForm() {
             let defaultPath = serverDestination || "/main-dashboard"
             if (!serverDestination) {
                 if (roleId === 1 || roleStr === "FREELANCER") {
-                    defaultPath = "/vos-sync/freelancer/dashboard"
+                    defaultPath = "/linkbridge/freelancer/dashboard"
                 } else if (roleId === 2 || roleStr === "CLIENT" || roleStr === "EMPLOYER") {
-                    defaultPath = "/vos-sync/client/dashboard"
+                    defaultPath = "/linkbridge/client/dashboard"
                 } else if (roleId === 3 || roleStr === "ADMIN") {
-                    defaultPath = "/vos-sync/vos-admin"
+                    defaultPath = "/linkbridge/admin"
                 } else if (roleId === 4 || roleStr === "SCHOOL_ADMIN" || roleStr === "SCH_ADMIN") {
-                    defaultPath = "/vos-sync/school-admin"
+                    defaultPath = "/linkbridge/school-admin"
                 }
             }
 
@@ -225,11 +225,11 @@ function LoginForm() {
                 const isClient = roleId === 2 || roleStr === "CLIENT" || roleStr === "EMPLOYER"
                 const isSchoolAdmin = roleId === 4 || roleStr === "SCHOOL_ADMIN" || roleStr === "SCH_ADMIN"
 
-                if (isFreelancer && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/client") || p.startsWith("/vos-sync/school-admin"))) {
+                if (isFreelancer && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/client") || p.startsWith("/linkbridge/school-admin"))) {
                     isAllowed = false
-                } else if (isClient && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/freelancer") || p.startsWith("/vos-sync/school-admin"))) {
+                } else if (isClient && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/freelancer") || p.startsWith("/linkbridge/school-admin"))) {
                     isAllowed = false
-                } else if (isSchoolAdmin && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/freelancer") || p.startsWith("/vos-sync/client"))) {
+                } else if (isSchoolAdmin && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/freelancer") || p.startsWith("/linkbridge/client"))) {
                     isAllowed = false
                 }
 

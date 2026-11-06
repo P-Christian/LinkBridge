@@ -117,7 +117,7 @@ export async function updateProfessionalSummaryAction(summary: string) {
         throw new Error(`Failed to update professional summary: HTTP ${res.status} - ${errDetails}`);
     }
 
-    revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+    revalidatePath("/linkbridge/freelancer/profile");
 
     return { success: true };
 }
@@ -316,7 +316,7 @@ export async function saveUserSkillsAction(_userId: number, initialSkillIds: num
         }
     }
 
-    revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+    revalidatePath("/linkbridge/freelancer/profile");
     return { success: true };
 }
 
@@ -325,7 +325,7 @@ export async function addWorkExperienceAction(_userId: number, payload: any) {
 
     try {
         await addWorkExperienceService(await getAuthenticatedUserId(), payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("addWorkExperienceAction Error:", err);
@@ -340,7 +340,7 @@ export async function updateWorkExperienceAction(id: number, _userId: number, pa
         const userId = await getAuthenticatedUserId();
         await assertOwnedRow("vs_work_experience", id, userId);
         await updateWorkExperienceService(id, userId, payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("updateWorkExperienceAction Error:", err);
@@ -355,7 +355,7 @@ export async function deleteWorkExperienceAction(id: number) {
         const userId = await getAuthenticatedUserId();
         await assertOwnedRow("vs_work_experience", id, userId);
         await deleteWorkExperienceService(id, userId);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("deleteWorkExperienceAction Error:", err);
@@ -416,7 +416,7 @@ export async function addEducationAction(_userId: number, payload: any) {
     try {
         const userId = await getAuthenticatedUserId();
         await addEducationService(userId, payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("addEducationAction Error:", err);
@@ -430,7 +430,7 @@ export async function updateEducationAction(id: number, _userId: number, payload
     try {
         const userId = await getAuthenticatedUserId();
         await updateEducationService(id, userId, payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("updateEducationAction Error:", err);
@@ -444,7 +444,7 @@ export async function deleteEducationAction(id: number) {
     try {
         const userId = await getAuthenticatedUserId();
         await deleteEducationService(id, userId);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("deleteEducationAction Error:", err);
@@ -457,7 +457,7 @@ export async function addCertificationAction(_userId: number, payload: any) {
 
     try {
         await addCertificationService(await getAuthenticatedUserId(), payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("addCertificationAction Error:", err);
@@ -472,7 +472,7 @@ export async function updateCertificationAction(id: number, _userId: number, pay
         const userId = await getAuthenticatedUserId();
         await assertOwnedRow("vs_certifications", id, userId);
         await updateCertificationService(id, userId, payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("updateCertificationAction Error:", err);
@@ -487,7 +487,7 @@ export async function deleteCertificationAction(id: number) {
         const userId = await getAuthenticatedUserId();
         await assertOwnedRow("vs_certifications", id, userId);
         await deleteCertificationService(id, userId);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("deleteCertificationAction Error:", err);
@@ -500,7 +500,7 @@ export async function updatePersonalInfoAction(_userId: number, payload: any) {
 
     try {
         await updatePersonalInfoService(await getAuthenticatedUserId(), payload);
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("updatePersonalInfoAction Error:", err);
@@ -514,7 +514,7 @@ export async function updateProfileVisibilityAction(_userId: number, profileId: 
     try {
         const userId = await getAuthenticatedUserId();
         await upsertJobSeekerProfileInDirectus(userId, profileId, { profile_visibility: visibility });
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true };
     } catch (err: any) {
         console.error("updateProfileVisibilityAction Error:", err);
@@ -609,7 +609,7 @@ export async function saveAllProfileChangesAction(payload: any) {
         }
 
         const { revalidatePath } = await import("next/cache");
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
 
         return { success: true };
     } catch (err: any) {
@@ -730,7 +730,7 @@ export async function uploadProfileImageAction(_userId: number, formData: FormDa
         if (!updateRes.ok) throw new Error(`Failed to update user profile image: HTTP ${updateRes.status}`);
 
         const { revalidatePath } = await import("next/cache");
-        revalidatePath("/(vos-sync)/vos-sync/freelancer/profile");
+        revalidatePath("/linkbridge/freelancer/profile");
         return { success: true, fileId };
     } catch (err: unknown) {
         if (fileId) {

@@ -114,7 +114,7 @@ export function SchoolRequestInboxAccessPanel({ kind, message }: AccessPanelProp
         <p className="mt-2 max-w-md text-sm text-muted-foreground leading-relaxed">
           {forbidden
             ? "Attendance requests are limited to a School Admin with exactly one active school assignment. " +
-              "Ask the VOS Admin to confirm your assignment, then reload this page."
+              "Ask the Admin Portal to confirm your assignment, then reload this page."
             : "Your session is no longer valid. Sign in again as a School Admin to view this inbox."}
         </p>
         <p className="mt-4 text-xs text-muted-foreground/80">{message}</p>

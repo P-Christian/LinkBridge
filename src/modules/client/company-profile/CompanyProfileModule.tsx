@@ -32,7 +32,7 @@ import {
   Send,
   RefreshCw,
   FileText,
-
+ 
 } from "lucide-react";
 import AIProfileAssistantModal from "./components/AIProfileAssistantModal";
 import { EditableCompanyFields } from "./types";
@@ -580,7 +580,7 @@ export default function CompanyProfileModule({
                 <Building2 className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
               </div>
               <CardTitle className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 flex items-center justify-center gap-2">
-                Welcome to LinkBridge!
+               Welcome to LinkBridge!
               </CardTitle>
               <p className="text-sm text-zinc-550 dark:text-zinc-400 max-w-md mx-auto">
                 Let&apos;s set up your company profile to start posting job listings, managing applications, and onboarding talent.
@@ -816,7 +816,7 @@ export default function CompanyProfileModule({
                     >
                       <CompanyBasicInfo
                         data={company ?? {}}
-                        onChange={() => { }}
+                        onChange={() => {}}
                         readOnly={true}
                       />
                     </motion.div>
@@ -878,7 +878,7 @@ export default function CompanyProfileModule({
                     >
                       <CompanyClassification
                         data={company ?? {}}
-                        onChange={() => { }}
+                        onChange={() => {}}
                         readOnly={true}
                       />
                     </motion.div>

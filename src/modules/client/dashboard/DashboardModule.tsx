@@ -113,7 +113,7 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
       }
       const json: DashboardData = await response.json();
       if (json.onboardingRequired) {
-        router.push("/vos-sync/client/company-profile");
+        router.push("/linkbridge/client/company-profile");
         return;
       }
       setData(json);
@@ -131,7 +131,7 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
 
   useEffect(() => {
     if (initialData?.onboardingRequired) {
-      router.push("/vos-sync/client/company-profile");
+      router.push("/linkbridge/client/company-profile");
     }
   }, [initialData, router]);
 

@@ -16,7 +16,7 @@ export type EducationRejectionNotice =
   | (RejectionBase & { readonly kind: "course"; readonly courseName: string });
 
 const CATEGORY = "EDUCATION_VERIFICATION";
-const ACTION_URL = "/vos-sync/freelancer/profile";
+const ACTION_URL = "/linkbridge/freelancer/profile";
 
 interface RenderedNotice {
   readonly eventType: string;

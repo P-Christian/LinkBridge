@@ -192,7 +192,7 @@ function decisionError(
 
 export interface CourseReviewOptions {
   /**
-   * VOS Admin role id. When present it must be 3 (VOS Admin); otherwise the
+   * Admin Portal role id. When present it must be 3 (Admin Portal); otherwise the
    * decision is rejected with 403. The API layer (Todo 5) always supplies it;
    * direct service callers without role context leave it undefined.
    */
@@ -203,10 +203,10 @@ const VOS_ADMIN_ROLE_ID = 3;
 
 function requireVosActor(adminId: number, options?: CourseReviewOptions): void {
   if (!Number.isInteger(adminId) || adminId <= 0) {
-    throw decisionError("INVALID_INPUT", "A valid VOS Admin id is required.", 400);
+    throw decisionError("INVALID_INPUT", "A valid Admin Portal id is required.", 400);
   }
   if (options?.roleId !== undefined && options.roleId !== VOS_ADMIN_ROLE_ID) {
-    throw decisionError("FORBIDDEN", "Course request decisions are restricted to VOS Admins.", 403);
+    throw decisionError("FORBIDDEN", "Course request decisions are restricted to Admin Portals.", 403);
   }
 }
 
@@ -471,7 +471,7 @@ async function approveCourseRequest(
   }
 
   // 6. Claim matched course + reviewer. Only the winning claim proceeds; any other
-  //    VOS Admin may resume the SAME claim (reviewer preserved), while a different
+  //    Admin Portal may resume the SAME claim (reviewer preserved), while a different
   //    course conflicts with 409.
   try {
     await claimCourseRequest({ requestId, consumer: "vos", reviewerId: adminId, courseId });
@@ -713,7 +713,7 @@ export async function routeSchoolRequestDecision(
   requireSchoolRoutingWrite();
   requirePositiveSchoolId(requestId, "School request id");
   requirePositiveSchoolId(targetSchoolId, "Matched school id");
-  requirePositiveSchoolId(adminId, "VOS Admin id");
+  requirePositiveSchoolId(adminId, "Admin Portal id");
   await requireExactSchoolRequestLink(requestId);
   await routeSchoolRequestPrimitive({ requestId, targetSchoolId, actorId: adminId });
   return fetchSchoolRequestById(requestId);
@@ -727,7 +727,7 @@ export async function groupSchoolRequestDecision(
   requireSchoolRoutingWrite();
   requirePositiveSchoolId(requestId, "School request id");
   requirePositiveSchoolId(targetSchoolId, "Matched school id");
-  requirePositiveSchoolId(adminId, "VOS Admin id");
+  requirePositiveSchoolId(adminId, "Admin Portal id");
   await requireExactSchoolRequestLink(requestId);
   await groupSchoolRequestPrimitive({ requestId, targetSchoolId });
   return fetchSchoolRequestById(requestId);
@@ -740,7 +740,7 @@ export async function rejectSchoolRequestDecision(
 ): Promise<VsSchoolRequest> {
   requireSchoolRoutingWrite();
   requirePositiveSchoolId(requestId, "School request id");
-  requirePositiveSchoolId(adminId, "VOS Admin id");
+  requirePositiveSchoolId(adminId, "Admin Portal id");
   const outcome = await rejectSchoolRequestPrimitive({ requestId, actorId: adminId, remarks });
   if (outcome.kind === "mutated") {
     await notifyEducationRejection({

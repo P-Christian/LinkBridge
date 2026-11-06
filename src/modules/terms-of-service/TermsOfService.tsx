@@ -122,7 +122,7 @@ export default function TermsOfService() {
               <div id="intellectual" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Intellectual Property</h2>
                 <p>
-                  All content, branding elements, software, database matching mechanisms, site designs, and interactive layouts on LinkBridge are the exclusive property of LinkBridge and its licensors.
+                  All content, branding elements, software, database matching mechanisms, site designs, and interactive layouts on LinkBridge are the exclusive property of LinkBridge and its licensors. 
                 </p>
                 <p>
                   You retain ownership of the data, resumes, and text descriptions you post to the service. However, by uploading materials, you grant LinkBridge a worldwide, royalty-free, non-exclusive license to host and show your profile data to matching employers or candidates.

@@ -281,7 +281,7 @@ export async function PATCH(
           category: "APPLICATION_STATUS_UPDATED",
           title: `Application Moved to ${cleanStageName}`,
           message: `Your application for "${jobTitle}" has progressed to "${cleanStageName}".`,
-          action_url: "/vos-sync/freelancer/applications",
+          action_url: "/linkbridge/freelancer/applications",
         }).catch((err) => console.error("[Candidate Stage Notification] Error:", err));
 
         // System message inside conversation if available

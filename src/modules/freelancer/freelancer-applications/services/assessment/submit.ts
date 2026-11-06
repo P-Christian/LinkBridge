@@ -84,7 +84,7 @@ async function notifyHiringUsers(
         category: "ASSESSMENT_SUBMITTED",
         title: "Assessment submitted",
         message: `A candidate submitted their assessment for "${jobTitle}".`,
-        action_url: `/vos-sync/client/applicants/${applicationId}`,
+        action_url: `/linkbridge/client/applicants/${applicationId}`,
       }).catch((error: unknown) => console.error("[freelancer-assessment] notify error:", error));
     }
   } catch (error) {
