@@ -100,10 +100,11 @@ export function AccountStatusDetailModal({
   }, [isOpen, userId, loadUserDetail]);
 
   const hasHistoryFilters = Boolean(historySearch.trim() || historyDateFrom || historyDateTo);
+  const userHistory = user?.history;
 
   const filteredHistory = React.useMemo(() => {
-    if (!user?.history) return [];
-    return user.history.filter((h) => {
+    if (!userHistory) return [];
+    return userHistory.filter((h) => {
       // Keyword search matches status, reason, actor
       if (historySearch.trim()) {
         const q = historySearch.trim().toLowerCase();
@@ -129,7 +130,7 @@ export function AccountStatusDetailModal({
 
       return true;
     });
-  }, [user?.history, historySearch, historyDateFrom, historyDateTo]);
+  }, [userHistory, historySearch, historyDateFrom, historyDateTo]);
 
   if (!userId) return null;
 

@@ -7,7 +7,7 @@ import { AccountStatusUser, AccountStatusOrUnknown, StatusTransitionPayload, App
 import { DataTable } from "../../request-management/components/new-data-table";
 import { AccountStatusDetailModal } from "./AccountStatusDetailModal";
 import { ColumnDef } from "@tanstack/react-table";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
