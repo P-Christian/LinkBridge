@@ -81,8 +81,28 @@ export async function fetchAccountStatusUsersRepo(
   statusFilter?: string,
   search?: string,
   page: number = 1,
-  limit: number = 10
+  limit: number = 10,
+  appealsOnly?: boolean
 ): Promise<{ users: AccountStatusUser[]; total: number }> {
+  // If appealsOnly is requested, first resolve users who have active (OPEN) appeal cases
+  let appealUserIds: number[] | null = null;
+  if (appealsOnly) {
+    const openCasesUrl = `${DIRECTUS_BASE}/items/vs_account_status_case?filter[state][_eq]=OPEN&fields=user_id&limit=-1`;
+    const openCasesRes = await fetch(openCasesUrl, { headers: getHeaders(), cache: "no-store" });
+    if (openCasesRes.ok) {
+      const openCasesJson = await openCasesRes.json();
+      const openCases: Array<{ user_id: number }> = openCasesJson.data || [];
+      appealUserIds = Array.from(new Set(openCases.map((c) => c.user_id).filter(Boolean)));
+    } else {
+      appealUserIds = [];
+    }
+
+    // If no users have open appeals, return early
+    if (appealUserIds.length === 0) {
+      return { users: [], total: 0 };
+    }
+  }
+
   const queries: string[] = [];
 
   queries.push(`limit=${limit}`);
@@ -91,6 +111,10 @@ export async function fetchAccountStatusUsersRepo(
   queries.push('sort=-user_id');
 
   const filter: Record<string, unknown> = {};
+
+  if (appealUserIds && appealUserIds.length > 0) {
+    filter.user_id = { _in: appealUserIds };
+  }
 
   if (statusFilter && statusFilter !== "ALL") {
     filter.status = { _eq: statusFilter };
