@@ -4,7 +4,7 @@
 import { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { useRequestAbort } from '@/hooks/useRequestAbort';
-import { AccountStatusUser, StatusTransitionPayload, AppealDecisionPayload } from '../types/account-status.types';
+import { AccountStatusUser, StatusTransitionPayload, AppealDecisionPayload, AccountStatusMetrics } from '../types/account-status.types';
 
 /**
  * The transition itself succeeded, so these are reported as a warning rather
@@ -21,18 +21,34 @@ export function useAccountStatus() {
   const [users, setUsers] = useState<AccountStatusUser[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [metrics, setMetrics] = useState<AccountStatusMetrics | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const abortList = useRequestAbort();
-  // Separate controller: opening a user's modal must not cancel the queue read
-  // behind it, and vice versa.
   const abortDetail = useRequestAbort();
+
+  const fetchMetrics = useCallback(async () => {
+    setMetricsLoading(true);
+    try {
+      const res = await fetch('/api/vos-admin/account-status?metrics=true');
+      if (res.ok) {
+        const json = await res.json();
+        setMetrics(json.metrics ?? null);
+      }
+    } catch {
+      // Non-blocking metric read failure
+    } finally {
+      setMetricsLoading(false);
+    }
+  }, []);
 
   const fetchUsers = useCallback(async (
     statusFilter?: string,
     search?: string,
     page: number = 1,
-    limit: number = 10
+    limit: number = 10,
+    appealsOnly?: boolean
   ) => {
     setLoading(true);
     setError(null);
@@ -43,6 +59,7 @@ export function useAccountStatus() {
       const params = new URLSearchParams();
       if (statusFilter && statusFilter !== 'ALL') params.append('statusFilter', statusFilter);
       if (search && search.trim()) params.append('search', search.trim());
+      if (appealsOnly) params.append('appealsOnly', 'true');
       params.append('page', String(page));
       params.append('limit', String(limit));
 
@@ -129,8 +146,11 @@ export function useAccountStatus() {
     users,
     total,
     loading,
+    metrics,
+    metricsLoading,
     error,
     fetchUsers,
+    fetchMetrics,
     fetchUserDetail,
     changeStatus,
     resolveAppealCase,

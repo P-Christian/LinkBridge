@@ -24,6 +24,11 @@ export const updateStudentSchema = createStudentSchema.partial();
 // `expected_updated_at` is an optimistic-concurrency guard (never persisted);
 // a mismatch yields 409 so stale edits cannot overwrite fresh saga writes.
 export const updateRosterAcademicsSchema = z.object({
+  first_name: z.string().trim().min(1, 'First name is required').max(100).optional(),
+  middle_name: z.string().trim().max(100).nullish().transform((v) => (v === '' ? null : v)),
+  last_name: z.string().trim().min(1, 'Last name is required').max(100).optional(),
+  email: z.string().trim().min(1, 'Email is required').email('Invalid email address format').max(150).optional(),
+  school_course_id: z.number().nullable().optional(),
   student_number: z.string().trim().max(50).nullish().transform((v) => (v === '' ? null : v)),
   gpa: z.number().min(0).max(5.0).nullable().optional(),
   school_year: z.string().trim().min(1, 'School year is required').max(50).optional(),

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAccountStatusUsers, getAccountStatusDetail, changeUserStatus } from "@/modules/vos-admin/account-status-management";
+import { getAccountStatusUsers, getAccountStatusDetail, changeUserStatus, getAccountStatusMetrics } from "@/modules/vos-admin/account-status-management";
 import { createAuditRecordStrictRepo } from "@/modules/vos-admin/audit-trail";
 import { createNotification } from "@/lib/notifications";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
@@ -21,6 +21,13 @@ export async function GET(req: NextRequest) {
     }
 
     const { searchParams } = new URL(req.url);
+    const metricsParam = searchParams.get("metrics");
+
+    if (metricsParam === "true") {
+      const metrics = await getAccountStatusMetrics();
+      return NextResponse.json({ metrics });
+    }
+
     const userIdStr = searchParams.get("userId");
 
     if (userIdStr) {
@@ -37,13 +44,14 @@ export async function GET(req: NextRequest) {
 
     const statusFilter = searchParams.get("statusFilter") || undefined;
     const search = searchParams.get("search") || undefined;
+    const appealsOnly = searchParams.get("appealsOnly") === "true";
     // Both land in Directus `limit=`/`page=`: a NaN page was rejected upstream
     // and blanked the whole table, and page=0 makes Directus compute a negative
     // range.
     const page = clampInt(searchParams.get("page"), 1, 1, Number.MAX_SAFE_INTEGER);
     const limit = clampInt(searchParams.get("limit"), 10, 1, 100);
 
-    const result = await getAccountStatusUsers(statusFilter, search, page, limit);
+    const result = await getAccountStatusUsers(statusFilter, search, page, limit, appealsOnly);
     return NextResponse.json({ users: result.users, total: result.total });
   } catch (error: unknown) {
     return NextResponse.json({ error: safeErrorMessage(error, "Internal server error.")}, { status: 500 });

@@ -1,4 +1,4 @@
-# VOS Sync
+# LinkBridge
 
 [![CI](https://github.com/P-Christian/vos-sync/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/P-Christian/vos-sync/actions/workflows/ci.yml)
 [![CD Pipeline](https://github.com/P-Christian/vos-sync/actions/workflows/deploy.yml/badge.svg?branch=master)](https://github.com/P-Christian/vos-sync/actions/workflows/deploy.yml)

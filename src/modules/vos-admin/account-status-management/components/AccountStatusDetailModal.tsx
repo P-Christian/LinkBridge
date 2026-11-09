@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { AccountStatusUser, AccountStatus, AccountStatusOrUnknown, StatusTransitionPayload, AppealDecisionPayload, UNKNOWN_ACCOUNT_STATUS } from "../types/account-status.types";
-import { ShieldAlert, History, MessageSquare, Shield, Check, X, Clock } from "lucide-react";
+import { ShieldAlert, History, MessageSquare, Shield, Check, X, Clock, Search, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props {
@@ -52,6 +52,12 @@ export function AccountStatusDetailModal({
   const [appealInternalNote, setAppealInternalNote] = useState("");
   const [appealPublicNote, setAppealPublicNote] = useState("");
 
+  // History Tab Filter State
+  const [historySearch, setHistorySearch] = useState("");
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
+  const [historyDisplayLimit, setHistoryDisplayLimit] = useState(10);
+
   const loadUserDetail = React.useCallback(async () => {
     if (!userId) return;
     setLoading(true);
@@ -84,10 +90,47 @@ export function AccountStatusDetailModal({
         setDuration("indefinite");
         setAppealInternalNote("");
         setAppealPublicNote("");
+        setHistorySearch("");
+        setHistoryDateFrom("");
+        setHistoryDateTo("");
+        setHistoryDisplayLimit(10);
       }, 0);
       return () => clearTimeout(timer);
     }
   }, [isOpen, userId, loadUserDetail]);
+
+  const hasHistoryFilters = Boolean(historySearch.trim() || historyDateFrom || historyDateTo);
+  const userHistory = user?.history;
+
+  const filteredHistory = React.useMemo(() => {
+    if (!userHistory) return [];
+    return userHistory.filter((h) => {
+      // Keyword search matches status, reason, actor
+      if (historySearch.trim()) {
+        const q = historySearch.trim().toLowerCase();
+        const matchStatus = h.new_status?.toLowerCase().includes(q);
+        const matchReason = (h.reason || "").toLowerCase().includes(q);
+        const matchActor = (h.actor || "").toLowerCase().includes(q);
+        if (!matchStatus && !matchReason && !matchActor) return false;
+      }
+
+      // Date From filter (inclusive of beginning of day)
+      if (historyDateFrom) {
+        const itemDate = new Date(h.occurred_at).setHours(0, 0, 0, 0);
+        const fromDate = new Date(historyDateFrom).setHours(0, 0, 0, 0);
+        if (itemDate < fromDate) return false;
+      }
+
+      // Date To filter (inclusive of end of day)
+      if (historyDateTo) {
+        const itemDate = new Date(h.occurred_at).setHours(23, 59, 59, 999);
+        const toDate = new Date(historyDateTo).setHours(23, 59, 59, 999);
+        if (itemDate > toDate) return false;
+      }
+
+      return true;
+    });
+  }, [userHistory, historySearch, historyDateFrom, historyDateTo]);
 
   if (!userId) return null;
 
@@ -391,42 +434,146 @@ export function AccountStatusDetailModal({
 
                 {activeTab === "history" && (
                   <div className="space-y-4">
-                    <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Status Transitions Log</h3>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
+                        Status Transitions Log
+                      </h3>
+                      {user.history && user.history.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                          Showing {filteredHistory.length} of {user.history.length} events
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Search and Date Range Filter Bar */}
+                    <div className="p-3 bg-zinc-50 dark:bg-zinc-800/40 rounded-lg border border-border space-y-2.5">
+                      <div className="relative">
+                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <Input
+                          placeholder="Search status, policy reason, or admin actor..."
+                          value={historySearch}
+                          onChange={(e) => setHistorySearch(e.target.value)}
+                          className="pl-8 pr-7 h-8 text-xs bg-white dark:bg-zinc-900"
+                        />
+                        {historySearch && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setHistorySearch("")}
+                            className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">From:</span>
+                          <Input
+                            type="date"
+                            value={historyDateFrom}
+                            onChange={(e) => setHistoryDateFrom(e.target.value)}
+                            className="h-8 text-xs bg-white dark:bg-zinc-900"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-1 min-w-[130px]">
+                          <span className="text-[11px] text-muted-foreground whitespace-nowrap">To:</span>
+                          <Input
+                            type="date"
+                            value={historyDateTo}
+                            onChange={(e) => setHistoryDateTo(e.target.value)}
+                            className="h-8 text-xs bg-white dark:bg-zinc-900"
+                          />
+                        </div>
+
+                        {hasHistoryFilters && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setHistorySearch("");
+                              setHistoryDateFrom("");
+                              setHistoryDateTo("");
+                            }}
+                            className="h-8 px-2 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                          >
+                            <RotateCcw className="h-3 w-3" />
+                            Reset
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
                     {!user.history || user.history.length === 0 ? (
                       <p className="text-sm text-zinc-500 text-center py-6">No status changes recorded.</p>
+                    ) : filteredHistory.length === 0 ? (
+                      <div className="text-center py-8 border border-dashed rounded-lg bg-zinc-50/50 dark:bg-zinc-800/20">
+                        <p className="text-sm text-muted-foreground">No history records match the selected search or date criteria.</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setHistorySearch("");
+                            setHistoryDateFrom("");
+                            setHistoryDateTo("");
+                          }}
+                          className="mt-3 h-8 text-xs"
+                        >
+                          Clear Filters
+                        </Button>
+                      </div>
                     ) : (
-                      <div className="border rounded-lg overflow-hidden divide-y">
-                        {user.history.map((h) => {
-                          const parts = h.reason ? h.reason.split(" | Restrictions: ") : [h.reason || ""];
-                          const displayReason = parts[0] || "No justification provided";
-                          const restrictionsString = parts[1];
-                          const restrictionsList = restrictionsString ? restrictionsString.split(",").map(r => r.trim()) : [];
+                      <div className="space-y-3">
+                        <div className="border rounded-lg overflow-hidden divide-y max-h-[360px] overflow-y-auto">
+                          {filteredHistory.slice(0, historyDisplayLimit).map((h) => {
+                            const parts = h.reason ? h.reason.split(" | Restrictions: ") : [h.reason || ""];
+                            const displayReason = parts[0] || "No justification provided";
+                            const restrictionsString = parts[1];
+                            const restrictionsList = restrictionsString ? restrictionsString.split(",").map(r => r.trim()) : [];
 
-                          return (
-                            <div key={h.history_id} className="p-3 text-sm flex justify-between items-start gap-4">
-                              <div>
-                                <p className="font-semibold text-zinc-800 dark:text-zinc-200">
-                                  Transited to <span className="text-primary">{h.new_status.replace("_", " ")}</span>
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-0.5">Reason: {displayReason}</p>
-                                {restrictionsList.length > 0 && (
-                                  <div className="flex flex-wrap gap-1 mt-1.5">
-                                    {restrictionsList.map((code, idx) => (
-                                      <span key={idx} className="inline-flex items-center rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300 border border-amber-200/50 dark:border-amber-900/50">
-                                        {code}
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                                <p className="text-xs text-zinc-400 mt-1">Version: v{h.new_version}</p>
+                            return (
+                              <div key={h.history_id} className="p-3 text-sm flex justify-between items-start gap-4 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+                                <div>
+                                  <p className="font-semibold text-zinc-800 dark:text-zinc-200">
+                                    Transited to <span className="text-primary">{h.new_status.replace("_", " ")}</span>
+                                  </p>
+                                  <p className="text-xs text-muted-foreground mt-0.5">Reason: {displayReason}</p>
+                                  {restrictionsList.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-1.5">
+                                      {restrictionsList.map((code, idx) => (
+                                        <span key={idx} className="inline-flex items-center rounded bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-800 dark:text-amber-300 border border-amber-200/50 dark:border-amber-900/50">
+                                          {code}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-zinc-400 mt-1">Version: v{h.new_version}</p>
+                                </div>
+                                <div className="text-right">
+                                  <span className="text-xs text-zinc-500 font-medium block">By: {h.actor || 'System'}</span>
+                                  <span className="text-[10px] text-zinc-400 block mt-0.5">{new Date(h.occurred_at).toLocaleString()}</span>
+                                </div>
                               </div>
-                              <div className="text-right">
-                                <span className="text-xs text-zinc-500 font-medium block">By: {h.actor || 'System'}</span>
-                                <span className="text-[10px] text-zinc-400 block mt-0.5">{new Date(h.occurred_at).toLocaleString()}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+
+                        {filteredHistory.length > historyDisplayLimit && (
+                          <div className="text-center pt-1">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setHistoryDisplayLimit((prev) => prev + 10)}
+                              className="text-xs h-8 border-border"
+                            >
+                              Load More Logs ({filteredHistory.length - historyDisplayLimit} remaining)
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>

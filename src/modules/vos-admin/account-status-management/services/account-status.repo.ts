@@ -1,10 +1,47 @@
 // src/modules/vos-admin/account-status-management/services/account-status.repo.ts
-import { AccountStatusUser, AccountRestriction, AccountStatusCase, AccountDeletionRequest, toAccountStatus } from '../types/account-status.types';
+import { AccountStatusUser, AccountRestriction, AccountStatusCase, AccountDeletionRequest, toAccountStatus, AccountStatusMetrics } from '../types/account-status.types';
 import { mapPool } from "@/lib/server/pool";
 import { getPHTimeString, toPHWallClock } from "@/lib/utils";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+async function countAggregate(endpoint: string): Promise<number> {
+  try {
+    const res = await fetch(`${DIRECTUS_BASE}/items/${endpoint}`, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+    if (!res.ok) return 0;
+    const json = await res.json().catch(() => null);
+    const first = (json as { data?: { count?: Record<string, unknown> | unknown }[] })?.data?.[0];
+    const raw = first?.count;
+    const value = Number(raw && typeof raw === "object" ? Object.values(raw)[0] : raw);
+    return Number.isFinite(value) ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export async function fetchAccountStatusMetricsRepo(): Promise<AccountStatusMetrics> {
+  const [active, limited, suspended, blocked, pendingDeletion, deleted, pendingAppeals] = await Promise.all([
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=ACTIVE"),
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=LIMITED"),
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=SUSPENDED"),
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=BLOCKED"),
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=PENDING_DELETION"),
+    countAggregate("vs_user?aggregate[count]=user_id&filter[status][_eq]=DELETED"),
+    countAggregate("vs_account_status_case?aggregate[count]=case_id&filter[state][_eq]=OPEN"),
+  ]);
+
+  return {
+    active,
+    limited,
+    suspendedBlocked: suspended + blocked,
+    deletionHolds: pendingDeletion + deleted,
+    pendingAppeals,
+  };
+}
 
 /**
  * Deactivates the given ACTIVE restriction rows in one bounded batch and returns
@@ -81,8 +118,28 @@ export async function fetchAccountStatusUsersRepo(
   statusFilter?: string,
   search?: string,
   page: number = 1,
-  limit: number = 10
+  limit: number = 10,
+  appealsOnly?: boolean
 ): Promise<{ users: AccountStatusUser[]; total: number }> {
+  // If appealsOnly is requested, first resolve users who have active (OPEN) appeal cases
+  let appealUserIds: number[] | null = null;
+  if (appealsOnly) {
+    const openCasesUrl = `${DIRECTUS_BASE}/items/vs_account_status_case?filter[state][_eq]=OPEN&fields=user_id&limit=-1`;
+    const openCasesRes = await fetch(openCasesUrl, { headers: getHeaders(), cache: "no-store" });
+    if (openCasesRes.ok) {
+      const openCasesJson = await openCasesRes.json();
+      const openCases: Array<{ user_id: number }> = openCasesJson.data || [];
+      appealUserIds = Array.from(new Set(openCases.map((c) => c.user_id).filter(Boolean)));
+    } else {
+      appealUserIds = [];
+    }
+
+    // If no users have open appeals, return early
+    if (appealUserIds.length === 0) {
+      return { users: [], total: 0 };
+    }
+  }
+
   const queries: string[] = [];
 
   queries.push(`limit=${limit}`);
@@ -91,6 +148,10 @@ export async function fetchAccountStatusUsersRepo(
   queries.push('sort=-user_id');
 
   const filter: Record<string, unknown> = {};
+
+  if (appealUserIds && appealUserIds.length > 0) {
+    filter.user_id = { _in: appealUserIds };
+  }
 
   if (statusFilter && statusFilter !== "ALL") {
     filter.status = { _eq: statusFilter };
@@ -214,7 +275,7 @@ export async function fetchUserStatusDetailRepo(userId: number): Promise<Account
   }
 
   // Fetch history
-  const histUrl = `${DIRECTUS_BASE}/items/vs_account_status_history?filter[user_id][_eq]=${userId}&sort=-occurred_at&limit=50`;
+  const histUrl = `${DIRECTUS_BASE}/items/vs_account_status_history?filter[user_id][_eq]=${userId}&sort=-occurred_at&limit=100`;
   const histRes = await fetch(histUrl, { headers: getHeaders(), cache: "no-store" });
   if (!histRes.ok) {
     throw new Error(`Could not read the status history of user #${userId}.`);

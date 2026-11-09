@@ -184,6 +184,7 @@ export const StudentRosterPage: React.FC = () => {
         student={editingStudent}
         onClose={() => setEditingStudent(null)}
         onSuccess={editStudent}
+        courses={courses}
       />
 
       <BulkUploadModal
