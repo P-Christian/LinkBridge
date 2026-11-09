@@ -23,6 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -260,6 +261,128 @@ function MatchPipelineLoadingState({
         </div>
       </div>
     </motion.div>
+  );
+}
+
+// ── Skeletons ──────────────────────────────────────────────────────────────────
+
+function SchoolCardSkeleton() {
+  return (
+    <div className="bg-card border border-border/80 rounded-2xl p-5 flex flex-col justify-between space-y-4 shadow-xs">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3.5">
+          <Skeleton className="h-12 w-12 rounded-xl shrink-0" />
+          <div className="flex-1 min-w-0 space-y-2">
+            <Skeleton className="h-4 w-3/4 rounded-md" />
+            <Skeleton className="h-3 w-1/2 rounded-md" />
+          </div>
+        </div>
+        <div className="flex items-center gap-2 pt-1">
+          <Skeleton className="h-5 w-16 rounded-full" />
+          <Skeleton className="h-5 w-20 rounded-md" />
+        </div>
+      </div>
+      <div className="mt-4 pt-4 border-t border-border/60 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Skeleton className="h-3.5 w-16 rounded-md" />
+          <Skeleton className="h-3.5 w-16 rounded-md" />
+        </div>
+        <Skeleton className="h-3.5 w-14 rounded-md" />
+      </div>
+    </div>
+  );
+}
+
+function SchoolProfileDetailSkeleton({ onBack }: { onBack?: () => void }) {
+  return (
+    <div className="w-full pb-12 font-sans space-y-8 animate-in fade-in duration-300">
+      {/* Top action bar */}
+      <div className="flex items-center justify-between pb-2 border-b border-border/60">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-4 w-32 rounded-md" />
+        </div>
+        {onBack && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs gap-1"
+            onClick={onBack}
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+            Change School
+          </Button>
+        )}
+      </div>
+
+      {/* Header Cover & Summary */}
+      <div className="w-full bg-card border border-border rounded-2xl overflow-hidden shadow-xs">
+        <div className="h-44 sm:h-56 w-full bg-muted/60" />
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-6 relative">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-5">
+            <div className="-mt-14 sm:-mt-16 relative w-28 h-28 sm:w-32 sm:h-32 rounded-2xl border-4 border-card bg-muted shrink-0 shadow-md" />
+            <div className="space-y-2 pt-3 flex-1">
+              <Skeleton className="h-7 w-64 rounded-md" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-24 rounded-md" />
+                <Skeleton className="h-4 w-20 rounded-md" />
+                <Skeleton className="h-4 w-28 rounded-md" />
+              </div>
+              <Skeleton className="h-3.5 w-48 rounded-md" />
+            </div>
+          </div>
+          {/* Fake tabs */}
+          <div className="flex gap-4 mt-6 pt-4 border-t border-border/60">
+            <Skeleton className="h-8 w-24 rounded-lg" />
+            <Skeleton className="h-8 w-28 rounded-lg" />
+            <Skeleton className="h-8 w-36 rounded-lg" />
+          </div>
+        </div>
+      </div>
+
+      {/* Main 2-col left / 1-col right content grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="rounded-2xl border border-border bg-card shadow-xs p-6 space-y-4">
+            <Skeleton className="h-5 w-44 rounded-md" />
+            <div className="space-y-2 pt-1">
+              <Skeleton className="h-4 w-full rounded-md" />
+              <Skeleton className="h-4 w-11/12 rounded-md" />
+              <Skeleton className="h-4 w-4/5 rounded-md" />
+              <Skeleton className="h-4 w-2/3 rounded-md" />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="p-5 rounded-2xl bg-card border border-border shadow-xs space-y-3">
+              <Skeleton className="h-4 w-24 rounded-md" />
+              <Skeleton className="h-3.5 w-full rounded-md" />
+              <Skeleton className="h-3.5 w-4/5 rounded-md" />
+            </div>
+            <div className="p-5 rounded-2xl bg-card border border-border shadow-xs space-y-3">
+              <Skeleton className="h-4 w-24 rounded-md" />
+              <Skeleton className="h-3.5 w-full rounded-md" />
+              <Skeleton className="h-3.5 w-4/5 rounded-md" />
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-border bg-card shadow-xs p-6 space-y-5">
+            <Skeleton className="h-5 w-44 rounded-md" />
+            <div className="space-y-4 pt-1">
+              {[1, 2, 3, 4, 5].map((idx) => (
+                <div key={idx} className="flex items-start gap-3">
+                  <Skeleton className="h-8 w-8 rounded-lg shrink-0" />
+                  <div className="space-y-1.5 flex-1">
+                    <Skeleton className="h-2.5 w-20 rounded-xs" />
+                    <Skeleton className="h-4 w-3/4 rounded-md" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -631,8 +754,13 @@ export default function CampusTalentModule() {
 
               {/* School Cards Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-                <AnimatePresence mode="popLayout">
-                  {filteredSchools.map((school) => (
+                {schoolsLoading ? (
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <SchoolCardSkeleton key={i} />
+                  ))
+                ) : (
+                  <AnimatePresence mode="popLayout">
+                    {filteredSchools.map((school) => (
                     <motion.button
                       layout
                       key={school.school_id}
@@ -709,6 +837,7 @@ export default function CampusTalentModule() {
                     </motion.button>
                   ))}
                 </AnimatePresence>
+                )}
               </div>
             </div>
           )}
@@ -717,10 +846,12 @@ export default function CampusTalentModule() {
           {view === "STUDENTS" && (
             <div className="space-y-6">
               {profileLoading ? (
-                <div className="flex flex-col items-center justify-center py-24 gap-3 text-muted-foreground">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
-                  <p className="text-sm font-medium">Loading school profile...</p>
-                </div>
+                <SchoolProfileDetailSkeleton
+                  onBack={() => {
+                    setView("SCHOOLS");
+                    setSelectedSchool(null);
+                  }}
+                />
               ) : profileError ? (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
