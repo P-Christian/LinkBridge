@@ -190,8 +190,9 @@ export async function directusItemsWhereIn<T = Record<string, unknown>>(
     batches,
     (batch) => {
       const extra = options.extra ? `&${options.extra.replace(/^&/, "")}` : "";
+      const limitQuery = /[?&]?limit=/.test(extra) ? "" : "&limit=-1";
       return directusItems<T>(collection, {
-        query: `filter[${field}][_in]=${batch.join(",")}&fields=${fields}&limit=-1${extra}`,
+        query: `filter[${field}][_in]=${batch.join(",")}&fields=${fields}${limitQuery}${extra}`,
       });
     },
     options.size ?? 4

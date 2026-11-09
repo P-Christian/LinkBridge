@@ -9,7 +9,8 @@ export interface AlternativeJobMatch {
 
 export interface CandidateAiAnalysis {
   match_score: number;
-  fit_level: "Strong Match" | "Good Match" | "Moderate Match" | "Potential Fit" | "Low Match";
+  // Gemini words this freely; the badge colours come from match_score.
+  fit_level: string;
   executive_summary: string;
   strengths: string[];
   gaps_or_considerations: string[];

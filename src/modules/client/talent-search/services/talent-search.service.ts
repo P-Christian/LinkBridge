@@ -31,6 +31,7 @@ import type {
   TalentResult,
 } from "./talent-search.record";
 import type { ResolvedTaxonomyContext } from "./talent-search.taxonomy";
+import type { TalentSort } from "../types";
 
 /**
  * What one search has to admit to the recruiter as it runs: an optional section
@@ -255,8 +256,9 @@ export function applyPreScoringFilters(input: {
     const wanted = input.workSetupFilters.map((s) => s.toLowerCase().trim());
     const before = pool.length;
     pool = pool.filter(({ candidate }) => {
-      const ws = input.items.get(candidate.id)?.jobPreference?.work_setup?.toLowerCase().trim();
-      return ws ? wanted.includes(ws) : false;
+      const raw = input.items.get(candidate.id)?.jobPreference?.work_setup ?? "";
+      const candidateSetups = raw.toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+      return candidateSetups.some((s) => wanted.includes(s));
     });
     removed.work_setup = before - pool.length;
   }
@@ -265,7 +267,7 @@ export function applyPreScoringFilters(input: {
 }
 
 /** The one sidebar filter that can only run after scoring. Supports multi-select OR logic. */
-export function applyExperienceFilter<T extends { relevant_experience_years: number }>(
+export function applyExperienceFilter<T extends { relevant_experience_years: number; experience_years?: number }>(
   talents: T[],
   experienceLevels: string[] | string
 ): T[] {
@@ -277,22 +279,90 @@ export function applyExperienceFilter<T extends { relevant_experience_years: num
   return talents.filter((t) =>
     levels.some((level) => {
       const [minYears, maxYears] = EXP_LEVEL_RANGE[level.toUpperCase()] ?? [0, 99];
-      return t.relevant_experience_years >= minYears && t.relevant_experience_years <= maxYears;
+      const relMatches = t.relevant_experience_years >= minYears && t.relevant_experience_years <= maxYears;
+      const totalMatches = t.experience_years !== undefined && t.experience_years >= minYears && t.experience_years <= maxYears;
+      return relMatches || totalMatches;
     })
   );
+}
+
+/** In-memory fast filter applied directly to scored TalentResult items */
+export function filterTalentResults(
+  talents: TalentResult[],
+  filters: {
+    locations?: string[];
+    schools?: string[];
+    workSetups?: string[];
+    experienceLevels?: string[];
+  }
+): TalentResult[] {
+  let res = talents;
+
+  if (filters.locations && filters.locations.length > 0) {
+    const variants = filters.locations.map(locationMatchVariants);
+    res = res.filter((t) =>
+      variants.some((group) => group.some((v) => t.location.toLowerCase().includes(v)))
+    );
+  }
+
+  if (filters.schools && filters.schools.length > 0) {
+    res = res.filter((t) =>
+      t.education.some((e) =>
+        filters.schools!.some(
+          (school) =>
+            String(e.school_id ?? "") === school ||
+            (e.school_name && matchSchool(school, e.school_name).matched)
+        )
+      )
+    );
+  }
+
+  if (filters.workSetups && filters.workSetups.length > 0) {
+    const wanted = filters.workSetups.map((s) => s.toLowerCase().trim());
+    // A candidate who has not stated a preference matches no value, so they drop
+    // out as soon as this facet is set — even when all three are set.
+    res = res.filter((t) => {
+      const setups = (t.work_setup ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean);
+      return setups.some((s) => wanted.includes(s));
+    });
+  }
+
+  if (filters.experienceLevels && filters.experienceLevels.length > 0) {
+    res = applyExperienceFilter(res, filters.experienceLevels);
+  }
+
+  return res;
 }
 
 /**
  * Sort in place. Search mode orders by relevance; browse mode has no relevance to
  * order by, so it orders on profile completeness, then experience, then newest
- * profile id.
+ * profile id. A recruiter-chosen `sort` overrides both policies, and `profile_id`
+ * breaks every tie so two runs of the same search cannot interleave pages.
  *
  * NOTE: keyword-based post-filtering is intentionally absent. Layer 1 (retrieval)
  * and Layer 2 (scoring) already determine relevance; a second keyword gate here
  * would reject valid candidates whose title or summary differs from the query but
  * whose skills and experience are highly relevant.
  */
-export function sortTalents(talents: TalentResult[], searchMode: "browse" | "search"): void {
+export function sortTalents(
+  talents: TalentResult[],
+  searchMode: "browse" | "search",
+  sort: TalentSort = "relevance"
+): void {
+  if (sort === "experience") {
+    talents.sort(
+      (a, b) => b.experience_years - a.experience_years || b.profile_id - a.profile_id
+    );
+    return;
+  }
+  if (sort === "name") {
+    talents.sort(
+      (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }) ||
+        a.profile_id - b.profile_id
+    );
+    return;
+  }
   if (searchMode === "search") {
     talents.sort((a, b) => {
       const scoreA = a.ranking_score ?? a.match_score ?? 0;

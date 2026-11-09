@@ -36,6 +36,17 @@ export function toPHWallClock(value: string | number | Date): string | null {
   return new Date(ms + 8 * 60 * 60 * 1000).toISOString().slice(0, 19).replace("T", " ");
 }
 
+/**
+ * vs_* datetimes are Manila wall clocks with no offset; unparseable input
+ * returns the raw value so one bad row cannot blank the table.
+ */
+export function formatWallClock(value: string | null | undefined, locale: string = "en-PH"): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return value;
+  return d.toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+}
+
 export function formatDateLong(d: Date, locale: string = "en-PH"): string {
   return new Intl.DateTimeFormat(locale, {
     year: "numeric",

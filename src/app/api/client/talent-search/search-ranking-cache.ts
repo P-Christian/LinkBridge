@@ -1,6 +1,7 @@
 // src/app/api/client/talent-search/search-ranking-cache.ts
 
 import type { ResolvedTaxonomyContext } from "@/modules/matching-engine";
+import type { TalentResult } from "@/modules/client/talent-search/services/talent-search.record";
 import { layerLog } from "@/modules/client/talent-search/services/talent-search.helpers";
 
 /**
@@ -8,7 +9,7 @@ import { layerLog } from "@/modules/client/talent-search/services/talent-search.
  * or the record shape. It is the only key a scoring change invalidates, so a
  * stale ranking can never outlive a deploy by more than one version string.
  */
-export const RANKING_ENGINE_VERSION = "2026-11-05.2";
+export const RANKING_ENGINE_VERSION = "2026-11-06.1";
 
 /**
  * Freshness bound. A profile-row write is caught by the probe in the route, but
@@ -36,6 +37,8 @@ export interface RankingKeyInput {
   experienceLevel?: string;
   experienceLevels?: string[];
   workSetups?: string[];
+  /** Part of the key because the stored array IS the order — see RankedSearch.ids. */
+  sort?: string;
 }
 
 /**
@@ -54,6 +57,7 @@ export function buildRankingKey(input: RankingKeyInput): string {
     input.schools,
     expLevels,
     input.workSetups ?? [],
+    input.sort ?? "relevance",
   ]);
 }
 
@@ -101,4 +105,118 @@ export function setRankedSearch(key: string, entry: RankedSearch): void {
     }
   }
   ranked.set(key, entry);
+}
+
+// ────────────────────────────────────────────
+// Tier 1: Base Scored Pool (corpus-wide Layer 2 scored candidates for a role)
+// ────────────────────────────────────────────
+
+export interface BaseScoredPool {
+  talents: TalentResult[];
+  taxonomy: ResolvedTaxonomyContext;
+  matchKeyword: string;
+  effectiveSkills: string[];
+  newestProfileWrite: number | null;
+  savedAt: number;
+}
+
+export function buildBaseSearchKey(input: {
+  companyId: number;
+  jobId: number;
+  keyword: string;
+  skills?: string[];
+}): string {
+  return JSON.stringify([
+    RANKING_ENGINE_VERSION,
+    input.companyId,
+    input.jobId || 0,
+    (input.keyword || "").trim().toLowerCase(),
+    input.skills ?? [],
+  ]);
+}
+
+const baseScoredPools = new Map<string, BaseScoredPool>();
+
+export function getBaseScoredPool(key: string): BaseScoredPool | null {
+  const entry = baseScoredPools.get(key);
+  if (!entry) return null;
+  const age = Date.now() - entry.savedAt;
+  if (age > MAX_AGE_MS) {
+    baseScoredPools.delete(key);
+    layerLog("CACHE", "❌ base pool expired", { ageMs: age, maxAgeMs: MAX_AGE_MS });
+    return null;
+  }
+  return entry;
+}
+
+export function setBaseScoredPool(key: string, entry: BaseScoredPool): void {
+  if (!baseScoredPools.has(key) && baseScoredPools.size >= MAX_ENTRIES) {
+    const oldest = baseScoredPools.keys().next().value;
+    if (oldest !== undefined) baseScoredPools.delete(oldest);
+  }
+  baseScoredPools.set(key, entry);
+}
+
+// ────────────────────────────────────────────
+// Layer B Rerank Cache (keyed on candidate head IDs)
+// ────────────────────────────────────────────
+
+export interface CachedRerankResult {
+  adjustments: Record<number, number>;
+  rationales: Record<number, string>;
+  ranked_ids: number[];
+  savedAt: number;
+}
+
+const rerankCache = new Map<string, CachedRerankResult>();
+
+export function getCachedRerank(key: string): CachedRerankResult | null {
+  const entry = rerankCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.savedAt > MAX_AGE_MS) {
+    rerankCache.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+export function setCachedRerank(key: string, entry: CachedRerankResult): void {
+  if (!rerankCache.has(key) && rerankCache.size >= MAX_ENTRIES) {
+    const oldest = rerankCache.keys().next().value;
+    if (oldest !== undefined) rerankCache.delete(oldest);
+  }
+  rerankCache.set(key, entry);
+}
+
+// ────────────────────────────────────────────
+// Layer C Match Explanation Cache (Option 1: In-Memory LRU)
+// ────────────────────────────────────────────
+
+export interface CachedExplanationResult {
+  explanation: string;
+  savedAt: number;
+}
+
+const explanationCache = new Map<string, CachedExplanationResult>();
+const EXPLANATION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+const EXPLANATION_MAX_ENTRIES = 500;
+
+export function getCachedExplanation(candidateKey: number | string, keyword: string): string | null {
+  const normKey = `${String(candidateKey).trim()}::${keyword.trim().toLowerCase()}`;
+  const entry = explanationCache.get(normKey);
+  if (!entry) return null;
+  if (Date.now() - entry.savedAt > EXPLANATION_MAX_AGE_MS) {
+    explanationCache.delete(normKey);
+    return null;
+  }
+  return entry.explanation;
+}
+
+export function setCachedExplanation(candidateKey: number | string, keyword: string, explanation: string): void {
+  const normKey = `${String(candidateKey).trim()}::${keyword.trim().toLowerCase()}`;
+  if (!explanationCache.has(normKey) && explanationCache.size >= EXPLANATION_MAX_ENTRIES) {
+    const oldest = explanationCache.keys().next().value;
+    if (oldest !== undefined) explanationCache.delete(oldest);
+  }
+  explanationCache.set(normKey, { explanation, savedAt: Date.now() });
 }

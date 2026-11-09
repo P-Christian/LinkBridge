@@ -7,8 +7,13 @@ import { analyzeQuery, retrieveCandidatePool, getOrLoadTaxonomy, type Normalized
 import { DirectusError } from "@/lib/server/directus";
 import { toId } from "@/lib/server/route";
 import {
+  buildBaseSearchKey,
   buildRankingKey,
+  getBaseScoredPool,
+  getCachedRerank,
   getRankedSearch,
+  setBaseScoredPool,
+  setCachedRerank,
   setRankedSearch,
 } from "./search-ranking-cache";
 import {
@@ -28,6 +33,10 @@ import {
   newestWriteMs,
 } from "@/modules/client/talent-search/services/talent-search.helpers";
 import {
+  TALENT_SORTS,
+  type TalentSort,
+} from "@/modules/client/talent-search/types";
+import {
   buildRoleSkillsMap,
   expandEffectiveSkills,
   resolveRoleTaxonomy,
@@ -41,11 +50,14 @@ import {
   type RecordContext,
   type TalentResult,
 } from "@/modules/client/talent-search/services/talent-search.record";
-import { rerankTalents, understandQuery } from "@/modules/client/talent-search/services/talent-search.ai";
 import {
-  applyExperienceFilter,
-  applyPreScoringFilters,
+  rerankTalents,
+  understandQuery,
+  type TalentRerank,
+} from "@/modules/client/talent-search/services/talent-search.ai";
+import {
   buildMatchContext,
+  filterTalentResults,
   loadCandidates,
   requiredExperienceYears,
   resolveEngineMode,
@@ -123,7 +135,13 @@ export async function GET(req: NextRequest) {
     const experienceLevels = getListParam(searchParams, "experience_level");
     const workSetupFilters = getListParam(searchParams, "work_setup");
     const page = getIntParam(searchParams, "page", 1);
-    const limit = Math.min(50, getIntParam(searchParams, "limit", 20));
+    const limit = Math.min(50, Math.max(1, getIntParam(searchParams, "limit", 20)));
+    // An unknown value falls back to the engine's own policy rather than 400ing,
+    // because the order is a display choice and a stale bookmark must still work.
+    const requestedSortParam = (searchParams.get("sort") || "").trim() as TalentSort;
+    const requestedSort: TalentSort = TALENT_SORTS.includes(requestedSortParam)
+      ? requestedSortParam
+      : "relevance";
     // Interpolated raw into the job reads below. A percent-encoded `&filter[…]`
     // inside this value came back from `searchParams` already decoded, so the
     // caller could append their own filter segments — including replacing the
@@ -140,6 +158,7 @@ export async function GET(req: NextRequest) {
       job: requestedJobId || null,
       page,
       limit,
+      sort: requestedSort,
     });
 
     // Anything this run has to admit to the recruiter: a truncated scan, an
@@ -267,6 +286,7 @@ export async function GET(req: NextRequest) {
       schools: schoolFilters,
       experienceLevels,
       workSetups: workSetupFilters,
+      sort: requestedSort,
     });
 
     let ranked = getRankedSearch(rankingKey);
@@ -369,7 +389,121 @@ export async function GET(req: NextRequest) {
         total: ranked.total,
         page,
         limit,
+        sort: requestedSort,
         ai_reranked: ranked.aiReranked,
+        warnings,
+      });
+    }
+
+    // ────────────────────────────────────────────
+    // 3b. Tier 1 Base Scored Pool check
+    //
+    // If exact filter ranking is a miss, check if we already scored the corpus
+    // for this canonical keyword and job posting. If so, sidebar filters can be
+    // applied in-memory in < 1ms, skipping all Directus scans and Layer 1.
+    // ────────────────────────────────────────────
+    const baseKey = buildBaseSearchKey({
+      companyId,
+      jobId: requestedJobId,
+      keyword: canonicalKeyword,
+      skills: requestedSkills,
+    });
+
+    let basePool = getBaseScoredPool(baseKey);
+    if (basePool) {
+      const [newest] = await readMostRecentlyWrittenProfile();
+      const newestWrite = newest?.updated_at ? Date.parse(newest.updated_at) : NaN;
+      if (!Number.isNaN(newestWrite) && basePool.newestProfileWrite !== null && newestWrite > basePool.newestProfileWrite) {
+        layerLog("CACHE", "❌ base pool discarded: a profile row was written after this pool was scored", {
+          coveredWritesUpTo: new Date(basePool.newestProfileWrite).toISOString(),
+          newestWriteNow: new Date(newestWrite).toISOString(),
+        });
+        basePool = null;
+      }
+    }
+
+    if (basePool) {
+      layerLog("CACHE", `hit (base pool) — reusing ${basePool.talents.length} scored candidates for "${canonicalKeyword}"`, {
+        ageMs: Date.now() - basePool.savedAt,
+        candidates: basePool.talents.length,
+        matchKeyword: basePool.matchKeyword,
+        role: basePool.taxonomy.resolved_role,
+      });
+
+      let filtered = filterTalentResults(basePool.talents, {
+        locations,
+        schools: schoolFilters,
+        workSetups: workSetupFilters,
+        experienceLevels,
+      });
+
+      const dropped = basePool.talents.length - filtered.length;
+      layerLog(
+        "FILTER",
+        `${basePool.talents.length} → ${filtered.length} after sidebar filters${dropped > 0 ? ` (${dropped} dropped)` : " (none set or all passed)"}`,
+        {
+          locations: locations.length,
+          schools: schoolFilters.length,
+          workSetups: workSetupFilters.length,
+          experienceLevels: experienceLevels.length,
+        }
+      );
+
+      sortTalents(filtered, searchMode, requestedSort);
+
+      // Layer B reorders the head of the list and blends an AI adjustment into
+      // those candidates' ranking_score. Under a recruiter-chosen order that work
+      // is thrown away by the sort below it and paid for anyway, so the call is
+      // skipped and the response says plainly that the order is not AI-derived.
+      let rerank: TalentRerank = {
+        talents: filtered,
+        aiReranked: false,
+        outcome: "not_applicable",
+      };
+      if (requestedSort === "relevance") {
+        rerank = await rerankTalents({
+          keyword: basePool.matchKeyword || canonicalKeyword,
+          jobId: requestedJobId,
+          userId,
+          companyId,
+          talents: filtered,
+        });
+      }
+      filtered = rerank.talents;
+
+      const total = filtered.length;
+      const paginated = filtered.slice((page - 1) * limit, page * limit);
+
+      setRankedSearch(rankingKey, {
+        ids: filtered.map((t) => t.user_id),
+        total,
+        mode: searchMode,
+        aiReranked: rerank.aiReranked,
+        taxonomy: basePool.taxonomy,
+        matchKeyword: basePool.matchKeyword,
+        effectiveSkills: basePool.effectiveSkills,
+        newestProfileWrite: basePool.newestProfileWrite,
+        savedAt: Date.now(),
+      });
+
+      counts.mode = searchMode;
+      counts.ai_reranked = rerank.aiReranked;
+      counts.after_filter = total;
+      counts.page = page;
+      counts.limit = limit;
+      counts.cache = "hit_base";
+      mark("rank");
+      emitTrace();
+
+      return NextResponse.json({
+        search_mode: searchMode,
+        search_context: searchMode === "search" ? basePool.taxonomy : null,
+        talents: paginated,
+        total,
+        page,
+        limit,
+        sort: requestedSort,
+        ai_reranked: rerank.aiReranked,
         warnings,
       });
     }
@@ -538,24 +672,7 @@ export async function GET(req: NextRequest) {
       layerLog("LAYER_1", "retrieval returned nothing", { of: normalizedProfilesList.length });
     }
 
-    const { pool, removed } = applyPreScoringFilters({
-      pool: eligiblePool,
-      items: normalizedProfilesMap,
-      requestedSkills,
-      jobId: requestedJobId,
-      locations,
-      schoolFilters,
-      workSetupFilters,
-    });
-    layerLog(
-      "PREFILTER",
-      `${retrievedPool.length} → ${pool.length} after the sidebar filters${Object.keys(removed).length ? "" : " (none were set)"}`,
-      removed
-    );
-    mark("prefilter");
-    counts.prefilter = pool.length;
-
-    // Layer 2: the six evaluators, run only on what survived the filters.
+    // Layer 2: score all eligible candidates to create the base scored pool
     const sharedContext: RecordContext = {
       matchContext: matchContextFor(effectiveSkills, query.matchKeyword, taxonomy),
       showMatchScore: Boolean(requestedJobId),
@@ -563,7 +680,7 @@ export async function GET(req: NextRequest) {
       savedUserIds,
     };
 
-    const allTalents: TalentResult[] = pool
+    const baseTalents: TalentResult[] = eligiblePool
       .map(({ candidate, retrievalScore, retrievalReason }) => {
         const item = normalizedProfilesMap.get(candidate.id);
         if (!item) return null;
@@ -577,23 +694,49 @@ export async function GET(req: NextRequest) {
       .filter((t): t is TalentResult => t !== null);
 
     mark("layer_2");
-    counts.layer_2 = allTalents.length;
+    counts.layer_2 = baseTalents.length;
 
-    // ────────────────────────────────────────────
-    // 6. Rank
-    // ────────────────────────────────────────────
-    let filtered = applyExperienceFilter(allTalents, experienceLevels);
-    if (experienceLevels.length > 0) {
-      layerLog("FILTER", `experience_levels=${experienceLevels.join(",")} cut the scored list`, {
-        kept: filtered.length,
-        of: allTalents.length,
-        dropped: allTalents.length - filtered.length,
+    // Cache the base scored pool for this role keyword before applying transient sidebar filters
+    if (warnings.length === 0) {
+      setBaseScoredPool(baseKey, {
+        talents: baseTalents,
+        taxonomy,
+        matchKeyword: query.matchKeyword,
+        effectiveSkills,
+        newestProfileWrite: newestWriteMs(profiles),
+        savedAt: Date.now(),
       });
     }
-    sortTalents(filtered, searchMode);
-    layerLog("RANK", `ordered by ${searchMode === "search" ? "ranking_score, then match_score" : "profile completeness + experience, then newest profile_id"}`, {
-      total: filtered.length,
+
+    // ────────────────────────────────────────────
+    // 6. Filter & Rank
+    // ────────────────────────────────────────────
+    let filtered = filterTalentResults(baseTalents, {
+      locations,
+      schools: schoolFilters,
+      workSetups: workSetupFilters,
+      experienceLevels,
     });
+    const droppedCount = baseTalents.length - filtered.length;
+    layerLog(
+      "FILTER",
+      `${baseTalents.length} → ${filtered.length} after sidebar filters${droppedCount > 0 ? ` (${droppedCount} dropped)` : " (none set or all passed)"}`,
+      {
+        locations: locations.length,
+        schools: schoolFilters.length,
+        workSetups: workSetupFilters.length,
+        experienceLevels: experienceLevels.length,
+      }
+    );
+
+    sortTalents(filtered, searchMode, requestedSort);
+    layerLog(
+      "RANK",
+      requestedSort !== "relevance"
+        ? `ordered by the recruiter's choice: ${requestedSort}`
+        : `ordered by ${searchMode === "search" ? "ranking_score, then match_score" : "profile completeness + experience, then newest profile_id"}`,
+      { total: filtered.length }
+    );
 
     const total = filtered.length;
     mark("rank");
@@ -602,13 +745,20 @@ export async function GET(req: NextRequest) {
       debugLog(`[talent-search] RANK       │ #${i + 1} ${t.user_id} ${t.name} "${t.headline || "no headline"}" → ${t.ranking_score ?? t.match_score ?? 0}`);
     });
 
-    const rerank = await rerankTalents({
-      keyword: query.matchKeyword || keyword,
-      jobId: requestedJobId,
-      userId,
-      companyId,
+    let rerank: TalentRerank = {
       talents: filtered,
-    });
+      aiReranked: false,
+      outcome: "not_applicable",
+    };
+    if (requestedSort === "relevance") {
+      rerank = await rerankTalents({
+        keyword: query.matchKeyword || keyword,
+        jobId: requestedJobId,
+        userId,
+        companyId,
+        talents: filtered,
+      });
+    }
     filtered = rerank.talents;
     counts.layer_b = rerank.outcome;
     mark("layer_b");
@@ -672,6 +822,7 @@ export async function GET(req: NextRequest) {
       total,
       page,
       limit,
+      sort: requestedSort,
       ai_reranked: rerank.aiReranked,
       warnings,
     });

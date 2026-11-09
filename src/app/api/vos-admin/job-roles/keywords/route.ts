@@ -164,7 +164,11 @@ export async function PATCH(req: NextRequest) {
     });
     if (!res.ok) throw new Error("Failed to update search keyword.");
     const json = await res.json();
-    return NextResponse.json(json.data);
+    const data = json.data || {};
+    return NextResponse.json({
+      ...data,
+      is_active: data.is_active !== false && data.is_active !== 0 && data.is_active !== "false",
+    });
   } catch (err: unknown) {
     return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }

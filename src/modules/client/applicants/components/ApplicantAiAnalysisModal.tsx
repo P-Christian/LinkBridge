@@ -45,11 +45,16 @@ export function ApplicantAiAnalysisModal({
   const [analysis, setAnalysis] = useState<CandidateAiAnalysis | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const currentAppIdRef = React.useRef<number | null>(null);
 
   const applicationId = applicant?.application_id;
 
   const fetchAnalysis = React.useCallback(async (forceRegenerate = false) => {
     if (!applicant || !applicationId) return;
+
+    const targetId = applicationId;
+    setLoading(true);
+    setError(null);
 
     let cached: CandidateAiAnalysis | null = null;
 
@@ -57,7 +62,11 @@ export function ApplicantAiAnalysisModal({
       // 1. Check L1 browser cache for instant 0ms display
       cached = getCachedApplicantAnalysis(applicationId);
       if (cached) {
-        setAnalysis(cached);
+        if (currentAppIdRef.current === targetId) {
+          setAnalysis(cached);
+          setLoading(false);
+        }
+        return;
       }
 
       // 2. Check active record from DB
@@ -65,9 +74,12 @@ export function ApplicantAiAnalysisModal({
         const getRes = await fetch(`/api/client/applicants/${applicationId}/ai-analysis`);
         const getData = await getRes.json().catch(() => null);
 
+        if (currentAppIdRef.current !== targetId) return;
+
         if (getRes.ok && getData?.success && getData.analysis) {
           setAnalysis(getData.analysis);
           setCachedApplicantAnalysis(applicationId, getData.analysis);
+          setLoading(false);
           return;
         }
 
@@ -76,26 +88,22 @@ export function ApplicantAiAnalysisModal({
         // on every outage, which then superseded the stored record the read had
         // failed to return.
         if (!getRes.ok) {
-          if (cached) return;
           setError(
             (getData?.error as string) ||
               "Saved evaluation could not be read. Please try again."
           );
+          setLoading(false);
           return;
         }
       } catch {
-        if (cached) return;
+        if (currentAppIdRef.current !== targetId) return;
         setError("Saved evaluation could not be read. Please try again.");
+        setLoading(false);
         return;
       }
-
-      if (cached) return;
     }
 
     // 4. Generate or regenerate evaluation
-    setLoading(true);
-    setError(null);
-
     try {
       const res = await fetch(`/api/client/applicants/${applicationId}/ai-analysis`, {
         method: "POST",
@@ -104,6 +112,8 @@ export function ApplicantAiAnalysisModal({
       });
 
       const data = await res.json();
+
+      if (currentAppIdRef.current !== targetId) return;
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || "Failed to analyze candidate profile.");
@@ -117,20 +127,35 @@ export function ApplicantAiAnalysisModal({
       const warnings = Array.isArray(data.warnings) ? data.warnings : [];
       warnings.forEach((warning: string) => toast.warning(warning));
     } catch (err: unknown) {
+      if (currentAppIdRef.current !== targetId) return;
       const msg = err instanceof Error ? err.message : "Error analyzing candidate.";
       setError(msg);
     } finally {
-      setLoading(false);
+      if (currentAppIdRef.current === targetId) {
+        setLoading(false);
+      }
     }
   }, [applicant, applicationId]);
 
   useEffect(() => {
-    if (open && applicant) {
+    if (open && applicant && applicationId) {
+      currentAppIdRef.current = applicationId;
       queueMicrotask(() => {
+        const cached = getCachedApplicantAnalysis(applicationId);
+        setAnalysis(cached || null);
+        setError(null);
+        setLoading(!cached);
         fetchAnalysis(false);
       });
+    } else if (!open) {
+      currentAppIdRef.current = null;
+      queueMicrotask(() => {
+        setAnalysis(null);
+        setError(null);
+        setLoading(false);
+      });
     }
-  }, [open, applicant, fetchAnalysis]);
+  }, [open, applicationId, applicant, fetchAnalysis]);
 
   const getScoreColor = (score: number) => {
     if (score >= 85) return "text-emerald-500 bg-emerald-500/10 border-emerald-500/30";
@@ -141,7 +166,7 @@ export function ApplicantAiAnalysisModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent showCloseButton={false} className="w-[95vw] !max-w-4xl max-h-[90vh] flex flex-col p-0 overflow-hidden border-border bg-background shadow-2xl max-md:max-w-[calc(100vw-2rem)] max-md:max-h-[90dvh] max-md:overflow-y-auto">
+      <DialogContent showCloseButton={false} className="w-[95vw] !max-w-[1300px] h-[90vh] flex flex-col p-0 overflow-hidden border-border bg-background shadow-2xl max-md:max-w-[calc(100vw-2rem)] max-md:h-[90dvh] max-md:max-h-[90dvh] wrap-anywhere">
         {/* Header */}
         <DialogHeader className="px-6 py-4 border-b border-border/70 flex flex-row items-center justify-between space-y-0 bg-muted/20 shrink-0">
           <div className="flex items-center gap-2.5 min-w-0 flex-1 pr-4">
@@ -151,7 +176,7 @@ export function ApplicantAiAnalysisModal({
             <div className="min-w-0 flex-1">
               <DialogTitle className="text-base font-semibold flex items-center gap-2 truncate">
                 AI Candidate Evaluation
-                {analysis && (
+                {analysis && !loading && (
                   <Badge variant="outline" className={`text-xs px-2 py-0.5 font-bold ${getScoreColor(analysis.match_score)}`}>
                     {analysis.match_score}% Match
                   </Badge>
@@ -162,14 +187,12 @@ export function ApplicantAiAnalysisModal({
               </DialogDescription>
             </div>
           </div>
-
-
         </DialogHeader>
 
         {/* Modal Body Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5">
           {loading && !analysis ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center space-y-4">
+            <div className="h-full min-h-[350px] flex flex-col items-center justify-center py-16 text-center space-y-4">
               <div className="relative">
                 <div className="h-16 w-16 rounded-2xl bg-primary/10 flex items-center justify-center animate-pulse">
                   <Sparkles className="h-8 w-8 text-primary animate-spin" />
@@ -183,7 +206,7 @@ export function ApplicantAiAnalysisModal({
               </div>
             </div>
           ) : error ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center space-y-3">
+            <div className="h-full min-h-[350px] flex flex-col items-center justify-center py-12 text-center space-y-3">
               <div className="p-3 rounded-full bg-rose-500/10 text-rose-500">
                 <AlertTriangle className="h-6 w-6" />
               </div>
@@ -193,7 +216,13 @@ export function ApplicantAiAnalysisModal({
               </Button>
             </div>
           ) : analysis ? (
-            <>
+            <div className={`space-y-5 transition-opacity ${loading ? "opacity-60 pointer-events-none" : "opacity-100"}`}>
+              {loading && (
+                <div className="flex items-center gap-2 p-3 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-medium">
+                  <RefreshCw className="h-4 w-4 animate-spin shrink-0" />
+                  <span>Regenerating candidate evaluation with latest data...</span>
+                </div>
+              )}
               {/* Top Highlights Banner */}
               <div className="p-4 rounded-xl border border-border/80 bg-card/60 backdrop-blur-sm space-y-3 shadow-sm">
                 <div className="flex items-center justify-between gap-2">
@@ -318,13 +347,12 @@ export function ApplicantAiAnalysisModal({
                   {analysis.recommendation}
                 </p>
               </div>
-            </>
+            </div>
           ) : null}
         </div>
 
         {/* Footer */}
         <div className="px-6 py-3 border-t gap-2 border-border/70 bg-muted/20 flex items-center justify-end shrink-0">
-
           <Button
             size="sm"
             variant="outline"

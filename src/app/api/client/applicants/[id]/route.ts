@@ -21,6 +21,7 @@ import {
   directusItemsWhereIn,
   directusSettled,
 } from "@/lib/server/directus";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -118,11 +119,22 @@ interface SchoolAdminRow {
  * Only Directus' own 404 may tell the employer a row is gone. Every other
  * failure status means the row could not be read, and answering "not found"
  * makes an outage look like a deleted candidate.
+ *
+ * The text sent to the browser deliberately drops the upstream reason, so a 400
+ * or 500 on one row leaves nothing behind to inspect. The status and Directus'
+ * own message are logged here.
  */
-function missingOrOutage(status: number, entity: string): NextResponse {
-  if (status === 404) {
+function missingOrOutage(
+  res: { status: number; error: string },
+  entity: string,
+  context: string
+): NextResponse {
+  if (res.status === 404) {
     return NextResponse.json({ error: `${entity} not found.` }, { status: 404 });
   }
+  console.error(
+    `[${context}] ${entity} read failed (${res.status}): ${res.error || "Directus returned no message."}`
+  );
   return NextResponse.json(
     { error: `${entity} could not be read. Please try again.` },
     { status: 502 }
@@ -241,6 +253,7 @@ export async function GET(
         { status: 400 }
       );
     }
+    const logContext = `client/applicants/${applicationId} GET`;
 
     const session = await authenticateRequest(req);
     if (!session) {
@@ -321,7 +334,7 @@ export async function GET(
     // An unreadable row used to answer "Application not found.", so a Directus
     // outage deleted a real candidate from the employer's pipeline.
     if (!applicationRes.ok) {
-      return missingOrOutage(applicationRes.status, "Application");
+      return missingOrOutage(applicationRes, "Application", logContext);
     }
 
     const application = applicationRes.data?.data ?? null;
@@ -334,7 +347,8 @@ export async function GET(
     }
 
     // IDOR / BOLA Prevention: Verify application belongs to a job owned by requester's company
-    const targetJobId = Number(application.job_id);
+    // A pointer that is not a positive integer would become a 400/500 from Directus, not a 404.
+    const targetJobId = toId(application.job_id);
     if (!targetJobId) {
       return NextResponse.json(
         { error: "Application is not associated with a valid job." },
@@ -347,7 +361,7 @@ export async function GET(
       { query: "fields=job_id,job_title,company_id" }
     );
     if (!jobCheckRes.ok) {
-      return missingOrOutage(jobCheckRes.status, "Associated job posting");
+      return missingOrOutage(jobCheckRes, "Associated job posting", logContext);
     }
     const verifiedJob = jobCheckRes.data?.data ?? null;
     if (Number(verifiedJob?.company_id) !== companyId) {
@@ -404,7 +418,7 @@ export async function GET(
     // ---------------------------------------------------
 
     if (!userRes.ok) {
-      return missingOrOutage(userRes.status, "Candidate profile");
+      return missingOrOutage(userRes, "Candidate profile", logContext);
     }
 
     const user = userRes.data?.data ?? null;
@@ -441,7 +455,7 @@ export async function GET(
       // A dangling FK is data; anything else is an outage and must not render
       // the employer's own company as "no company".
       if (!companyRes.ok && companyRes.status !== 404) {
-        return missingOrOutage(companyRes.status, "Company");
+        return missingOrOutage(companyRes, "Company", logContext);
       }
       company = companyRes.data?.data ?? null;
     }

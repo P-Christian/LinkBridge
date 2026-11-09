@@ -25,6 +25,7 @@ interface TalentFiltersProps {
   filters: TalentFiltersValue;
   onFilterChange: <K extends keyof TalentFiltersValue>(key: K, value: TalentFiltersValue[K]) => void;
   onApply: () => void;
+  onClear: () => void;
 }
 
 interface FilterTag {
@@ -98,7 +99,7 @@ function TagChips({ tags, onRemove, removePrefix }: { tags: FilterTag[]; onRemov
   );
 }
 
-export default function TalentFiltersPanel({ filters, onFilterChange, onApply }: TalentFiltersProps) {
+export default function TalentFiltersPanel({ filters, onFilterChange, onApply, onClear }: TalentFiltersProps) {
   // The desktop sidebar and the mobile sheet can both be mounted, so the shared
   // highlight is scoped to one panel instance.
  
@@ -154,7 +155,7 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Filter className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-semibold text-foreground">Filters</span>
+          <span className="text-sm font-semibold text-foreground">Preferences</span>
           <AnimatePresence>
             {activeCount > 0 && (
               <motion.div
@@ -173,17 +174,10 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
         {activeCount > 0 && (
           <button
             type="button"
-            onClick={() => {
-              onFilterChange("skills", []);
-              onFilterChange("locations", []);
-              onFilterChange("experience_level", "");
-              onFilterChange("experience_levels", []);
-              onFilterChange("schools", []);
-              onFilterChange("work_setups", []);
-            }}
+            onClick={onClear}
             className="text-xs text-muted-foreground hover:text-destructive transition-colors max-md:min-h-10"
           >
-            Clear filters
+            Clear
           </button>
         )}
       </div>
@@ -317,7 +311,7 @@ export default function TalentFiltersPanel({ filters, onFilterChange, onApply }:
           onClick={onApply}
           className="w-full h-9 max-md:min-h-10 rounded-xl font-semibold text-sm shadow-2xs"
         >
-          Apply Filters
+          Apply Preferences
         </Button>
       </motion.div>
     </div>

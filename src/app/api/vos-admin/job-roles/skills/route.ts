@@ -354,6 +354,7 @@ export async function POST(req: NextRequest) {
       skill_name: resolvedSkillName || `Skill #${skillId}`,
       importance_weight: Number(body.importance_weight ?? 1.0),
       is_required: Boolean(body.is_required),
+      is_active: true,
     };
 
     return NextResponse.json(createdRecord);
@@ -384,7 +385,11 @@ export async function PATCH(req: NextRequest) {
     });
     if (!res.ok) throw new Error("Failed to update role skill mapping.");
     const json = await res.json();
-    return NextResponse.json(json.data);
+    const data = json.data || {};
+    return NextResponse.json({
+      ...data,
+      is_active: data.is_active !== false && data.is_active !== 0 && data.is_active !== "false",
+    });
   } catch (err: unknown) {
     return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }

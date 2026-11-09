@@ -34,7 +34,7 @@ Summary: ${(c.summary ?? "").slice(0, 150)}`
     )
     .join("\n\n");
 
-  const prompt = `You are a recruitment assistant. For each candidate below, write 1-2 concise sentences explaining why they match the employer's search. Be specific and factual. Do not use filler phrases like "great fit" or "ideal candidate". Start directly with what makes them relevant.
+  const prompt = `You are a recruitment assistant. For each candidate below, write 1-3 concise sentences explaining why they match the employer's search. Be specific and factual. Do not use filler phrases like "great fit" or "ideal candidate". Start directly with what makes them relevant.
 
 Employer search: "${query}"
 
@@ -98,4 +98,43 @@ export async function generateMatchExplanation(
   if (!query || !candidate) return null;
   const resMap = await generateBatchExplanations(query, [{ ...candidate, id: 1 }], context);
   return resMap.get(1) ?? null;
+}
+
+/**
+ * Generate a candidate role suitability summary when no search query is present (browse mode).
+ * Suggests top 1-2 suited roles and core background strength in 1-2 sentences.
+ */
+export async function generateCandidateSuitability(
+  candidate: ExplainCandidate,
+  context?: { userId?: number; companyId?: number }
+): Promise<string | null> {
+  if (!candidate) return null;
+
+  const prompt = `You are a talent recruitment specialist. Based on the candidate profile below, identify the top 1-2 job roles they are most qualified for.
+Write 1-2 concise, factual sentences in this format: "Best suited for [Role Title(s)]. [1 concise sentence highlighting their core technical or practical strengths]."
+Do not use filler phrases like "great fit" or "ideal candidate". Be direct and professional.
+
+Candidate Profile:
+Name: ${candidate.name}
+Title: ${candidate.title ?? "Not specified"}
+Skills: ${candidate.skills.slice(0, 10).join(", ") || "None listed"}
+Experience: ${candidate.experience_years} year${candidate.experience_years !== 1 ? "s" : ""}
+Summary: ${(candidate.summary ?? "").slice(0, 200)}
+
+Respond with ONLY the 1-2 sentences of text. No markdown, no quotes, no extra headings.`;
+
+  const raw = await callGeminiMonitored({
+    prompt,
+    feature: "MATCH_EXPLAINER",
+    endpoint: "lib/gemini/matchExplainer/suitability",
+    userId: context?.userId,
+    companyId: context?.companyId,
+    timeoutMs: 4000,
+  });
+
+  if (!raw) return null;
+
+  const cleaned = raw.replace(/^["']|["']$/g, "").trim();
+  const sentences = cleaned.split(/(?<=[.!?])\s+/).filter(Boolean);
+  return sentences.slice(0, 2).join(" ").trim() || cleaned.slice(0, 220);
 }
