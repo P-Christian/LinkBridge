@@ -479,7 +479,7 @@ export default function CampusTalentModule() {
 
   return (
     <CompanyVerificationGuard moduleName="Campus Talent">
-      <div className="flex flex-col min-h-screen bg-background">
+      <div className="flex flex-col min-h-screen bg-background wrap-anywhere">
         {/* Header */}
         {view === "SCHOOLS" ? (
           <div className="border-b border-border px-6 py-5">
@@ -594,7 +594,7 @@ export default function CampusTalentModule() {
               </div>
 
               {/* Search and Category Filter Toolbar */}
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-muted/20 border border-border rounded-xl p-3.5">
+              <div className="flex flex-col md:flex-row md:items-center justify-end gap-3 bg-muted/20 border border-border rounded-xl p-3.5">
                 <div className="flex gap-2 flex-1 max-w-lg">
                   <Input
                     placeholder="Search schools by name, city, or province..."
@@ -609,30 +609,7 @@ export default function CampusTalentModule() {
                   </Button>
                 </div>
 
-                {/* Filter Chips */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 md:pb-0">
-                  <Button
-                    type="button"
-                    variant={selectedSchoolType === "ALL" ? "secondary" : "ghost"}
-                    size="sm"
-                    className="h-8 text-xs rounded-lg font-medium"
-                    onClick={() => setSelectedSchoolType("ALL")}
-                  >
-                    All Types
-                  </Button>
-                  {availableSchoolTypes.map((type) => (
-                    <Button
-                      key={type}
-                      type="button"
-                      variant={selectedSchoolType.toLowerCase() === type.toLowerCase() ? "secondary" : "ghost"}
-                      size="sm"
-                      className="h-8 text-xs rounded-lg font-medium"
-                      onClick={() => setSelectedSchoolType(type)}
-                    >
-                      {type}
-                    </Button>
-                  ))}
-                </div>
+        
               </div>
 
               {schoolsError && (

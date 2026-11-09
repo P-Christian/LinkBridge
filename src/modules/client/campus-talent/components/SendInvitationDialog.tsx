@@ -106,7 +106,7 @@ export default function SendInvitationDialog({
         >
             {/* Dialog */}
             <motion.div
-              className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5"
+              className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5 wrap-anywhere"
               initial={{
                 opacity: 0,
                 scale: 0.95,
