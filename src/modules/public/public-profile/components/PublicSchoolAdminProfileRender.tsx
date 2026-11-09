@@ -71,13 +71,13 @@ function InfoRow({
             href={href}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm font-semibold text-primary hover:underline flex items-center gap-1 truncate"
+            className="text-sm font-semibold text-primary hover:underline inline-flex items-baseline gap-1 wrap-anywhere"
           >
-            <span className="truncate">{value}</span>
-            <ExternalLink className="w-3 h-3 shrink-0" />
+            <span>{value}</span>
+            <ExternalLink className="w-3 h-3 shrink-0 self-center" />
           </a>
         ) : (
-          <p className="text-sm font-medium text-foreground break-words">
+          <p className="text-sm font-medium text-foreground wrap-anywhere">
             {value}
           </p>
         )}
@@ -326,7 +326,7 @@ export function PublicSchoolAdminProfileRender({
                 <h2 className="text-base font-bold text-foreground">
                   About the Institution
                 </h2>
-                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap wrap-anywhere">
                   {profile.school_description ||
                     "This educational institution has not provided an overview description yet."}
                 </p>

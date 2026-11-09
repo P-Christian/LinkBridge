@@ -707,6 +707,8 @@ export default function JobsModule() {
               onSubmit={handleSave}
               saving={saving}
               editingJob={!!editingJob}
+              existingJobs={jobs}
+              currentJobId={editingJob?.job_id}
             />
           </DialogContent>
         </Dialog>
