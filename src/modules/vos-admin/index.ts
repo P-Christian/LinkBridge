@@ -1,4 +1,4 @@
-export { SchoolAdminDashboard } from './components/SchoolAdminDashboard';
+export { SchoolAdminDashboard } from './components/LinkBridgeAdminDashboard';
 export * from './types/dashboard';
 export * from './hooks/useAdminDashboardData';
 export * from './account-status-management';

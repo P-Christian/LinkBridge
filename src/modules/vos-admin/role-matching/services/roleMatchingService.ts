@@ -29,6 +29,15 @@ async function fail(res: Response, fallback: string): Promise<never> {
   throw new Error(typeof message === "string" && message ? message : fallback);
 }
 
+/**
+ * Directus answers writes with MySQL's `tinyint(1)` as 1/0, while the read routes
+ * normalize it to a boolean and the UI compares `is_active === false`. A merged
+ * 0 fails that comparison, which wedges the Active/Inactive toggles.
+ */
+function normalizeActive<T extends { is_active?: boolean }>(row: T): T {
+  return row && "is_active" in row ? { ...row, is_active: Boolean(row.is_active) } : row;
+}
+
 export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
   const res = await fetch(`${BASE_URL}`);
   if (!res.ok) return fail(res, "Failed to fetch metrics.");
@@ -50,7 +59,7 @@ export async function createJobCategory(payload: Partial<JobCategory>): Promise<
     body: JSON.stringify(payload),
   });
   if (!res.ok) return fail(res, "Failed to create job category.");
-  return res.json();
+  return normalizeActive(await res.json());
 }
 
 export async function updateJobCategory(payload: Partial<JobCategory>): Promise<JobCategory> {
@@ -60,7 +69,7 @@ export async function updateJobCategory(payload: Partial<JobCategory>): Promise<
     body: JSON.stringify(payload),
   });
   if (!res.ok) return fail(res, "Failed to update job category.");
-  return res.json();
+  return normalizeActive(await res.json());
 }
 
 export async function deleteJobCategory(categoryId: number): Promise<boolean> {
@@ -85,7 +94,7 @@ export async function createStandardRole(payload: Partial<StandardRole>): Promis
     body: JSON.stringify(payload),
   });
   if (!res.ok) return fail(res, "Failed to create standard role.");
-  return res.json();
+  return normalizeActive(await res.json());
 }
 
 export async function updateStandardRole(payload: Partial<StandardRole>): Promise<StandardRole> {
@@ -95,7 +104,7 @@ export async function updateStandardRole(payload: Partial<StandardRole>): Promis
     body: JSON.stringify(payload),
   });
   if (!res.ok) return fail(res, "Failed to update standard role.");
-  return res.json();
+  return normalizeActive(await res.json());
 }
 
 export async function deleteStandardRole(roleId: number): Promise<boolean> {

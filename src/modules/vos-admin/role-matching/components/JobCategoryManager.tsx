@@ -229,7 +229,7 @@ export function JobCategoryManager() {
                         }`}
                       >
                         <Power className="h-3 w-3" />
-                        {cat.is_active !== false ? "Deactivate9" : "Activate9"}
+                        {cat.is_active !== false ? "Deactivate" : "Activate"}
                       </Button>
                       <Button
                         variant="ghost"

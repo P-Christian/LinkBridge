@@ -95,6 +95,21 @@ export function MatchingTaxonomyEditor() {
 
   // Active Role for Detail Sheet
   const [selectedRoleForDetail, setSelectedRoleForDetail] = useState<StandardRole | null>(null);
+  const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+
+  const liveRoleForDetail = useMemo(() => {
+    if (!selectedRoleForDetail) return null;
+    return roles.find((r) => r.role_id === selectedRoleForDetail.role_id) || selectedRoleForDetail;
+  }, [roles, selectedRoleForDetail]);
+
+  const handleOpenRoleDetail = (role: StandardRole) => {
+    setSelectedRoleForDetail(role);
+    setDetailSheetOpen(true);
+  };
+
+  const handleCloseRoleDetail = () => {
+    setDetailSheetOpen(false);
+  };
 
   // Category Modal State
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
@@ -233,19 +248,6 @@ export function MatchingTaxonomyEditor() {
     setGeneralError("");
     setRoleModalOpen(true);
   };
-
-  const openEditRole = (role: StandardRole, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setEditingRole(role);
-    setTargetCatIdForNewRole(role.category_id);
-    setRoleNameInput(role.role_name);
-    setRoleExpLevelInput(role.experience_level || "MID");
-    setRoleIsActiveInput(role.is_active !== false);
-    setGeneralError("");
-    setRoleModalOpen(true);
-  };
-
-
 
   const handleSaveRole = async () => {
     if (!roleNameInput.trim()) {
@@ -487,26 +489,27 @@ export function MatchingTaxonomyEditor() {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
-                        transition={{ duration: 0.16, ease: "easeInOut" }}
-                        className="p-3 sm:p-4 space-y-2.5 bg-white dark:bg-zinc-900 border-t border-zinc-200 dark:border-zinc-800 overflow-hidden"
+                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        className="overflow-hidden border-t border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900"
                       >
-                        {catRoles.length === 0 ? (
-                          <p className="text-xs text-zinc-400 py-2 pl-4 italic">
-                            No standard roles mapped under this category.
-                          </p>
-                        ) : (
-                          catRoles.map((role) => {
-                            const isRoleExpanded = searchQuery.trim() ? true : !!expandedRoles[role.role_id];
-                            const rSkills = skillsByRole.get(role.role_id) || [];
-                            const rKeywords = keywordsByRole.get(role.role_id) || [];
+                        <div className="p-3 sm:p-4 space-y-2.5">
+                          {catRoles.length === 0 ? (
+                            <p className="text-xs text-zinc-400 py-2 pl-4 italic">
+                              No standard roles mapped under this category.
+                            </p>
+                          ) : (
+                            catRoles.map((role) => {
+                              const isRoleExpanded = searchQuery.trim() ? true : !!expandedRoles[role.role_id];
+                              const rSkills = skillsByRole.get(role.role_id) || [];
+                              const rKeywords = keywordsByRole.get(role.role_id) || [];
 
-                            return (
-                              <div
-                                key={role.role_id}
-                                className={`border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl overflow-hidden transition-all bg-zinc-50/40 dark:bg-zinc-900/50 hover:border-zinc-300 dark:hover:border-zinc-700 ${
-                                  role.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
-                                }`}
-                              >
+                              return (
+                                <div
+                                  key={role.role_id}
+                                  className={`border border-zinc-200/80 dark:border-zinc-800/80 rounded-xl overflow-hidden transition-colors bg-zinc-50/40 dark:bg-zinc-900/50 hover:border-zinc-300 dark:hover:border-zinc-700 ${
+                                    role.is_active === false ? "opacity-60 bg-zinc-50/50 dark:bg-zinc-900/40" : ""
+                                  }`}
+                                >
                                 {/* Role Row */}
                                 <div
                                   onClick={() => toggleRole(role.role_id)}
@@ -542,19 +545,11 @@ export function MatchingTaxonomyEditor() {
                                   >
                                     <button
                                       type="button"
-                                      onClick={() => setSelectedRoleForDetail(role)}
+                                      onClick={() => handleOpenRoleDetail(role)}
                                       className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-blue-50 dark:bg-blue-950/60 text-blue-700 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-900/60 border border-blue-200 dark:border-blue-800 transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
                                     >
                                       <SlidersHorizontal className="h-3 w-3" />
                                       Manage Details
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => openEditRole(role, e)}
-                                      className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-zinc-200/60 dark:hover:bg-zinc-700 transition-colors cursor-pointer"
-                                      title="Edit Role"
-                                    >
-                                      <Edit2 className="h-3.5 w-3.5" />
                                     </button>
                                     <button
                                       type="button"
@@ -573,9 +568,10 @@ export function MatchingTaxonomyEditor() {
                                       initial={{ opacity: 0, height: 0 }}
                                       animate={{ opacity: 1, height: "auto" }}
                                       exit={{ opacity: 0, height: 0 }}
-                                      transition={{ duration: 0.16, ease: "easeInOut" }}
-                                      className="p-4 pt-2 border-t border-zinc-200/60 dark:border-zinc-800/60 space-y-4 bg-white dark:bg-zinc-950/40 overflow-hidden"
+                                      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                                      className="overflow-hidden border-t border-zinc-200/60 dark:border-zinc-800/60 bg-white dark:bg-zinc-950/40"
                                     >
+                                      <div className="p-4 pt-2 space-y-4">
                                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                         {/* Core Skills Box */}
                                         <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-800 space-y-2.5">
@@ -586,7 +582,7 @@ export function MatchingTaxonomyEditor() {
                                             </span>
                                             <button
                                               type="button"
-                                              onClick={() => setSelectedRoleForDetail(role)}
+                                              onClick={() => handleOpenRoleDetail(role)}
                                               className="text-[10px] text-violet-600 dark:text-violet-400 font-bold hover:underline cursor-pointer"
                                             >
                                               + Edit in Sheet
@@ -650,7 +646,7 @@ export function MatchingTaxonomyEditor() {
                                             </span>
                                             <button
                                               type="button"
-                                              onClick={() => setSelectedRoleForDetail(role)}
+                                              onClick={() => handleOpenRoleDetail(role)}
                                               className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline cursor-pointer"
                                             >
                                               + Edit in Sheet
@@ -698,13 +694,15 @@ export function MatchingTaxonomyEditor() {
                                           )}
                                         </div>
                                       </div>
-                                    </motion.div>
+                                    </div>
+                                  </motion.div>
                                   )}
                                 </AnimatePresence>
                               </div>
                             );
                           })
                         )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -716,28 +714,25 @@ export function MatchingTaxonomyEditor() {
       </div>
 
       {/* ── ROLE DETAIL SLIDE-OVER SHEET ───────────────────────────────────── */}
-      {selectedRoleForDetail && (
-        <RoleDetailSheet
-          role={selectedRoleForDetail}
-          categories={categories}
-          skills={roleSkills}
-          keywords={keywords}
-          masterSkills={masterSkills}
-          open={!!selectedRoleForDetail}
-          onClose={() => setSelectedRoleForDetail(null)}
-          onUpdateRole={editRole}
-          onAddSkill={addRoleSkill}
-          onEditSkill={editRoleSkill}
-          onRemoveSkill={removeRoleSkill}
-          onAddKeyword={addKeyword}
-          onEditKeyword={editKeyword}
-          onRemoveKeyword={removeKeyword}
-        />
-      )}
+      <RoleDetailSheet
+        role={liveRoleForDetail}
+        categories={categories}
+        skills={roleSkills}
+        keywords={keywords}
+        masterSkills={masterSkills}
+        open={detailSheetOpen && !!liveRoleForDetail}
+        onClose={handleCloseRoleDetail}
+        onUpdateRole={editRole}
+        onAddSkill={addRoleSkill}
+        onEditSkill={editRoleSkill}
+        onRemoveSkill={removeRoleSkill}
+        onAddKeyword={addKeyword}
+        onEditKeyword={editKeyword}
+        onRemoveKeyword={removeKeyword}
+      />
 
       {/* ── MODAL: Create / Edit Category ─────────────────────────────────── */}
-      {categoryModalOpen && (
-        <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
+      <Dialog open={categoryModalOpen} onOpenChange={setCategoryModalOpen}>
           <DialogContent className="sm:max-w-md rounded-2xl">
             <DialogHeader>
               <DialogTitle className="text-sm font-bold">
@@ -821,11 +816,9 @@ export function MatchingTaxonomyEditor() {
             </div>
           </DialogContent>
         </Dialog>
-      )}
 
       {/* ── MODAL: Create / Edit Role ─────────────────────────────────────── */}
-      {roleModalOpen && (
-        <Dialog open={roleModalOpen} onOpenChange={setRoleModalOpen}>
+      <Dialog open={roleModalOpen} onOpenChange={setRoleModalOpen}>
           <DialogContent className="sm:max-w-md rounded-2xl">
             <DialogHeader>
               <DialogTitle className="text-sm font-bold">
@@ -908,7 +901,6 @@ export function MatchingTaxonomyEditor() {
             </div>
           </DialogContent>
         </Dialog>
-      )}
 
       {/* ── MODAL: Delete Category Confirmation ───────────────────────────── */}
       <Dialog open={Boolean(deleteCatTarget)} onOpenChange={(open) => !open && setDeleteCatTarget(null)}>
