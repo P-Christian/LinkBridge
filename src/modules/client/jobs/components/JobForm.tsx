@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion, AnimatePresence } from "framer-motion";
-import { searchMasterSkillsAction, addMasterSkillAction, getMasterSkillsAction } from "../services/jobs.actions";
+import { addMasterSkillAction, getMasterSkillsAction } from "../services/jobs.actions";
 import { JobFormData, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS, JobType, ExperienceLevel } from "../types";
 import { RichTextEditor } from "./RichTextEditor";
 import { useRoleCategories } from "../hooks/useRoleCategories";
@@ -231,7 +231,7 @@ export default function JobForm({
   const [isSearchingSkills, setIsSearchingSkills] = useState(false);
   const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
   const skillInputContainerRef = useRef<HTMLDivElement>(null);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+ 
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
