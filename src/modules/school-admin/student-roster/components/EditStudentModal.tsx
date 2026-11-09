@@ -3,7 +3,9 @@
 import React, { useState } from 'react';
 import { VsSchoolStudent } from '../types/student-roster.types';
 import { UpdateRosterAcademicsInput, updateRosterAcademicsSchema } from '../types/student-roster.schema';
+import { VsSchoolCourse } from '@/modules/school-admin/types/school-admin.types';
 import { generateSchoolYearOptions } from '../utils/school-year.utils';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
 import { X } from 'lucide-react';
 
@@ -12,16 +14,23 @@ interface EditStudentModalProps {
   student: VsSchoolStudent | null;
   onClose: () => void;
   onSuccess: (studentId: number, data: UpdateRosterAcademicsInput) => Promise<void>;
+  courses?: VsSchoolCourse[];
 }
 
 interface EditStudentFormProps {
   student: VsSchoolStudent;
   onClose: () => void;
   onSuccess: (studentId: number, data: UpdateRosterAcademicsInput) => Promise<void>;
+  courses: VsSchoolCourse[];
   schoolYearOptions: string[];
 }
 
-type AcademicFormData = {
+type EditStudentFormData = {
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  email: string;
+  school_course_id: number | null;
   student_number: string | null;
   school_year: string;
   gpa: number | null;
@@ -31,12 +40,18 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({
   student,
   onClose,
   onSuccess,
+  courses,
   schoolYearOptions,
 }) => {
   const isLinked =
     student.employee_education_id !== null && student.employee_education_id !== undefined;
 
-  const [formData, setFormData] = useState<AcademicFormData>({
+  const [formData, setFormData] = useState<EditStudentFormData>({
+    first_name: student.first_name || '',
+    middle_name: student.middle_name || '',
+    last_name: student.last_name || '',
+    email: student.email || '',
+    school_course_id: student.school_course_id ? Number(student.school_course_id) : null,
     student_number: student.student_number || null,
     school_year: student.school_year || '2025-2026',
     gpa: student.gpa !== null && student.gpa !== undefined ? Number(student.gpa) : null,
@@ -50,6 +65,11 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({
     setErrors({});
 
     const payload = {
+      first_name: formData.first_name,
+      middle_name: formData.middle_name || null,
+      last_name: formData.last_name,
+      email: formData.email,
+      school_course_id: formData.school_course_id,
       student_number: formData.student_number,
       school_year: formData.school_year,
       gpa: formData.gpa,
@@ -90,21 +110,102 @@ const EditStudentForm: React.FC<EditStudentFormProps> = ({
       <div className="p-3 bg-muted/40 text-muted-foreground text-xs rounded-lg border border-border">
         Editing record for <span className="font-semibold text-foreground">{student.last_name}, {student.first_name}</span>
         {' '}({student.email}). {isLinked
-          ? 'This is an education-linked row: only student number, school year, and GPA may be edited.'
-          : 'Only student number, school year, and GPA may be edited; identity and course stay saga-owned.'}
+          ? 'This record is linked to a verified freelancer profile. Update academic and identity details carefully.'
+          : 'Update student identity and academic program details.'}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            First Name *
+          </label>
+          <input
+            type="text"
+            value={formData.first_name}
+            onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {errors.first_name && <p className="text-xs text-destructive mt-1">{errors.first_name}</p>}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Middle Name (Optional)
+          </label>
+          <input
+            type="text"
+            value={formData.middle_name}
+            onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Last Name *
+          </label>
+          <input
+            type="text"
+            value={formData.last_name}
+            onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {errors.last_name && <p className="text-xs text-destructive mt-1">{errors.last_name}</p>}
+        </div>
       </div>
 
       <div>
         <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
-          Student Number
+          Email Address *
         </label>
         <input
-          type="text"
-          value={formData.student_number || ''}
-          onChange={(e) => setFormData({ ...formData, student_number: e.target.value === '' ? null : e.target.value })}
+          type="email"
+          value={formData.email}
+          onChange={(e) => setFormData({ ...formData, email: e.target.value })}
           className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
         />
-        {errors.student_number && <p className="text-xs text-destructive mt-1">{errors.student_number}</p>}
+        {errors.email && <p className="text-xs text-destructive mt-1">{errors.email}</p>}
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Student Number
+          </label>
+          <input
+            type="text"
+            value={formData.student_number || ''}
+            onChange={(e) => setFormData({ ...formData, student_number: e.target.value === '' ? null : e.target.value })}
+            className="w-full px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+          />
+          {errors.student_number && <p className="text-xs text-destructive mt-1">{errors.student_number}</p>}
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
+            Course
+          </label>
+          <SearchableSelect
+            options={[
+              { value: 'none', label: 'No Course Assigned' },
+              ...courses.map((course) => ({
+                value: String(course.school_course_id),
+                label: `${course.course_name} (${course.course_code || 'N/A'})`,
+              })),
+            ]}
+            value={formData.school_course_id ? String(formData.school_course_id) : 'none'}
+            onValueChange={(val) =>
+              setFormData({
+                ...formData,
+                school_course_id: val && val !== 'none' ? Number(val) : null,
+              })
+            }
+            placeholder="Select course..."
+            searchPlaceholder="Search courses..."
+            triggerClassName="h-[38px] text-sm rounded-lg"
+          />
+          {errors.school_course_id && <p className="text-xs text-destructive mt-1">{errors.school_course_id}</p>}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -175,6 +276,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
   student,
   onClose,
   onSuccess,
+  courses = [],
 }) => {
   const schoolYearOptions = generateSchoolYearOptions();
 
@@ -198,6 +300,7 @@ export const EditStudentModal: React.FC<EditStudentModalProps> = ({
           student={student}
           onClose={onClose}
           onSuccess={onSuccess}
+          courses={courses}
           schoolYearOptions={schoolYearOptions}
         />
       </div>

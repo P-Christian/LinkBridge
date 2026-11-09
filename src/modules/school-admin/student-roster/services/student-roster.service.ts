@@ -144,6 +144,11 @@ export async function updateStudentAcademics(
   }
 
   const patch: Partial<VsSchoolStudent> = {};
+  if (academics.first_name !== undefined) patch.first_name = academics.first_name;
+  if (academics.middle_name !== undefined) patch.middle_name = (academics.middle_name ?? '').trim();
+  if (academics.last_name !== undefined) patch.last_name = academics.last_name;
+  if (academics.email !== undefined) patch.email = academics.email.toLowerCase();
+  if (academics.school_course_id !== undefined) patch.school_course_id = academics.school_course_id;
   if (academics.student_number !== undefined) patch.student_number = academics.student_number;
   if (academics.gpa !== undefined) patch.gpa = academics.gpa;
   if (academics.school_year !== undefined) patch.school_year = academics.school_year;
