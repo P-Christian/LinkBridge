@@ -63,8 +63,12 @@ function ProgressBarInner() {
     done();
   }, [routeKey, start, done]);
 
-  // Start on internal link clicks.
+  // Start on internal link clicks or manual trigger.
   useEffect(() => {
+    const onNavStart = () => {
+      start();
+    };
+
     const onClick = (e: MouseEvent) => {
       if (
         e.defaultPrevented ||
@@ -100,8 +104,10 @@ function ProgressBarInner() {
       start();
     };
 
+    window.addEventListener("navigation-start", onNavStart);
     document.addEventListener("click", onClick, true);
     return () => {
+      window.removeEventListener("navigation-start", onNavStart);
       document.removeEventListener("click", onClick, true);
       clearTimers();
     };
@@ -132,6 +138,15 @@ function ProgressBarInner() {
       )}
     </AnimatePresence>
   );
+}
+
+/**
+ * Programmatically triggers the top progress bar for router navigation.
+ */
+export function triggerTopProgress() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("navigation-start"));
+  }
 }
 
 // useSearchParams requires a Suspense boundary in the App Router.

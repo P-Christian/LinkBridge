@@ -2,12 +2,13 @@
 
 // src/modules/client/notifications/components/ClientNotificationDropdown.tsx
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, BellOff, CheckCheck, ChevronRight } from "lucide-react";
+import { Bell, BellOff, CheckCheck, ChevronRight, Loader2 } from "lucide-react";
 import { Notification } from "../types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { triggerTopProgress } from "@/components/shared/TopProgressBar";
 import { formatRelativeTime, getNotificationVisual } from "../utils/notificationVisuals";
 
 const NOTIFICATIONS_HREF = "/linkbridge/client/notifications";
@@ -31,10 +32,17 @@ export function ClientNotificationDropdown({
   onMarkAllRead,
 }: Props) {
   const router = useRouter();
+  const [navigatingId, setNavigatingId] = useState<number | null>(null);
+  const [navigatingViewAll, setNavigatingViewAll] = useState(false);
 
   const latestItems = useMemo(() => notifications.slice(0, PREVIEW_COUNT), [notifications]);
 
   const handleNotificationClick = (notification: Notification) => {
+    if (navigatingId !== null) return;
+    setNavigatingId(notification.notification_id);
+
+    triggerTopProgress();
+
     if (!notification.is_read) {
       onMarkRead(notification.notification_id);
     }
@@ -46,22 +54,27 @@ export function ClientNotificationDropdown({
       router.push(url || NOTIFICATIONS_HREF);
     }
 
-    onClose();
+    setTimeout(() => {
+      onClose();
+    }, 400);
   };
 
   const renderItem = (notif: Notification) => {
     const unread = !notif.is_read;
+    const isNavigatingThis = navigatingId === notif.notification_id;
     const { icon: Icon, badge } = getNotificationVisual(notif);
 
     return (
       <li key={notif.notification_id}>
         <button
           type="button"
+          disabled={navigatingId !== null || navigatingViewAll}
           onClick={() => handleNotificationClick(notif)}
           className={cn(
             "relative flex w-full cursor-pointer items-start gap-3 px-4 py-3 text-left transition-colors",
             "hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
-            unread && "bg-primary/5"
+            unread && "bg-primary/5",
+            isNavigatingThis && "pointer-events-none opacity-80 cursor-wait bg-muted/60"
           )}
         >
           {unread && <span aria-hidden className="absolute inset-y-0 left-0 w-0.5 bg-primary" />}
@@ -72,7 +85,11 @@ export function ClientNotificationDropdown({
               badge
             )}
           >
-            <Icon className="h-4 w-4" />
+            {isNavigatingThis ? (
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            ) : (
+              <Icon className="h-4 w-4" />
+            )}
           </div>
 
           <div className="min-w-0 flex-1 space-y-0.5">
@@ -85,12 +102,14 @@ export function ClientNotificationDropdown({
               >
                 {notif.title}
               </p>
-              {unread && (
+              {isNavigatingThis ? (
+                <Loader2 className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin text-primary" />
+              ) : unread ? (
                 <span
                   className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary"
                   aria-label="Unread"
                 />
-              )}
+              ) : null}
             </div>
             <p
               className={cn(
@@ -169,14 +188,25 @@ export function ClientNotificationDropdown({
         <Button
           variant="ghost"
           size="sm"
+          disabled={navigatingViewAll || navigatingId !== null}
           onClick={() => {
-            onClose();
+            setNavigatingViewAll(true);
+            triggerTopProgress();
             router.push(NOTIFICATIONS_HREF);
+            setTimeout(() => {
+              onClose();
+            }, 400);
           }}
-          className="flex h-8 w-full items-center justify-center gap-1 rounded-xl text-xs font-semibold text-primary hover:text-primary/95 max-md:min-h-10"
+          className="flex h-8 w-full items-center justify-center gap-1 rounded-xl text-xs font-semibold text-primary hover:text-primary/95 max-md:min-h-10 disabled:pointer-events-none disabled:opacity-80"
         >
-          View all notifications
-          <ChevronRight className="h-3.5 w-3.5" />
+          {navigatingViewAll ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+          ) : (
+            <>
+              View all notifications
+              <ChevronRight className="h-3.5 w-3.5" />
+            </>
+          )}
         </Button>
       </div>
     </div>
