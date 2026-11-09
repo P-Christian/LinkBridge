@@ -84,7 +84,19 @@ export function useRoleSkills(roleId?: number) {
   const editRoleSkill = useCallback(async (payload: Partial<RoleSkillMapping>) => {
     try {
       const updated = await updateRoleSkill(payload);
-      setRoleSkills((prev) => prev.map((s) => (s.id === updated.id ? { ...s, ...updated } : s)));
+      const is_active =
+        updated.is_active !== undefined
+          ? Boolean(updated.is_active)
+          : payload.is_active !== undefined
+          ? Boolean(payload.is_active)
+          : undefined;
+      setRoleSkills((prev) =>
+        prev.map((s) =>
+          s.id === (updated.id ?? payload.id)
+            ? { ...s, ...updated, ...(is_active !== undefined ? { is_active } : {}) }
+            : s
+        )
+      );
       return true;
     } catch (err: unknown) {
       toast.error((err as Error).message || "Failed to update role skill.", { id: TOAST_ID });

@@ -10,12 +10,9 @@ import {
   Briefcase,
   Search,
   Play,
-  ArrowRight,
   RefreshCw,
   CheckCircle2,
   Inbox,
-  Layers,
-  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -118,11 +115,26 @@ export function MatchingIntelligenceDashboard() {
               Match Test Studio
             </Button>
           </Link>
+          <Link href="/vos-sync/vos-admin/job-roles/approval-queue">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 px-4 rounded-xl text-xs gap-2 shrink-0 font-semibold border-amber-300 dark:border-amber-700 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/40 active:scale-95 shadow-xs transition-all cursor-pointer"
+            >
+              <Inbox className="h-3.5 w-3.5" />
+              Approval Queue
+              {(metrics?.pendingRequests ?? 0) > 0 && (
+                <span className="inline-flex items-center justify-center h-4 min-w-4 px-1 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
+                  {metrics?.pendingRequests}
+                </span>
+              )}
+            </Button>
+          </Link>
         </div>
       </motion.div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {metricsData.map((item, idx) => {
           const Icon = item.icon;
           return (
@@ -145,102 +157,6 @@ export function MatchingIntelligenceDashboard() {
             </motion.div>
           );
         })}
-
-        {/* Pending Requests Highlight Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.2, delay: 0.12 }}
-        >
-          <Card className="rounded-2xl border-amber-300/80 dark:border-amber-700/80 bg-amber-50/40 dark:bg-amber-950/20 shadow-xs hover:border-amber-400 dark:hover:border-amber-600 transition-colors h-full">
-            <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-              <CardTitle className="text-xs font-semibold text-amber-700 dark:text-amber-400">Pending Requests</CardTitle>
-              <Inbox className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-black text-amber-700 dark:text-amber-300">{shown(metrics?.pendingRequests)}</div>
-              <p className="text-xs text-amber-500/80 mt-1">Awaiting admin review</p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      {/* Quick Navigation Cards — 3 Streamlined Governance Hubs */}
-      <div className="space-y-4">
-        <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Quick Intelligence Navigation</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Approval Queue */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -3 }}
-            transition={{ duration: 0.18, delay: 0.15 }}
-          >
-            <Link href="/linkbridge/admin/job-roles/approval-queue" className="block h-full">
-              <div className="p-5 rounded-2xl border-2 border-amber-300 dark:border-amber-700 bg-amber-50/60 dark:bg-amber-950/20 hover:border-amber-500 dark:hover:border-amber-500 transition-all group h-full flex flex-col justify-between cursor-pointer">
-                <div>
-                  <Inbox className="h-6 w-6 text-amber-600 dark:text-amber-400 mb-3" />
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-amber-700 dark:group-hover:text-amber-300 transition-colors flex items-center justify-between">
-                    Approval Queue{" "}
-                    {(metrics?.pendingRequests ?? 0) > 0 && (
-                      <span className="ml-1 inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-900/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-700">
-                        {metrics?.pendingRequests}
-                      </span>
-                    )}
-                    <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h4>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Review client-suggested categories and taxonomy modifications before they become official.
-                  </p>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-
-          {/* Matching Taxonomy Editor */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -3 }}
-            transition={{ duration: 0.18, delay: 0.18 }}
-          >
-            <Link href="/linkbridge/admin/job-roles/taxonomy" className="block h-full">
-              <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-indigo-400 dark:hover:border-indigo-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
-                <div>
-                  <Layers className="h-6 w-6 text-indigo-600 mb-3" />
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-indigo-600 transition-colors flex items-center justify-between">
-                    Matching Taxonomy <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h4>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Manage categories, standard roles, core skills with matching weights, and search keywords.
-                  </p>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-
-          {/* Taxonomy Coverage */}
-          <motion.div
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            whileHover={{ y: -3 }}
-            transition={{ duration: 0.18, delay: 0.21 }}
-          >
-            <Link href="/linkbridge/admin/job-roles/taxonomy" className="block h-full">
-              <div className="p-5 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 hover:border-emerald-400 dark:hover:border-emerald-600 transition-all group h-full flex flex-col justify-between cursor-pointer">
-                <div>
-                  <Activity className="h-6 w-6 text-emerald-600 mb-3" />
-                  <h4 className="font-bold text-sm text-zinc-900 dark:text-zinc-100 group-hover:text-emerald-600 transition-colors flex items-center justify-between">
-                    Taxonomy Coverage <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </h4>
-                  <p className="text-xs text-zinc-500 mt-1">
-                    Inspect role-to-skill coverage, weight distributions, and live taxonomy health across all active domains.
-                  </p>
-                </div>
-              </div>
-            </Link>
-          </motion.div>
-        </div>
       </div>
 
       {/* Matching Taxonomy Visualization & Management */}

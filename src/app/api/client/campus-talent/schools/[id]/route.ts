@@ -102,7 +102,7 @@ export async function GET(
 
     // 1. Fetch school details. Only Directus' own 404 may tell the employer the
     // school is gone; answering 404 to an outage deletes a partner school.
-    const schoolRes = await directusSettled<SchoolRow>(`/items/vs_school/${schoolId}`, {
+    const schoolRes = await directusSettled<{ data?: SchoolRow }>(`/items/vs_school/${schoolId}`, {
       query: "fields=*",
     });
     if (!schoolRes.ok) {
@@ -114,8 +114,10 @@ export async function GET(
         { status: 502 }
       );
     }
-    const school = schoolRes.data;
-    if (!school?.is_active || school?.verification_status !== "VERIFIED") {
+    const school = schoolRes.data?.data;
+    const isSchoolActive = school?.is_active === true || school?.is_active === 1;
+    const isSchoolVerified = String(school?.verification_status ?? "").toUpperCase() === "VERIFIED";
+    if (!school || !isSchoolActive || !isSchoolVerified) {
       return NextResponse.json({ error: "School is not accessible." }, { status: 403 });
     }
 

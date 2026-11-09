@@ -7,11 +7,15 @@ export interface RerankCandidate {
   title: string | null;
   skills: string[];
   summary: string | null;
+  score?: number;
+  relevant_experience_years?: number;
+  completeness?: number;
 }
 
 export interface RerankResult {
   ranked_ids: number[];
   rationales?: Record<number, string>;
+  adjustments?: Record<number, number>;
   used_ai: boolean;
   skip_reason?: string;
 }
@@ -33,27 +37,29 @@ export async function rerankCandidatesWithGemini(
 
   const top = candidates.slice(0, 50);
 
-  const candidateList = top
-    .map(
-      (c, i) =>
-        `${i + 1}. ID:${c.id} | Title: ${c.title ?? "Unknown"} | Skills: ${c.skills.slice(0, 5).join(", ")} | Summary: ${(c.summary ?? "").slice(0, 120)}`
-    )
-    .join("\n");
+  // const candidateList = top
+  //   .map(
+  //     (c, i) =>
+  //       `${i + 1}. ID:${c.id} | Title: ${c.title ?? "Unknown"} | Deterministic Score: ${c.score ?? "N/A"} | RelExp: ${c.relevant_experience_years ?? 0}y | Skills: ${c.skills.slice(0, 6).join(", ") || "None"} | Completeness: ${c.completeness ?? 0}% | Summary: ${(c.summary ?? "").slice(0, 120)}`
+  //   )
+  //   .join("\n");
 
-  const prompt = `You are a recruitment AI assistant.
-
+  const prompt = `You are a recruitment scoring assistant.
 Employer is searching for: "${query}"
 
-Rank the following candidates from MOST relevant to LEAST relevant based on the search query.
-Return ONLY a valid JSON array of objects containing "id" and a concise 1-sentence "rationale" explaining their ranking position.
+Candidates have already been evaluated and scored by deterministic matching (Deterministic Score).
+Assess each candidate's genuine semantic relevance to the search query.
+Provide a bounded adjustment between -10.0 and +10.0 points to modify their deterministic score:
+- Positive (+1 to +10): Strong direct semantic match for the role, tech stack, or domain beyond literal keywords.
+- Neutral (0): Matches expected deterministic baseline.
+- Negative (-1 to -10): Profile lacks genuine role fit, lacks essential skills, or is incomplete/misaligned despite a matching title.
 
-Candidates:
-${candidateList}
+Return ONLY a valid JSON array of objects with "id", "adjustment" (number from -10 to 10), and a concise 1-sentence "rationale".
 
-Return format example:
+Example:
 [
-  { "id": 3, "rationale": "Direct match for React with 5+ years web development experience." },
-  { "id": 7, "rationale": "Strong full-stack profile, but secondary web experience." }
+  { "id": 3, "adjustment": 6.5, "rationale": "Direct full-stack alignment with strong React and production experience." },
+  { "id": 29, "adjustment": -6.0, "rationale": "Title matches but profile completely lacks listed skills, summary, and experience." }
 ]
 Return ONLY the JSON array, nothing else.`;
 
@@ -85,17 +91,21 @@ Return ONLY the JSON array, nothing else.`;
     const validIds = new Set(top.map((c) => c.id));
     const ranked: number[] = [];
     const rationales: Record<number, string> = {};
+    const adjustments: Record<number, number> = {};
 
     for (const item of parsed as unknown[]) {
       if (typeof item === "number" && validIds.has(item)) {
         if (!ranked.includes(item)) ranked.push(item);
       } else if (item && typeof item === "object" && "id" in item) {
-        const obj = item as { id: unknown; rationale?: unknown };
+        const obj = item as { id: unknown; adjustment?: unknown; rationale?: unknown };
         const id = typeof obj.id === "number" ? obj.id : Number(obj.id);
         if (Number.isFinite(id) && validIds.has(id) && !ranked.includes(id)) {
           ranked.push(id);
           if (typeof obj.rationale === "string" && obj.rationale.trim()) {
             rationales[id] = obj.rationale.trim();
+          }
+          if (typeof obj.adjustment === "number" && Number.isFinite(obj.adjustment)) {
+            adjustments[id] = Math.max(-10, Math.min(10, Number(obj.adjustment.toFixed(1))));
           }
         }
       }
@@ -110,7 +120,7 @@ Return ONLY the JSON array, nothing else.`;
       }
     }
 
-    return { ranked_ids: ranked, rationales, used_ai: true };
+    return { ranked_ids: ranked, rationales, adjustments, used_ai: true };
   } catch (err) {
     return {
       ranked_ids: top.map((c) => c.id),

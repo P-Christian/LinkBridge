@@ -22,7 +22,9 @@ import {
 import type {
   ContactMessage,
   ContactMessageStatus,
+  ContactMessageStatusCounts,
 } from "../types/contact-message.types";
+import { formatWallClock } from "@/lib/utils";
 
 interface ContactMessageListProps {
   messages: ContactMessage[];
@@ -33,7 +35,7 @@ interface ContactMessageListProps {
   search: string;
   page: number;
   pageSize: number;
-  unreadCount: number;
+  statusCounts: ContactMessageStatusCounts | null;
   onStatusFilterChange: (status: ContactMessageStatus | "all") => void;
   onSearchChange: (search: string) => void;
   onPageChange: (page: number) => void;
@@ -60,7 +62,7 @@ export function ContactMessageList({
   search,
   page,
   pageSize,
-  unreadCount,
+  statusCounts,
   onStatusFilterChange,
   onSearchChange,
   onPageChange,
@@ -70,11 +72,11 @@ export function ContactMessageList({
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   const filterTabs: Array<{ id: ContactMessageStatus | "all"; label: string; badge?: number }> = [
-    { id: "all", label: "All Messages" },
-    { id: "new", label: "New", badge: unreadCount },
-    { id: "read", label: "Read" },
-    { id: "resolved", label: "Resolved" },
-    { id: "archived", label: "Archived" },
+    { id: "all", label: "All Messages", badge: statusCounts?.all },
+    { id: "new", label: "New", badge: statusCounts?.new },
+    { id: "read", label: "Read", badge: statusCounts?.read },
+    { id: "resolved", label: "Resolved", badge: statusCounts?.resolved },
+    { id: "archived", label: "Archived", badge: statusCounts?.archived },
   ];
 
   return (
@@ -199,18 +201,24 @@ export function ContactMessageList({
             const isNew = item.status === "new";
 
             return (
-              <div
+              // A real button, not a div with a click handler: keyboard users
+              // get it for free, and its accessible name is the row's own text
+              // (subject, sender, snippet, date) rather than a label that hides
+              // that content from a screen reader.
+              <button
                 key={item.id}
+                type="button"
                 onClick={() => onSelectMessage(item.id)}
-                className={`group relative rounded-2xl border p-4 transition-all duration-200 cursor-pointer backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-4 ${
+                className={`group relative w-full text-left rounded-2xl border p-4 transition-all duration-200 cursor-pointer backdrop-blur-md flex flex-col md:flex-row md:items-center justify-between gap-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
                   isNew
                     ? "bg-card/90 border-primary/30 shadow-xs hover:border-primary/50 hover:bg-card/95"
                     : "bg-card/60 border-primary/10 hover:border-primary/30 hover:bg-card/80"
                 }`}
               >
-                {/* Left side: Subject, Sender, Snippet */}
-                <div className="space-y-1.5 flex-1 min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
+                {/* Left side: Subject, Sender, Snippet. Spans, not divs/p: a
+                    button may only contain phrasing content. */}
+                <span className="flex flex-col gap-1.5 flex-1 min-w-0">
+                  <span className="flex flex-wrap items-center gap-2">
                     <span className="font-bold text-sm text-foreground group-hover:text-primary transition-colors truncate">
                       {item.subject}
                     </span>
@@ -225,13 +233,13 @@ export function ContactMessageList({
                         {item.user_role}
                       </span>
                     )}
-                  </div>
+                  </span>
 
-                  <p className="text-xs text-muted-foreground line-clamp-1 leading-relaxed">
+                  <span className="block text-xs text-muted-foreground line-clamp-1 leading-relaxed">
                     {item.message}
-                  </p>
+                  </span>
 
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground pt-0.5">
+                  <span className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground pt-0.5">
                     <span className="flex items-center gap-1 font-medium text-foreground">
                       <User className="h-3 w-3 text-primary/70" />
                       {item.name}
@@ -247,26 +255,26 @@ export function ContactMessageList({
                         </span>
                       </>
                     )}
-                  </div>
-                </div>
+                  </span>
+                </span>
 
                 {/* Right side: Date & View Button */}
-                <div className="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-border/50">
+                <span className="flex items-center justify-between md:justify-end gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-border/50">
                   <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                     <Calendar className="h-3 w-3" />
-                    {item.created_at}
+                    {formatWallClock(item.created_at)}
                   </span>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-full h-8 text-xs px-3.5 gap-1.5 border-primary/20 hover:border-primary/40 bg-card/60 hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+                  {/* The row itself opens the message, so this pill is a cue and
+                      not a second control for the same action. */}
+                  <span
+                    aria-hidden="true"
+                    className="inline-flex items-center gap-1.5 rounded-full h-8 px-3.5 text-xs font-medium border border-primary/20 bg-card/60 text-foreground transition-colors group-hover:border-primary/40 group-hover:bg-primary/10 group-hover:text-primary"
                   >
                     <Eye className="h-3.5 w-3.5" />
                     Review
-                  </Button>
-                </div>
-              </div>
+                  </span>
+                </span>
+              </button>
             );
           })}
         </div>

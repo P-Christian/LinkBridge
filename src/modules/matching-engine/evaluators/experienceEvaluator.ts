@@ -60,7 +60,8 @@ export function evaluateExperience(profile: NormalizedProfile, context: MatchCon
     }
   }
 
-  const relevantYears = Number((relevantMonths / 12).toFixed(1));
+  const clampedRelevantMonths = Math.min(relevantMonths, totalMonths);
+  const relevantYears = Number((clampedRelevantMonths / 12).toFixed(1));
   const totalYears = Number((totalMonths / 12).toFixed(1));
 
   // Ideal experience years (default 5.0 yrs or context required)

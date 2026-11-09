@@ -338,7 +338,7 @@ export default function StudentMatchTable({
       transition={{
         layout: { duration: 0.25, ease: [0.22, 1, 0.36, 1] },
       }}
-      className="overflow-hidden rounded-xl border border-border bg-background shadow-sm space-y-0 min-h-[560px] flex flex-col justify-between"
+      className="overflow-hidden rounded-xl border border-border bg-background shadow-sm space-y-0 min-h-[560px] flex flex-col justify-between wrap-anywhere"
     >
       {/* Table Toolbar & Segment Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border bg-muted/20 px-4 py-2.5">

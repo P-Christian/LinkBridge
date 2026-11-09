@@ -77,6 +77,8 @@ export interface BulkJobPreferenceRow {
   user_id: number;
   work_setup?: string | null;
   preferred_location?: string | null;
+  salary_range_min?: number | string | null;
+  salary_range_max?: number | string | null;
 }
 
 export interface TalentEducationBulkRow {
@@ -254,7 +256,7 @@ export function readJobPreferenceRows(userIds: number[]): Promise<BulkJobPrefere
     "vs_job_preferences",
     "user_id",
     userIds,
-    "user_id,work_setup,preferred_location"
+    "user_id,work_setup,preferred_location,salary_range_min,salary_range_max"
   );
 }
 

@@ -95,6 +95,9 @@ export interface TalentResult {
     evidence: MatchResult["evidence"];
   } | null;
   ai_explanation: string | null;
+  work_setup?: string | null;
+  salary_range_min?: number | null;
+  salary_range_max?: number | null;
 }
 
 /**
@@ -173,7 +176,7 @@ export function buildTalentRecord(
   normalized: NormalizedProfile,
   ctx: RecordContext
 ): TalentResult {
-  const { profile, user, work, edu } = rows;
+  const { profile, user, work, edu, jobPreference } = rows;
 
   const matchContext: MatchContext = ctx.retrieval
     ? { ...ctx.matchContext, layer1Score: ctx.retrieval.score }
@@ -196,6 +199,17 @@ export function buildTalentRecord(
     id: (e) => e.employee_education_id,
   });
 
+  const totalExpYears = Number(
+    (
+      work.reduce((acc, w) => {
+        if (!w.start_date) return acc;
+        const s = new Date(w.start_date);
+        const e = w.is_current_role ? new Date() : w.end_date ? new Date(w.end_date) : new Date();
+        return acc + Math.max((e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()), 0);
+      }, 0) / 12
+    ).toFixed(1)
+  );
+
   const record: TalentResult = {
     user_id: profile.user_id,
     profile_id: profile.profile_id,
@@ -205,17 +219,8 @@ export function buildTalentRecord(
     summary: normalized.summary,
     location: normalized.location,
     skills: normalized.skills,
-    experience_years: Number(
-      (
-        work.reduce((acc, w) => {
-          if (!w.start_date) return acc;
-          const s = new Date(w.start_date);
-          const e = w.is_current_role ? new Date() : w.end_date ? new Date(w.end_date) : new Date();
-          return acc + Math.max((e.getFullYear() - s.getFullYear()) * 12 + (e.getMonth() - s.getMonth()), 0);
-        }, 0) / 12
-      ).toFixed(1)
-    ),
-    relevant_experience_years: relYears,
+    experience_years: totalExpYears,
+    relevant_experience_years: Math.min(relYears, totalExpYears),
     work_experience: work.slice(0, 3).map((w) => ({
       company_name: w.company_name,
       job_title: w.job_title,
@@ -251,6 +256,9 @@ export function buildTalentRecord(
         }
       : null,
     ai_explanation: null,
+    work_setup: jobPreference?.work_setup ?? null,
+    salary_range_min: jobPreference?.salary_range_min ? Number(jobPreference.salary_range_min) : null,
+    salary_range_max: jobPreference?.salary_range_max ? Number(jobPreference.salary_range_max) : null,
   };
 
   logScoredCandidate(normalized, record, engineResult, ctx);

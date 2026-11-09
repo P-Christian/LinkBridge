@@ -15,6 +15,8 @@ import {
   saveApplicationAiAnalysis,
 } from "@/lib/gemini/applicationAiStorage";
 
+import { readJobSkillRows } from "@/modules/client/talent-search/services/talent-search.repo";
+
 import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,7 +37,6 @@ interface JobRow extends Record<string, unknown> {
   company_id?: number | string | null;
   job_title?: string | null;
   job_description?: string | null;
-  job_requirements?: string | null;
   job_responsibilities?: string | null;
   job_qualifications?: string | null;
   experience_level?: string | null;
@@ -58,11 +59,22 @@ const FIT_LEVELS = [
  * Only Directus' own 404 may tell the employer a row is gone. Every other
  * failure status means the row could not be read, and answering 404 makes an
  * outage look like a deleted application.
+ *
+ * The text sent to the browser deliberately drops the upstream reason, so a 400
+ * or 500 on one row leaves nothing behind to inspect. The status and Directus'
+ * own message are logged here.
  */
-function missingOrOutage(status: number, entity: string): NextResponse {
-  if (status === 404) {
+function missingOrOutage(
+  res: { status: number; error: string },
+  entity: string,
+  context: string
+): NextResponse {
+  if (res.status === 404) {
     return NextResponse.json({ error: `${entity} not found.` }, { status: 404 });
   }
+  console.error(
+    `[${context}] ${entity} read failed (${res.status}): ${res.error || "Directus returned no message."}`
+  );
   return NextResponse.json(
     { error: `${entity} could not be read. Please try again.` },
     { status: 502 }
@@ -110,25 +122,29 @@ export async function GET(
     }
 
     // Verify application belongs to caller's company
-    const appRes = await directusSettled<ApplicationRow>(
+    const appRes = await directusSettled<{ data?: ApplicationRow | null }>(
       `/items/vs_job_application/${applicationId}`,
       { query: "fields=application_id,job_id" }
     );
     if (!appRes.ok) {
-      return missingOrOutage(appRes.status, "Application");
+      return missingOrOutage(appRes, "Application", `ai-analysis GET ${applicationId}`);
     }
-    const targetJobId = toId(appRes.data?.job_id ?? null);
+    const targetJobId = toId(appRes.data?.data?.job_id ?? null);
     if (!targetJobId) {
       return NextResponse.json({ error: "Application is not associated with a valid job." }, { status: 400 });
     }
 
-    const jobCheckRes = await directusSettled<JobRow>(`/items/vs_job_posting/${targetJobId}`, {
+    const jobCheckRes = await directusSettled<{ data?: JobRow | null }>(`/items/vs_job_posting/${targetJobId}`, {
       query: "fields=job_id,company_id",
     });
     if (!jobCheckRes.ok) {
-      return missingOrOutage(jobCheckRes.status, "Associated job posting");
+      return missingOrOutage(
+        jobCheckRes,
+        "Associated job posting",
+        `ai-analysis GET ${applicationId} job ${targetJobId}`
+      );
     }
-    if (Number(jobCheckRes.data?.company_id) !== companyId) {
+    if (Number(jobCheckRes.data?.data?.company_id) !== companyId) {
       return NextResponse.json(
         { error: "Forbidden: Candidate application belongs to another organization." },
         { status: 403 }
@@ -235,7 +251,7 @@ export async function POST(
     const candidateData = body.candidate || null;
 
     // Fetch Application & Job Posting details from Directus
-    const appRes = await directusSettled<ApplicationRow>(
+    const appRes = await directusSettled<{ data?: ApplicationRow | null }>(
       `/items/vs_job_application/${applicationId}`,
       {
         query:
@@ -244,10 +260,10 @@ export async function POST(
     );
 
     if (!appRes.ok) {
-      return missingOrOutage(appRes.status, "Application");
+      return missingOrOutage(appRes, "Application", `ai-analysis POST ${applicationId}`);
     }
 
-    const application = appRes.data;
+    const application = appRes.data?.data ?? null;
     if (!application) {
       return NextResponse.json({ error: "Application not found." }, { status: 404 });
     }
@@ -271,16 +287,20 @@ export async function POST(
       );
     }
 
-    const jobRes = await directusSettled<JobRow>(`/items/vs_job_posting/${targetJobId}`, {
+    const jobRes = await directusSettled<{ data?: JobRow | null }>(`/items/vs_job_posting/${targetJobId}`, {
       query:
-        "fields=job_id,company_id,job_title,job_description,job_requirements,job_responsibilities,job_qualifications,experience_level,salary_min,salary_max",
+        "fields=job_id,company_id,job_title,job_description,job_qualifications,job_responsibilities,experience_level,salary_min,salary_max",
     });
 
     if (!jobRes.ok) {
-      return missingOrOutage(jobRes.status, "Associated job posting");
+      return missingOrOutage(
+        jobRes,
+        "Associated job posting",
+        `ai-analysis POST ${applicationId} job ${targetJobId}`
+      );
     }
 
-    const jobPosting = jobRes.data;
+    const jobPosting = jobRes.data?.data ?? null;
     if (!jobPosting) {
       return NextResponse.json({ error: "Associated job posting not found." }, { status: 404 });
     }
@@ -324,12 +344,26 @@ export async function POST(
         job_description: j.job_description ? String(j.job_description).slice(0, 300) : "",
       }));
 
+    // The applied role's skills are rows in vs_job_skills_map, not a column on
+    // the posting, so `jobPosting.skills_required` was always undefined and the
+    // model was told every role required no skills at all. Ownership of
+    // targetJobId is proven above, which is what makes this job-keyed read safe.
+    const skillRows = await readJobSkillRows(targetJobId);
+    const targetSkills = skillRows
+      .map((row) => row.skill_id?.skill_name || "")
+      .filter(Boolean);
+
     const jobContext = {
       job_title: jobPosting?.job_title || candidateData?.job_title || "Target Role",
       job_description: jobPosting?.job_description || "N/A",
-      requirements: jobPosting?.job_requirements || "N/A",
+      // `job_qualifications` is where the job writer stores what the API calls
+      // job_requirements (see parsePayload), so this is the same text.
+      requirements: jobPosting?.job_qualifications || "N/A",
       responsibilities: jobPosting?.job_responsibilities || "N/A",
-      skills_required: jobPosting?.skills_required || "N/A",
+      skills_required:
+        targetSkills.length > 0
+          ? targetSkills.join(", ")
+          : "No skills are recorded for this opening; judge against the stated qualifications.",
       experience_level: jobPosting?.experience_level || "N/A",
       salary_min: jobPosting?.salary_min || null,
       salary_max: jobPosting?.salary_max || null,
@@ -389,6 +423,7 @@ Portfolio: ${candidateProfile.portfolio_url}
 1. Evaluate hard skills, experience depth, domain knowledge, and qualification fit for the APPLIED role.
 2. Review candidate screening answers in depth for role alignment and technical understanding.
 3. Calculate an objective match_score (0 to 100) and fit_level for the applied role.
+   "fit_level" must be exactly one of these ${FIT_LEVELS.length} strings, spelled the same way: ${FIT_LEVELS.join(", ")}.
 4. CROSS-ROLE EVALUATION:
    - Carefully check the candidate against EVERY OTHER ACTIVE COMPANY OPENING listed in the section above.
    - For example, if the candidate has strong Full-Stack / Web Development / Backend background and there is a role like "Junior Full Stack Developer" or similar, calculate their match score for that position.
@@ -415,7 +450,7 @@ Expected JSON schema:
     "Potential gap or area requiring interview validation 1",
     "Potential gap 2"
   ],
-  "screening_assessment": "1-2 sentence review of candidate screening answers and technical depth shown.",
+  "screening_assessment": "1-3 sentence review of candidate screening answers and technical depth shown.",
   "recommendation": "Clear recruiter recommendation on next steps and targeted questions to ask.",
   "alternative_job_recommendations": [
     {
@@ -462,13 +497,14 @@ Expected JSON schema:
     // 75 and "Good Match", so a truncated or off-schema Gemini response was
     // stored and shown as a decent candidate. Report it as a failed generation
     // instead of inventing the number the model did not give.
+    //
+    // Only the score has to be sound. Gemini words the rating freely ("Poor
+    // Match"), and rejecting that threw away a correct paid evaluation over
+    // wording the badge never depended on — its colour comes from the score.
     const rawScore = Number(parsedResult.match_score);
     const fitLevel =
       typeof parsedResult.fit_level === "string" ? parsedResult.fit_level.trim() : "";
-    if (
-      !Number.isFinite(rawScore) ||
-      !(FIT_LEVELS as readonly string[]).includes(fitLevel)
-    ) {
+    if (!Number.isFinite(rawScore) || !fitLevel) {
       console.error(
         "Gemini AI response has no usable score or fit rating",
         process.env.NODE_ENV === "production" ? "(response content redacted)" : rawResponse
@@ -482,31 +518,48 @@ Expected JSON schema:
     // Cross-role suggestions are only kept when they name a posting this
     // company actually has open. `Number(alt.job_id) || 0` used to accept a
     // hallucinated id as 0 and a missing score as a 75% match.
-    const knownJobIds = new Set(otherActiveJobs.map((j) => Number(j.job_id)));
+    // Gemini sometimes mistypes the key itself ("jop_id"), which used to drop a
+    // correct suggestion without a word; the id is recovered from the title it
+    // did return, and anything still unmatchable is reported, not hidden.
+    const knownJobs = new Map(
+      otherActiveJobs.map((j) => [Number(j.job_id), String(j.job_title || "")])
+    );
+    const jobIdByTitle = new Map(
+      [...knownJobs.entries()].map(([id, title]) => [
+        title.trim().toLowerCase().replace(/\s+/g, " "),
+        id,
+      ])
+    );
     const rawAlts: Record<string, unknown>[] = Array.isArray(
       parsedResult.alternative_job_recommendations
     )
       ? parsedResult.alternative_job_recommendations
       : [];
-    const alternativeJobs = rawAlts
-      .map((alt) => ({
-        job_id: toId(alt.job_id ?? null),
-        job_title: String(alt.job_title || ""),
-        match_score: Number(alt.match_score),
+    const alternativeJobs: {
+      job_id: number;
+      job_title: string;
+      match_score: number;
+      reasoning: string;
+    }[] = [];
+    let unmatchedAlts = 0;
+    for (const alt of rawAlts) {
+      const altTitle = String(alt.job_title || "");
+      const matchScore = Number(alt.match_score);
+      const resolvedId =
+        toId(alt.job_id ?? null) ??
+        jobIdByTitle.get(altTitle.trim().toLowerCase().replace(/\s+/g, " ")) ??
+        null;
+      if (resolvedId === null || !knownJobs.has(resolvedId) || !Number.isFinite(matchScore)) {
+        unmatchedAlts++;
+        continue;
+      }
+      alternativeJobs.push({
+        job_id: resolvedId,
+        job_title: knownJobs.get(resolvedId) || altTitle,
+        match_score: clampScore(matchScore),
         reasoning: String(alt.reasoning || ""),
-      }))
-      .filter(
-        (alt) =>
-          alt.job_id !== null &&
-          knownJobIds.has(alt.job_id) &&
-          Number.isFinite(alt.match_score)
-      )
-      .map((alt) => ({
-        job_id: alt.job_id as number,
-        job_title: alt.job_title,
-        match_score: clampScore(alt.match_score),
-        reasoning: alt.reasoning,
-      }));
+      });
+    }
 
     const analysis = {
       match_score: clampScore(parsedResult.match_score),
@@ -533,6 +586,11 @@ Expected JSON schema:
     // already been paid for — but it is reported, because otherwise the employer
     // assumes it is retained and the next page load runs the model again.
     const warnings: string[] = [];
+    if (unmatchedAlts > 0) {
+      warnings.push(
+        `${unmatchedAlts} cross-role suggestion(s) in the AI reply could not be matched to an open position and were left out.`
+      );
+    }
     try {
       await saveApplicationAiAnalysis({
         evaluation_mode: "CANDIDATE_EVALUATION",

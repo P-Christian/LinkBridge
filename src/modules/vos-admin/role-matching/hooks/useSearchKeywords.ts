@@ -58,7 +58,19 @@ export function useSearchKeywords(roleId?: number) {
   const editKeyword = useCallback(async (payload: Partial<SearchKeyword>) => {
     try {
       const updated = await updateSearchKeyword(payload);
-      setKeywords((prev) => prev.map((k) => k.alias_id === updated.alias_id ? { ...k, ...updated } : k));
+      const is_active =
+        updated.is_active !== undefined
+          ? Boolean(updated.is_active)
+          : payload.is_active !== undefined
+          ? Boolean(payload.is_active)
+          : undefined;
+      setKeywords((prev) =>
+        prev.map((k) =>
+          k.alias_id === (updated.alias_id ?? payload.alias_id)
+            ? { ...k, ...updated, ...(is_active !== undefined ? { is_active } : {}) }
+            : k
+        )
+      );
       return true;
     } catch (err: unknown) {
       toast.error((err as Error).message || "Failed to update search keyword.", { id: TOAST_ID });

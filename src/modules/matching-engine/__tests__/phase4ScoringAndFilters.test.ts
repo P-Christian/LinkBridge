@@ -3,8 +3,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { evaluateSkills } from "../evaluators/skillEvaluator";
+import { evaluateExperience } from "../evaluators/experienceEvaluator";
 import { calculateRankingScore } from "../engine/ranking";
-import { applyExperienceFilter } from "../../client/talent-search/services/talent-search.service";
+import {
+  applyExperienceFilter,
+  filterTalentResults,
+} from "../../client/talent-search/services/talent-search.service";
+import type { TalentResult } from "../../client/talent-search/services/talent-search.record";
 import { MatchMode, MatchContext } from "../types/matchTypes";
 import { NormalizedProfile } from "../types/profileTypes";
 
@@ -147,4 +152,60 @@ test("ExperienceFilter: Empty filter returns all candidates", () => {
 
   const filtered = applyExperienceFilter(talents, []);
   assert.equal(filtered.length, 2);
+});
+
+// ── 4. Work Setup Multi-value & Unspecified Filter Tests ──
+
+test("WorkSetupFilter: Matches comma-separated multi-value setups", () => {
+  const talents = [
+    { profile_id: 1, user_id: 1, location: "Manila", education: [], work_setup: "Remote, Hybrid, On-site", relevant_experience_years: 2 },
+    { profile_id: 2, user_id: 2, location: "Manila", education: [], work_setup: "On-site", relevant_experience_years: 3 },
+    { profile_id: 3, user_id: 3, location: "Manila", education: [], work_setup: null, relevant_experience_years: 4 },
+  ] as unknown as TalentResult[];
+
+  const remoteOnly = filterTalentResults(talents, { workSetups: ["Remote"] });
+  assert.equal(remoteOnly.length, 1);
+  assert.equal(remoteOnly[0].profile_id, 1);
+
+  // A blank setup matches no value, so it drops out even when all three are set
+  const allSetups = filterTalentResults(talents, { workSetups: ["Remote", "Hybrid", "On-site"] });
+  assert.equal(allSetups.length, 2);
+  assert.deepEqual(allSetups.map((t) => t.profile_id), [1, 2]);
+});
+
+// ── 5. Experience Clamping Tests ──
+
+test("ExperienceEvaluator: Clamps relevant experience months so relevant years <= total years", () => {
+  const profile = createMockProfile({
+    id: 10,
+    name: "Laplace Dummy",
+    workHistory: [
+      {
+        company: "Tech Corp",
+        title: "Web Developer",
+        startDate: "2021-01-01",
+        endDate: "2024-07-01",
+        isCurrent: false,
+        years: 3.5,
+        description: "Full stack web development with React and Node",
+      },
+    ],
+  });
+
+  const context: MatchContext = {
+    mode: MatchMode.ROLE_SIMILARITY,
+    keyword: "Web Developer",
+    effectiveSkills: ["React", "Node"],
+  };
+
+  const result = evaluateExperience(profile, context, 25);
+  assert.equal(result.label, "Relevant Experience");
+  const expEvidence = result.evidence[0];
+  assert.ok(expEvidence);
+  // Relevant years must not exceed total experience
+  const relMatch = expEvidence.value.match(/([\d.]+)\s*yrs/);
+  assert.ok(relMatch);
+  const relYears = Number(relMatch[1]);
+  assert.ok(relYears <= 3.6);
+  assert.ok(result.explanationMessage.includes("relevant experience"));
 });

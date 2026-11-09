@@ -10,15 +10,22 @@ const DIRECTUS_BASE = (
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
 
 export function directusBase(): string {
-  return DIRECTUS_BASE;
+  const raw =
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    process.env.DIRECTUS_URL ||
+    DIRECTUS_BASE;
+  return (raw ?? "").split("#")[0].trim().replace(/\/+$/, "");
 }
 
 export function directusHeaders(): Record<string, string> {
+  const token = (process.env.DIRECTUS_STATIC_TOKEN || DIRECTUS_TOKEN || "")
+    .split("#")[0]
+    .trim();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Accept: "application/json",
   };
-  if (DIRECTUS_TOKEN) headers["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   return headers;
 }
 
@@ -48,7 +55,7 @@ export async function directusList(
   collection: string,
   params: URLSearchParams,
 ): Promise<Record<string, unknown>[]> {
-  const response = await fetch(`${DIRECTUS_BASE}/items/${collection}?${params.toString()}`, {
+  const response = await fetch(`${directusBase()}/items/${collection}?${params.toString()}`, {
     headers: directusHeaders(),
     cache: "no-store",
   });
@@ -80,8 +87,13 @@ export async function directusGetOneSettled(
   id: number | string,
   fields: string,
 ): Promise<SingleItemRead> {
+  const cleanFields = fields
+    .split(",")
+    .map((f) => f.trim())
+    .filter(Boolean)
+    .join(",");
   const response = await fetch(
-    `${DIRECTUS_BASE}/items/${collection}/${encodeURIComponent(String(id))}?fields=${encodeURIComponent(fields)}`,
+    `${directusBase()}/items/${collection}/${encodeURIComponent(String(id))}?fields=${cleanFields}`,
     { headers: directusHeaders(), cache: "no-store" },
   );
   if (!response.ok) return { ok: false, status: response.status };
@@ -97,7 +109,7 @@ export async function directusPost(
   collection: string,
   body: Record<string, unknown>,
 ): Promise<{ ok: boolean; status: number; row: Record<string, unknown> | null }> {
-  const response = await fetch(`${DIRECTUS_BASE}/items/${collection}`, {
+  const response = await fetch(`${directusBase()}/items/${collection}`, {
     method: "POST",
     headers: directusHeaders(),
     body: JSON.stringify(body),
@@ -118,7 +130,7 @@ export async function directusPatch(
   body: Record<string, unknown>,
 ): Promise<boolean> {
   const response = await fetch(
-    `${DIRECTUS_BASE}/items/${collection}/${encodeURIComponent(String(id))}`,
+    `${directusBase()}/items/${collection}/${encodeURIComponent(String(id))}`,
     {
       method: "PATCH",
       headers: directusHeaders(),

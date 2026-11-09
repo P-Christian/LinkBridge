@@ -306,7 +306,7 @@ function StudentMatchDrawerContent({
           {/* Drawer Container */}
           <motion.div
             key="student-drawer-panel"
-            className="fixed right-0 top-0 h-full w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-[820px] bg-background border-l border-border shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
+            className="fixed right-0 top-0 h-full w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-[820px] bg-background border-l border-border shadow-2xl flex flex-col overflow-hidden pointer-events-auto wrap-anywhere"
             role="dialog"
             aria-modal="true"
             aria-label={`Match details for ${result.studentName}`}

@@ -109,7 +109,7 @@ export default function InviteDialog({
       { value: "none", label: GENERAL_INTEREST },
       ...jobs.map((j) => ({
         value: String(j.job_id),
-        label: `${j.job_title} (#${j.job_id})`,
+        label: `${j.job_title} `,
       })),
     ],
     [jobs]

@@ -9,6 +9,7 @@ import { isSchoolQuery } from "@/modules/matching-engine";
 import { rerankCandidatesWithGemini } from "@/lib/gemini/aiReranker";
 import { debugLog } from "./talent-search.helpers";
 import type { TalentResult } from "./talent-search.record";
+import { getCachedRerank, setCachedRerank } from "@/app/api/client/talent-search/search-ranking-cache";
 
 /**
  * The two Gemini layers of the pipeline. Both are optional: each one falls back
@@ -126,19 +127,56 @@ export async function rerankTalents(input: {
 
   const candidatesToRerank = talents.slice(0, RERANK_LIMIT);
   const beforeOrder = candidatesToRerank.map((t) => `#${t.user_id}`).join(", ");
-  debugLog(
-    `[talent-search] 🤖 Gemini Layer B: reranking top ${candidatesToRerank.length} candidates${jobId ? ` for job ${jobId}` : ""} for "${keyword}"... [order before: ${beforeOrder}]`
-  );
-  const rerankInput = candidatesToRerank.map((t) => ({
-    id: t.user_id,
-    title: t.headline,
-    skills: t.skills,
-    summary: t.summary,
-  }));
-  const { ranked_ids, rationales, used_ai, skip_reason } = await rerankCandidatesWithGemini(keyword, rerankInput, {
-    userId,
-    companyId,
-  });
+  const headIds = candidatesToRerank.map((t) => t.user_id).join(",");
+  const rerankCacheKey = `${(keyword || "").trim().toLowerCase()}::${headIds}`;
+
+  let ranked_ids: number[] = [];
+  let rationales: Record<number, string> | undefined;
+  let adjustments: Record<number, number> | undefined;
+  let used_ai = false;
+  let skip_reason: string | undefined;
+
+  const cached = getCachedRerank(rerankCacheKey);
+  if (cached) {
+    debugLog(
+      `[talent-search] 🤖 Gemini Layer B: (cache hit) using cached rerank for "${keyword}" [head: ${headIds}]`
+    );
+    ranked_ids = cached.ranked_ids;
+    rationales = cached.rationales;
+    adjustments = cached.adjustments;
+    used_ai = true;
+  } else {
+    debugLog(
+      `[talent-search] 🤖 Gemini Layer B: reranking top ${candidatesToRerank.length} candidates${jobId ? ` for job ${jobId}` : ""} for "${keyword}"... [order before: ${beforeOrder}]`
+    );
+    const rerankInput = candidatesToRerank.map((t) => ({
+      id: t.user_id,
+      title: t.headline,
+      skills: t.skills,
+      summary: t.summary,
+      score: t.ranking_score ?? t.match_score ?? 0,
+      relevant_experience_years: t.relevant_experience_years ?? 0,
+      completeness: t.skills.length > 0 && t.headline ? (t.summary ? 100 : 70) : 30,
+    }));
+    const result = await rerankCandidatesWithGemini(keyword, rerankInput, {
+      userId,
+      companyId,
+    });
+    ranked_ids = result.ranked_ids;
+    rationales = result.rationales;
+    adjustments = result.adjustments;
+    used_ai = result.used_ai;
+    skip_reason = result.skip_reason;
+
+    if (used_ai && ranked_ids.length > 0) {
+      setCachedRerank(rerankCacheKey, {
+        ranked_ids,
+        rationales: rationales ?? {},
+        adjustments: adjustments ?? {},
+        savedAt: Date.now(),
+      });
+    }
+  }
 
   if (!used_ai || ranked_ids.length === 0) {
     debugLog(`[talent-search] ⚠️  Gemini Layer B: rerank skipped or failed (${skip_reason ?? "no candidates or timeout"}) — keeping Layer 2 order`);
@@ -146,9 +184,23 @@ export async function rerankTalents(input: {
   }
 
   const rankMap = new Map(ranked_ids.map((id, idx) => [id, idx]));
-  const topReranked = talents
-    .slice(0, RERANK_LIMIT)
-    .sort((a, b) => (rankMap.get(a.user_id) ?? 99) - (rankMap.get(b.user_id) ?? 99));
+  const topReranked = candidatesToRerank
+    .map((t) => {
+      let adj = adjustments?.[t.user_id];
+      if (adj === undefined) {
+        const pos = rankMap.get(t.user_id);
+        adj = pos !== undefined && ranked_ids.length > 1
+          ? Number((5 - pos * (10 / (ranked_ids.length - 1))).toFixed(1))
+          : 0;
+      }
+      const baseScore = t.ranking_score ?? 0;
+      const blendedScore = Math.min(100, Math.max(0, Number((baseScore + adj).toFixed(1))));
+      return {
+        ...t,
+        ranking_score: blendedScore,
+      };
+    })
+    .sort((a, b) => (b.ranking_score ?? 0) - (a.ranking_score ?? 0));
 
   const afterOrder = topReranked.map((t) => `#${t.user_id}`).join(", ");
   debugLog(`[talent-search] 🤖 Gemini Layer B: ✅ reranked ${ranked_ids.length} candidates [order after: ${afterOrder}]`);

@@ -1,4 +1,4 @@
-// src/app/(vos-sync)/linkbridge/client/talent-search/page.tsx
+// src/app/(linkbridge)/linkbridge/client/talent-search/page.tsx
 
 import * as React from "react";
 import { PortalPageHeader } from "@/components/shared/layout/PortalPageHeader";
@@ -48,16 +48,35 @@ function buildHeaderUser(token: string | null | undefined) {
   };
 }
 
-export default async function TalentSearchPage() {
+/**
+ * The query string is the search, so it is read here rather than in a client
+ * effect: the first render already shows the right results, and there is no
+ * hydration mismatch or second round trip to reconcile it.
+ */
+function toQueryString(params: Record<string, string | string[] | undefined>): string {
+  const sp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const one of Array.isArray(value) ? value : [value]) sp.append(key, one);
+  }
+  return sp.toString();
+}
+
+export default async function TalentSearchPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value ?? null;
   const headerUser = buildHeaderUser(token);
+  const initialQuery = toQueryString(await searchParams);
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <PortalPageHeader user={headerUser} />
       <PageContainer>
-        <TalentSearchModule />
+        <TalentSearchModule initialQuery={initialQuery} />
       </PageContainer>
     </div>
   );

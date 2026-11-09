@@ -2,13 +2,13 @@
 
 const CACHE_PREFIX = "vos_ai_exp_";
 
-function buildCacheKey(keyword: string, userId: number): string {
-  const normKey = (keyword || "").trim().toLowerCase();
+function buildCacheKey(keyword: string | undefined | null, userId: number): string {
+  const normKey = (keyword || "").trim().toLowerCase() || "__suitability__";
   return `${CACHE_PREFIX}${normKey}_${userId}`;
 }
 
-export function getCachedExplanation(keyword: string, userId: number): string | null {
-  if (typeof window === "undefined" || !keyword || !userId) return null;
+export function getCachedExplanation(keyword: string | undefined | null, userId: number): string | null {
+  if (typeof window === "undefined" || !userId) return null;
   try {
     const key = buildCacheKey(keyword, userId);
     return sessionStorage.getItem(key);
@@ -17,8 +17,8 @@ export function getCachedExplanation(keyword: string, userId: number): string | 
   }
 }
 
-export function setCachedExplanation(keyword: string, userId: number, explanation: string): void {
-  if (typeof window === "undefined" || !keyword || !userId || !explanation) return;
+export function setCachedExplanation(keyword: string | undefined | null, userId: number, explanation: string): void {
+  if (typeof window === "undefined" || !userId || !explanation) return;
   try {
     const key = buildCacheKey(keyword, userId);
     sessionStorage.setItem(key, explanation);

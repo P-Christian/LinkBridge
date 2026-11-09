@@ -34,6 +34,11 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
 
   const hasScore = talent.match_score !== null && talent.match_score !== undefined;
   const relevantYears = talent.relevant_experience_years ?? talent.experience_years;
+  // "Relevant" only means something when the role evaluator produced a different
+  // number; in browse mode it is the total and the word is a lie.
+  const isRoleRelevant =
+    talent.relevant_experience_years !== undefined &&
+    talent.relevant_experience_years !== talent.experience_years;
   const showExperience = talent.experience_years > 0 || (talent.relevant_experience_years ?? 0) > 0;
   const latestJob = talent.work_experience[0];
   const educationCount = talent.education_count ?? talent.education.length;
@@ -101,6 +106,18 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
             {talent.match_score}% match
           </span>
         )}
+
+        {/* A keyword search has no job posting to match against, so match_score
+            stays null while the engine still ranks the page — without this the
+            list is ordered by a number nobody can see.its fine if nobody can see it */}
+        {/* {!hasScore && talent.ranking_score !== null && talent.ranking_score !== undefined && (
+          <span
+            className="shrink-0 whitespace-nowrap rounded-full border border-border/80 bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground shadow-2xs"
+            title="Engine relevance score out of 100, used to order these results"
+          >
+            {Math.round(talent.ranking_score)} relevance
+          </span>
+        )} */}
       </div>
 
       {/* Experience */}
@@ -109,7 +126,8 @@ export default function TalentCardComponent({ talent, onViewProfile, onToggleSav
           <p className="flex flex-wrap items-center gap-x-1.5">
             <Briefcase className="h-3.5 w-3.5 shrink-0 text-primary" />
             <span className="font-semibold text-foreground">
-              {formatExperienceYears(relevantYears)} relevant exp
+              {formatExperienceYears(relevantYears)}
+              {isRoleRelevant ? " relevant exp" : " experience"}
             </span>
             {talent.experience_years > relevantYears && (
               <span className="text-[11px] text-muted-foreground/75">

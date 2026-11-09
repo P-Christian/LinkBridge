@@ -92,11 +92,25 @@ export interface TalentCard {
 
 export interface TalentSearchResponse {
   search_mode?: "browse" | "search";
+  search_context?: RoleTaxonomyContext | null;
   talents: TalentCard[];
   total: number;
   page: number;
   limit: number;
+  sort?: TalentSort;
   ai_reranked?: boolean;
+}
+
+/** What the server made of the keyword: the role it resolved to, or nothing. */
+export interface RoleTaxonomyContext {
+  keyword: string;
+  resolved_role: string | null;
+  resolved_role_id: number | null;
+  category_code: string | null;
+  category_name: string | null;
+  matched_alias: string | null;
+  match_weight: number;
+  expanded_aliases: string[];
 }
 
 /** Full talent profile (drawer / detail view) */
@@ -183,6 +197,24 @@ export const WORK_SETUP_LABELS: Record<WorkSetup, string> = {
   Hybrid: "Hybrid",
   "On-site": "On-site",
 };
+
+/**
+ * The order the recruiter asked for. `relevance` is not a sort the client picks
+ * so much as the absence of one: it keeps the engine policy for the mode plus the
+ * Layer B rerank, which is the only case in which the AI call is worth making.
+ */
+export type TalentSort = "relevance" | "experience" | "name";
+
+export const TALENT_SORT_LABELS: Record<TalentSort, string> = {
+  relevance: "Best match",
+  experience: "Most experience",
+  name: "Name (A–Z)",
+};
+
+export const TALENT_SORTS = Object.keys(TALENT_SORT_LABELS) as TalentSort[];
+
+/** The route clamps `limit` at 50, so nothing larger may be offered. */
+export const PAGE_SIZE_OPTIONS = [20, 30, 50];
 
 /** Search filters */
 export interface TalentFilters {

@@ -5,6 +5,9 @@
 import { useCallback, useRef, useState } from "react";
 import { TalentProfile } from "../types";
 
+// In-memory client cache to prevent double-fetching on rapid clicks or React dev strict-mode
+const profileCache = new Map<number, TalentProfile>();
+
 export function useTalentProfile() {
   const [profile, setProfile] = useState<TalentProfile | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,6 +21,14 @@ export function useTalentProfile() {
 
   const fetchProfile = useCallback(async (userId: number) => {
     requestedUserIdRef.current = userId;
+
+    if (profileCache.has(userId)) {
+      setProfile(profileCache.get(userId)!);
+      setLoading(false);
+      setError("");
+      return;
+    }
+
     setLoading(true);
     setError("");
     setProfile(null);
@@ -31,7 +42,11 @@ export function useTalentProfile() {
         throw new Error(json.error || "Failed to load profile.");
       }
 
-      setProfile(json.profile ?? null);
+      const loaded = json.profile ?? null;
+      if (loaded) {
+        profileCache.set(userId, loaded);
+      }
+      setProfile(loaded);
     } catch (err: unknown) {
       if (requestedUserIdRef.current !== userId) return;
       setError(err instanceof Error ? err.message : "An error occurred.");

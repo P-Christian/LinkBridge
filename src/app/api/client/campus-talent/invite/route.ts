@@ -268,14 +268,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Authoritatively resolve student record from database to prevent open mail relay
-    const sRes = await directusSettled<StudentRow>(`/items/vs_school_student/${studentId}`, {
+    const sRes = await directusSettled<{ data?: StudentRow }>(`/items/vs_school_student/${studentId}`, {
       query:
         "fields=student_id,school_id,first_name,last_name,email,course_name,registered_user_id",
     });
     if (!sRes.ok) {
       return missingOrOutage(sRes.status, "Student record");
     }
-    const dbStudent = sRes.data;
+    const dbStudent = sRes.data?.data;
     if (!dbStudent) {
       return NextResponse.json({ error: "Student record not found." }, { status: 404 });
     }
@@ -292,7 +292,7 @@ export async function POST(req: NextRequest) {
     // The invitation and the student PATCH are keyed off the row we just read,
     // never off the school id the caller sent (SEC-039).
     const schoolId = Number(dbStudent.school_id) || 0;
-    const schoolRes = await directusSettled<SchoolRow>(`/items/vs_school/${schoolId}`, {
+    const schoolRes = await directusSettled<{ data?: SchoolRow }>(`/items/vs_school/${schoolId}`, {
       query: "fields=school_id,verification_status,is_active",
     });
     // An unreadable school row used to fall into the "not accessible" branch
@@ -301,8 +301,10 @@ export async function POST(req: NextRequest) {
     if (!schoolRes.ok) {
       return missingOrOutage(schoolRes.status, "Student's school");
     }
-    const schoolData = schoolRes.data;
-    if (!schoolData?.is_active || schoolData?.verification_status !== "VERIFIED") {
+    const schoolData = schoolRes.data?.data;
+    const isSchoolActive = schoolData?.is_active === true || schoolData?.is_active === 1;
+    const isSchoolVerified = String(schoolData?.verification_status ?? "").toUpperCase() === "VERIFIED";
+    if (!schoolData || !isSchoolActive || !isSchoolVerified) {
       return NextResponse.json({ error: "Student's school is not accessible." }, { status: 403 });
     }
     if (!courseName) courseName = dbStudent.course_name;
@@ -325,16 +327,17 @@ export async function POST(req: NextRequest) {
 
     // Verify job ownership to prevent cross-tenant IDOR
     if (jobId) {
-      const jRes = await directusSettled<JobRow>(`/items/vs_job_posting/${Number(jobId)}`, {
+      const jRes = await directusSettled<{ data?: JobRow }>(`/items/vs_job_posting/${Number(jobId)}`, {
         query: "fields=job_id,job_title,company_id",
       });
       if (!jRes.ok) {
         return missingOrOutage(jRes.status, "Job posting");
       }
-      if (Number(jRes.data?.company_id) !== Number(companyId)) {
+      const jobData = jRes.data?.data;
+      if (Number(jobData?.company_id) !== Number(companyId)) {
         return NextResponse.json({ error: "Forbidden: You do not own this job posting." }, { status: 403 });
       }
-      jobTitle = jRes.data?.job_title || jobTitle;
+      jobTitle = jobData?.job_title || jobTitle;
     }
 
     // Normalize empty strings/0 to null

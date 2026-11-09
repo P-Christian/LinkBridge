@@ -559,8 +559,11 @@ export default function ApplicantDetailsModal({
           </div>
         )}
 
-        {/* ── Scrollable content ─────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto scroll-smooth bg-muted/20 p-6 [scrollbar-gutter:stable]">
+        {/* ── Scrollable content ───────────────────────────────
+            wrap-anywhere (overflow-wrap: anywhere) is inherited by every text
+            node below, so one unbreakable token wraps inside its card instead of
+            painting past it. (Tailwind 4 renamed break-anywhere -> wrap-anywhere.) */}
+        <div className="flex-1 overflow-y-auto scroll-smooth bg-muted/20 p-6 wrap-anywhere [scrollbar-gutter:stable]">
           {error && (
             <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive md:text-xs">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />

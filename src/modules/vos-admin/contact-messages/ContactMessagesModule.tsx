@@ -5,7 +5,6 @@ import { useContactMessages } from "./hooks/useContactMessages";
 import { ContactMessageList } from "./components/ContactMessageList";
 import { ContactMessageDetailModal } from "./components/ContactMessageDetailModal";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   MessageSquare,
   RefreshCw,
@@ -19,9 +18,12 @@ export function ContactMessagesModule() {
     messages,
     total,
     unreadCount,
+    statusCounts,
     loading,
     error,
     filters,
+    searchInput,
+    selectedId,
     selectedMessage,
     detailLoading,
     updating,
@@ -55,16 +57,9 @@ export function ContactMessagesModule() {
               <MessageSquare className="h-6 w-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2.5">
-                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
-                  Contact Messages
-                </h1>
-                {unreadCount > 0 && (
-                  <Badge variant="outline" className="bg-info/10 text-info border-info/30 text-xs font-bold px-2.5 py-0.5 rounded-full">
-                    {unreadCount} new
-                  </Badge>
-                )}
-              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+                Contact Messages
+              </h1>
               <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
                 Review, triage, and manage incoming inquiries submitted through the public Contact Us page.
               </p>
@@ -96,8 +91,10 @@ export function ContactMessagesModule() {
               <Inbox className="h-4 w-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-foreground">{total}</div>
-          <p className="text-[11px] text-muted-foreground">All time active submissions</p>
+          <div className="text-2xl font-bold text-foreground">
+            {statusCounts ? statusCounts.all : "—"}
+          </div>
+          <p className="text-[11px] text-muted-foreground">Active submissions, excluding deleted</p>
         </div>
 
         <div className="rounded-2xl border border-info/20 bg-card/70 backdrop-blur-xl p-5 space-y-1.5 shadow-xs">
@@ -107,7 +104,9 @@ export function ContactMessagesModule() {
               <Clock className="h-4 w-4" />
             </div>
           </div>
-          <div className="text-2xl font-bold text-info">{unreadCount}</div>
+          <div className="text-2xl font-bold text-info">
+            {statusCounts ? unreadCount : "—"}
+          </div>
           <p className="text-[11px] text-muted-foreground">Awaiting initial administrative review</p>
         </div>
 
@@ -121,9 +120,9 @@ export function ContactMessagesModule() {
             </div>
           </div>
           <div className="text-2xl font-bold text-foreground">
-            {Math.max(0, total - unreadCount)}
+            {statusCounts ? statusCounts.resolved + statusCounts.archived : "—"}
           </div>
-          <p className="text-[11px] text-muted-foreground">Processed inquiries</p>
+          <p className="text-[11px] text-muted-foreground">Answered, or filed away with no action</p>
         </div>
       </div>
 
@@ -134,10 +133,10 @@ export function ContactMessagesModule() {
         loading={loading}
         error={error}
         statusFilter={filters.status}
-        search={filters.search}
+        search={searchInput}
         page={filters.page}
         pageSize={filters.pageSize}
-        unreadCount={unreadCount}
+        statusCounts={statusCounts}
         onStatusFilterChange={setStatusFilter}
         onSearchChange={setSearch}
         onPageChange={setPage}
@@ -148,11 +147,12 @@ export function ContactMessagesModule() {
       {/* Message Detail Modal */}
       <ContactMessageDetailModal
         message={selectedMessage}
-        isOpen={Boolean(selectedMessage)}
+        isOpen={selectedId !== null}
+        loading={detailLoading}
         onClose={() => selectMessage(null)}
         onUpdate={updateMessage}
         onDelete={deleteMessage}
-        updating={updating || detailLoading}
+        updating={updating}
       />
     </div>
   );
