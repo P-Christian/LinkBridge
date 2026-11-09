@@ -36,6 +36,11 @@ export interface ContactMessageListResult {
   total: number;
 }
 
+/** Active (non-soft-deleted) queue size, per status, plus the whole queue. */
+export type ContactMessageStatusCounts = Record<ContactMessageStatus, number> & {
+  all: number;
+};
+
 /** Query params accepted by GET /api/vos-admin/contact-messages */
 export interface ContactMessageListParams {
   status?: ContactMessageStatus | "all";

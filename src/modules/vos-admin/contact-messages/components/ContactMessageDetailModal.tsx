@@ -11,9 +11,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Copy,
-  Check,
   Building,
   Calendar,
  
@@ -25,6 +25,7 @@ import {
  
 } from "lucide-react";
 import { toast } from "sonner";
+import { formatWallClock } from "@/lib/utils";
 import type {
   ContactMessage,
   ContactMessageStatus,
@@ -33,6 +34,9 @@ import type {
 interface ContactMessageDetailModalProps {
   message: ContactMessage | null;
   isOpen: boolean;
+  /** The detail read is still in flight: the dialog has to say so, or a row
+   *  click looks like a dead control. */
+  loading?: boolean;
   onClose: () => void;
   onUpdate: (
     id: number,
@@ -71,6 +75,7 @@ const STATUS_CONFIG: Record<
 export function ContactMessageDetailModal({
   message,
   isOpen,
+  loading = false,
   onClose,
   onUpdate,
   onDelete,
@@ -78,37 +83,49 @@ export function ContactMessageDetailModal({
 }: ContactMessageDetailModalProps) {
   const [prevMessageId, setPrevMessageId] = useState<number | null>(message?.id ?? null);
   const [internalNote, setInternalNote] = useState(message?.internal_note || "");
-  const [copiedEmail, setCopiedEmail] = useState(false);
-  const [selectedStatus, setSelectedStatus] = useState<ContactMessageStatus>(message?.status || "read");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   if (message && message.id !== prevMessageId) {
     setPrevMessageId(message.id);
     setInternalNote(message.internal_note || "");
-    setSelectedStatus(message.status);
     setConfirmDelete(false);
   }
 
-  if (!message) return null;
+  if (!message) {
+    if (!isOpen || !loading) return null;
+    return (
+      <Dialog open onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="w-[94vw] sm:max-w-3xl lg:max-w-4xl max-h-[90vh] overflow-y-auto p-0 rounded-3xl border border-primary/15 bg-card/95 backdrop-blur-2xl shadow-2xl">
+          <div className="p-6 space-y-4">
+            <Skeleton className="h-6 w-1/2 rounded" />
+            <Skeleton className="h-4 w-1/3 rounded" />
+            <Skeleton className="h-24 w-full rounded-2xl" />
+            <Skeleton className="h-32 w-full rounded-2xl" />
+          </div>
+        </DialogContent>
+      </Dialog>
+    );
+  }
 
   const handleCopyEmail = async () => {
     try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(message.email);
-        setCopiedEmail(true);
-        toast.success("Email copied to clipboard");
-        setTimeout(() => setCopiedEmail(false), 2000);
-      }
+      await navigator.clipboard.writeText(message.email);
+      toast.success("Email copied to clipboard");
     } catch {
-      toast.error("Failed to copy email");
+      // No clipboard (insecure context, or permission refused): say so instead
+      // of leaving the admin thinking the button is broken.
+      toast.error("Copy blocked — select the address and copy it manually");
     }
   };
 
   const handleStatusChange = async (newStatus: ContactMessageStatus) => {
+    // Re-clicking the current status must not fire a PATCH: it would restamp
+    // reviewed_by/reviewed_at and toast a successful update of nothing.
     if (newStatus === message.status) return;
-    setSelectedStatus(newStatus);
     await onUpdate(message.id, { status: newStatus });
   };
+
+  const noteDirty = internalNote.trim() !== (message.internal_note || "").trim();
 
   const handleSaveNote = async () => {
     await onUpdate(message.id, { internal_note: internalNote.trim() });
@@ -140,7 +157,7 @@ export function ContactMessageDetailModal({
             </DialogTitle>
             <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2">
               <Calendar className="h-3.5 w-3.5" />
-              Received on {message.created_at}
+              Received on {formatWallClock(message.created_at)}
             </DialogDescription>
           </DialogHeader>
         </div>
@@ -170,17 +187,8 @@ export function ContactMessageDetailModal({
                       title="Copy sender email"
                       className="inline-flex items-center gap-1 text-primary hover:text-primary/80 transition-colors p-1 rounded-md hover:bg-primary/10 cursor-pointer text-xs"
                     >
-                      {copiedEmail ? (
-                        <>
-                          <Check className="h-3 w-3 text-emerald-500" />
-                          <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">Copied</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-3 w-3" />
-                          <span className="text-[11px] font-medium">Copy</span>
-                        </>
-                      )}
+                      <Copy className="h-3 w-3" />
+                      <span className="text-[11px] font-medium">Copy</span>
                     </button>
                   </div>
                 </div>
@@ -213,13 +221,14 @@ export function ContactMessageDetailModal({
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {(["new", "read", "resolved", "archived"] as ContactMessageStatus[]).map((st) => {
                 const conf = STATUS_CONFIG[st];
-                const active = selectedStatus === st;
+                const active = message.status === st;
                 return (
                   <button
                     key={st}
                     type="button"
                     onClick={() => handleStatusChange(st)}
                     disabled={updating}
+                    aria-pressed={active}
                     className={`rounded-xl px-3 py-2 text-xs font-semibold transition-all border text-center flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
                       active
                         ? "border-primary bg-primary text-primary-foreground shadow-sm shadow-primary/20 scale-[1.02]"
@@ -231,6 +240,7 @@ export function ContactMessageDetailModal({
                 );
               })}
             </div>
+            <p className="text-[11px] text-muted-foreground">{statusMeta.desc}</p>
           </div>
 
           {/* Admin Internal Note */}
@@ -238,18 +248,19 @@ export function ContactMessageDetailModal({
             <div className="flex items-center justify-between">
               <label htmlFor="admin-note" className="text-xs font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Shield className="h-3.5 w-3.5 text-primary" />
-                Internal Admin Note (Overwritable)
+                Internal Note (Staff Only)
               </label>
               {message.reviewed_at && (
                 <span className="text-[11px] text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Reviewed: {message.reviewed_at}
+                  Reviewed: {formatWallClock(message.reviewed_at)}
                 </span>
               )}
             </div>
             <Textarea
               id="admin-note"
               rows={3}
+              maxLength={2000}
               placeholder="Add review notes, follow-up status, or customer context here..."
               value={internalNote}
               onChange={(e) => setInternalNote(e.target.value)}
@@ -260,7 +271,7 @@ export function ContactMessageDetailModal({
                 type="button"
                 size="sm"
                 onClick={handleSaveNote}
-                disabled={updating || internalNote === (message.internal_note || "")}
+                disabled={updating || !noteDirty}
                 className="rounded-full h-8 px-4 text-xs bg-primary hover:bg-primary/90 text-primary-foreground gap-1.5 cursor-pointer"
               >
                 <Save className="h-3.5 w-3.5" />

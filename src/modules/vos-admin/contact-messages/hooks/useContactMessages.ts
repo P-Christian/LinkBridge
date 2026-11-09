@@ -6,6 +6,7 @@ import { useRequestAbort } from "@/hooks/useRequestAbort";
 import type {
   ContactMessage,
   ContactMessageStatus,
+  ContactMessageStatusCounts,
 } from "../types/contact-message.types";
 
 export interface ContactMessageFilters {
@@ -19,8 +20,12 @@ export function useContactMessages() {
   const [messages, setMessages] = useState<ContactMessage[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  // null until the first read lands, so the tabs never show a count that is
+  // really just "not loaded yet".
+  const [statusCounts, setStatusCounts] = useState<ContactMessageStatusCounts | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchInput, setSearchInput] = useState<string>("");
 
   const [filters, setFilters] = useState<ContactMessageFilters>({
     status: "all",
@@ -41,14 +46,20 @@ export function useContactMessages() {
   const abortDetail = useRequestAbort();
   const abortUnread = useRequestAbort();
 
-  const fetchUnreadCount = useCallback(async () => {
+  const fetchCounts = useCallback(async () => {
     const signal = abortUnread();
     try {
       const res = await fetch("/api/vos-admin/contact-messages/unread-count", { signal });
       if (res.ok) {
         const data = await res.json();
         if (signal.aborted) return;
-        setUnreadCount(Number(data.unreadCount ?? 0));
+        const counts = data.counts as ContactMessageStatusCounts | undefined;
+        if (counts) {
+          setStatusCounts(counts);
+          setUnreadCount(Number(counts.new ?? 0));
+        } else {
+          setUnreadCount(Number(data.unreadCount ?? 0));
+        }
       }
     } catch {
       // non-blocking
@@ -77,10 +88,21 @@ export function useContactMessages() {
 
       const data = await res.json();
       if (signal.aborted) return;
+      const items = (data.items ?? []) as ContactMessage[];
+      const totalNow = Number(data.total ?? 0);
       startTransition(() => {
-        setMessages(data.items ?? []);
-        setTotal(Number(data.total ?? 0));
+        setMessages(items);
+        setTotal(totalNow);
       });
+
+      // Deleting the last row of the last page used to leave the admin on an
+      // empty page 3 with a pager still pointing at it.
+      if (items.length === 0 && totalNow > 0 && filters.page > 1) {
+        const lastPage = Math.max(1, Math.ceil(totalNow / filters.pageSize));
+        setFilters((prev) =>
+          prev.page === lastPage ? prev : { ...prev, page: lastPage }
+        );
+      }
     } catch (err: unknown) {
       if (signal.aborted) return;
       const message = err instanceof Error ? err.message : "An error occurred while loading messages";
@@ -100,8 +122,20 @@ export function useContactMessages() {
   useEffect(() => {
     // The effect only kicks off the read; its setState happens after the await.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    void fetchUnreadCount();
-  }, [fetchUnreadCount]);
+    void fetchCounts();
+  }, [fetchCounts]);
+
+  // One read per pause in typing rather than per keystroke: every uncommitted
+  // character used to cancel the request before it and blank the list back to
+  // skeletons.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setFilters((prev) =>
+        prev.search === searchInput ? prev : { ...prev, search: searchInput, page: 1 }
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
   const selectMessage = useCallback(async (id: number | null) => {
     setSelectedId(id);
@@ -137,18 +171,22 @@ export function useContactMessages() {
       setMessages((prev) =>
         prev.map((m) => (m.id === id ? { ...m, status: item.status, reviewed_at: item.reviewed_at } : m))
       );
-      fetchUnreadCount();
+      fetchCounts();
     } catch (err: unknown) {
       if (signal.aborted) return;
       const msg = err instanceof Error ? err.message : "Failed to load message details";
       toast.error(msg);
+      // Clear the selection too: the dialog opens on selectedId, so leaving it
+      // set keeps the previously opened message on screen under a "failed to
+      // load" toast.
+      setSelectedId(null);
       setSelectedMessage(null);
     } finally {
       if (!signal.aborted) {
         setDetailLoading(false);
       }
     }
-  }, [fetchUnreadCount, abortDetail]);
+  }, [fetchCounts, abortDetail]);
 
   const updateMessage = useCallback(
     async (
@@ -174,17 +212,20 @@ export function useContactMessages() {
         setSelectedMessage(updated);
         setMessages((prev) => prev.map((m) => (m.id === id ? updated : m)));
         toast.success("Message updated successfully");
-        fetchUnreadCount();
+        fetchCounts();
         return updated;
       } catch (err: unknown) {
+        // Toasted here and never rethrown: the callers are onClick handlers, so
+        // a rejection would surface as an unhandled promise rejection in the
+        // console while the admin already saw the reason.
         const msg = err instanceof Error ? err.message : "Error updating message";
         toast.error(msg);
-        throw err;
+        return null;
       } finally {
         setUpdating(false);
       }
     },
-    [fetchUnreadCount]
+    [fetchCounts]
   );
 
   const deleteMessage = useCallback(
@@ -200,23 +241,28 @@ export function useContactMessages() {
           throw new Error(data.error || "Failed to delete message");
         }
 
-        setMessages((prev) => prev.filter((m) => m.id !== id));
+        const remaining = messages.filter((m) => m.id !== id);
+        setMessages(remaining);
         setTotal((prev) => Math.max(0, prev - 1));
+        // Deleting the only row on page 3 used to park the admin on a page that
+        // no longer exists, with a pager pointing at it.
+        if (remaining.length === 0 && filters.page > 1) {
+          setFilters((prev) => ({ ...prev, page: Math.max(1, prev.page - 1) }));
+        }
         if (selectedId === id) {
           setSelectedId(null);
           setSelectedMessage(null);
         }
         toast.success("Message removed");
-        fetchUnreadCount();
+        fetchCounts();
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : "Error deleting message";
         toast.error(msg);
-        throw err;
       } finally {
         setUpdating(false);
       }
     },
-    [selectedId, fetchUnreadCount]
+    [messages, filters.page, selectedId, fetchCounts]
   );
 
   const setStatusFilter = useCallback((status: ContactMessageStatus | "all") => {
@@ -224,7 +270,7 @@ export function useContactMessages() {
   }, []);
 
   const setSearch = useCallback((search: string) => {
-    setFilters((prev) => ({ ...prev, search, page: 1 }));
+    setSearchInput(search);
   }, []);
 
   const setPage = useCallback((page: number) => {
@@ -235,9 +281,11 @@ export function useContactMessages() {
     messages,
     total,
     unreadCount,
+    statusCounts,
     loading,
     error,
     filters,
+    searchInput,
     selectedId,
     selectedMessage,
     detailLoading,

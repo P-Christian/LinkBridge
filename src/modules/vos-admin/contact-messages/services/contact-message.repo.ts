@@ -4,6 +4,7 @@ import type {
   ContactMessageListResult,
   ContactMessageListParams,
   ContactMessagePatchBody,
+  ContactMessageStatusCounts,
 } from "../types/contact-message.types";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
@@ -42,6 +43,56 @@ export async function insertContactMessageRepo(
   return json.data as ContactMessage;
 }
 
+/**
+ * Directus `meta.total_count` on this collection answers with the size of the
+ * whole table whatever filter was applied, so a filtered page believed it was
+ * showing 7 of 7 when only 4 rows matched. `aggregate[count]` does honour the
+ * filter (the unread badge proves it), so every count here goes through it.
+ */
+async function countWithFilter(filter: Record<string, unknown>): Promise<number> {
+  const query = new URLSearchParams({
+    fields: "id",
+    "aggregate[count]": "id",
+    limit: "1",
+    filter: JSON.stringify(filter),
+  });
+
+  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, {
+    headers: getHeaders(),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    if (res.status === 403 || res.status === 404) return 0;
+    throw new Error(`[contact-messages] count failed ${res.status}: ${text}`);
+  }
+
+  const json = await res.json();
+  return Number(json.data?.[0]?.count?.id ?? 0);
+}
+
+/** The filters shared by the page query and its count, so the two cannot drift. */
+function buildListFilter(params: Pick<ContactMessageListParams, "status" | "q" | "from" | "to">) {
+  const and: Record<string, unknown>[] = [
+    // Exclude soft-deleted rows
+    { deleted_at: { _null: true } },
+  ];
+  if (params.status && params.status !== "all") and.push({ status: { _eq: params.status } });
+  if (params.from) and.push({ created_at: { _gte: params.from } });
+  if (params.to) and.push({ created_at: { _lte: params.to } });
+
+  const search = params.q?.trim();
+  if (search) {
+    and.push({
+      _or: ["name", "email", "subject", "company"].map((field) => ({
+        [field]: { _icontains: search },
+      })),
+    });
+  }
+
+  return { _and: and };
+}
+
 /** Fetch a paginated, filtered list of contact messages (excludes soft-deleted). */
 export async function fetchContactMessagesRepo(
   params: ContactMessageListParams
@@ -52,38 +103,26 @@ export async function fetchContactMessagesRepo(
 
   const baseFields = "id,name,email,company,subject,message,user_id,user_role,status,source,assigned_to,internal_note,reviewed_by,reviewed_at,ip_hash,created_at,updated_at,deleted_at";
 
-  const search = q?.trim();
-
   // The search branch used to hard-code filter[_and][2]/[3]/[4] for status, from
   // and to, so whichever of them was absent left a hole in the _and array and a
   // constraint the admin had actually chosen was dropped. Serialising a real
   // object also stops user-supplied values from rewriting the filter around a
   // quote character.
-  const and: Record<string, unknown>[] = [
-    // Exclude soft-deleted rows
-    { deleted_at: { _null: true } },
-  ];
-  if (status && status !== "all") and.push({ status: { _eq: status } });
-  if (from) and.push({ created_at: { _gte: from } });
-  if (to) and.push({ created_at: { _lte: to } });
-  if (search) {
-    and.push({
-      _or: ["name", "email", "subject", "company"].map((field) => ({
-        [field]: { _icontains: search },
-      })),
-    });
-  }
+  const filter = buildListFilter({ status, q, from, to });
 
   const query = new URLSearchParams({
     fields: baseFields,
     limit: String(safePageSize),
     offset: String(offset),
     "sort[]": "-created_at",
-    meta: "total_count",
-    filter: JSON.stringify({ _and: and }),
+    filter: JSON.stringify(filter),
   });
 
-  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, { headers: getHeaders(), cache: "no-store" });
+  const [res, total] = await Promise.all([
+    fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, { headers: getHeaders(), cache: "no-store" }),
+    countWithFilter(filter),
+  ]);
+
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     console.warn(`[contact-messages] list failed ${res.status}: ${text}`);
@@ -97,29 +136,49 @@ export async function fetchContactMessagesRepo(
   const json = await res.json();
   return {
     items: (json.data ?? []) as ContactMessage[],
-    total: Number(json.meta?.total_count ?? 0),
+    total,
   };
 }
 
-/** Count messages where status = 'new' and not soft-deleted. */
-export async function countNewContactMessagesRepo(): Promise<number> {
+/**
+ * Queue totals for the KPI cards and the filter tabs. One grouped read instead
+ * of a count per status; `all` is the unfiltered active total, so an unexpected
+ * status value still shows up in `all` rather than silently shrinking the queue.
+ */
+export async function countContactMessagesByStatusRepo(): Promise<ContactMessageStatusCounts> {
   const query = new URLSearchParams({
+    fields: "status",
     "aggregate[count]": "id",
-    "filter[status][_eq]": "new",
-    "filter[deleted_at][_null]": "true",
+    groupBy: "status",
+    limit: "-1",
+    filter: JSON.stringify({ deleted_at: { _null: true } }),
   });
-  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, { headers: getHeaders(), cache: "no-store" });
-  // A missing collection genuinely has no messages. Any other failed read would
-  // answer the sidebar badge with a fabricated 0 and overwrite the last real
-  // count, so let the caller's try/catch turn it into a 500 instead — both
-  // consumers keep the previous count when the request fails.
+
+  const res = await fetch(`${DIRECTUS_BASE}/items/${COLLECTION}?${query}`, {
+    headers: getHeaders(),
+    cache: "no-store",
+  });
   if (!res.ok) {
-    if (res.status === 403 || res.status === 404) return 0;
     const text = await res.text().catch(() => "");
-    throw new Error(`[contact-messages] unread count failed ${res.status}: ${text}`);
+    if (res.status === 403 || res.status === 404) {
+      return { all: 0, new: 0, read: 0, resolved: 0, archived: 0 };
+    }
+    throw new Error(`[contact-messages] status counts failed ${res.status}: ${text}`);
   }
+
   const json = await res.json();
-  return Number(json.data?.[0]?.count?.id ?? 0);
+  const rows: Array<{ status?: unknown; count?: { id?: unknown } }> = Array.isArray(json.data) ? json.data : [];
+
+  const counts: ContactMessageStatusCounts = { all: 0, new: 0, read: 0, resolved: 0, archived: 0 };
+  for (const row of rows) {
+    const n = Number(row?.count?.id ?? 0);
+    counts.all += n;
+    const status = String(row?.status ?? "");
+    if (status === "new" || status === "read" || status === "resolved" || status === "archived") {
+      counts[status] += n;
+    }
+  }
+  return counts;
 }
 
 /** Fetch a single contact message by ID. */
