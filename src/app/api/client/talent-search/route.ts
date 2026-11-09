@@ -10,10 +10,10 @@ import {
   buildBaseSearchKey,
   buildRankingKey,
   getBaseScoredPool,
-  getCachedRerank,
+  // getCachedRerank,
   getRankedSearch,
   setBaseScoredPool,
-  setCachedRerank,
+  // setCachedRerank,
   setRankedSearch,
 } from "./search-ranking-cache";
 import {

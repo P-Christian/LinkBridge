@@ -37,12 +37,12 @@ export async function rerankCandidatesWithGemini(
 
   const top = candidates.slice(0, 50);
 
-  const candidateList = top
-    .map(
-      (c, i) =>
-        `${i + 1}. ID:${c.id} | Title: ${c.title ?? "Unknown"} | Deterministic Score: ${c.score ?? "N/A"} | RelExp: ${c.relevant_experience_years ?? 0}y | Skills: ${c.skills.slice(0, 6).join(", ") || "None"} | Completeness: ${c.completeness ?? 0}% | Summary: ${(c.summary ?? "").slice(0, 120)}`
-    )
-    .join("\n");
+  // const candidateList = top
+  //   .map(
+  //     (c, i) =>
+  //       `${i + 1}. ID:${c.id} | Title: ${c.title ?? "Unknown"} | Deterministic Score: ${c.score ?? "N/A"} | RelExp: ${c.relevant_experience_years ?? 0}y | Skills: ${c.skills.slice(0, 6).join(", ") || "None"} | Completeness: ${c.completeness ?? 0}% | Summary: ${(c.summary ?? "").slice(0, 120)}`
+  //   )
+  //   .join("\n");
 
   const prompt = `You are a recruitment scoring assistant.
 Employer is searching for: "${query}"

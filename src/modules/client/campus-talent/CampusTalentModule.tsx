@@ -308,7 +308,7 @@ export default function CampusTalentModule() {
   const [inviteTarget, setInviteTarget] = useState<CampusMatchResult | null>(null);
 
   // ── School Search & Category Filters ─────────────────────────────────────
-  const [selectedSchoolType, setSelectedSchoolType] = useState<string>("ALL");
+  const [selectedSchoolType] = useState<string>("ALL");
 
   const abortRead = useRequestAbort();
 
@@ -352,13 +352,13 @@ export default function CampusTalentModule() {
   // nothing summed yet — may swap these three metrics for a placeholder.
   const schoolStatsPending = schoolsLoading && schools.length === 0;
 
-  const availableSchoolTypes = useMemo(() => {
-    const types = new Set<string>();
-    for (const s of schools) {
-      if (s.school_type?.trim()) types.add(s.school_type.trim());
-    }
-    return Array.from(types);
-  }, [schools]);
+  // const availableSchoolTypes = useMemo(() => {
+  //   const types = new Set<string>();
+  //   for (const s of schools) {
+  //     if (s.school_type?.trim()) types.add(s.school_type.trim());
+  //   }
+  //   return Array.from(types);
+  // }, [schools]);
 
   const filteredSchools = useMemo(() => {
     if (selectedSchoolType === "ALL") return schools;

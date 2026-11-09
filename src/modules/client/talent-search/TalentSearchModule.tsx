@@ -4,7 +4,7 @@
 
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
-  Search, Users, Bookmark, ChevronLeft, ChevronRight,
+  Search, Users, Bookmark, 
   SlidersHorizontal, X, ArrowUpDown, AlertTriangle, Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -17,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { cn } from "@/lib/utils";
+ 
 
 import CompanyVerificationGuard from "../components/CompanyVerificationGuard";
 
@@ -48,9 +48,9 @@ export default function TalentSearchModule({ initialQuery = "" }: { initialQuery
     error,
     total,
     searchContext,
-    aiReranked,
+    // aiReranked,
     page,
-    totalPages,
+    // totalPages,
     limit,
     sort,
     hasSearched,
@@ -63,9 +63,9 @@ export default function TalentSearchModule({ initialQuery = "" }: { initialQuery
     search,
     loadMore,
     changeSort,
-    changeLimit,
+    // changeLimit,
     resetFilters,
-    handlePageChange,
+    // handlePageChange,
     toggleSaved,
   } = useTalentSearch(initialQuery);
 
