@@ -60,7 +60,7 @@ export function ApplicantAiAnalysisModal({
 
     if (!forceRegenerate) {
       // 1. Check L1 browser cache for instant 0ms display
-      cached = getCachedApplicantAnalysis(applicationId);
+      cached = await getCachedApplicantAnalysis(applicationId);
       if (cached) {
         if (currentAppIdRef.current === targetId) {
           setAnalysis(cached);
@@ -78,7 +78,7 @@ export function ApplicantAiAnalysisModal({
 
         if (getRes.ok && getData?.success && getData.analysis) {
           setAnalysis(getData.analysis);
-          setCachedApplicantAnalysis(applicationId, getData.analysis);
+          void setCachedApplicantAnalysis(applicationId, getData.analysis);
           setLoading(false);
           return;
         }
@@ -120,7 +120,7 @@ export function ApplicantAiAnalysisModal({
       }
 
       setAnalysis(data.analysis);
-      setCachedApplicantAnalysis(applicationId, data.analysis);
+      void setCachedApplicantAnalysis(applicationId, data.analysis);
 
       // A generated evaluation the server could not retain is shown, but the
       // employer has to know it will not be there next time.
@@ -140,8 +140,9 @@ export function ApplicantAiAnalysisModal({
   useEffect(() => {
     if (open && applicant && applicationId) {
       currentAppIdRef.current = applicationId;
-      queueMicrotask(() => {
-        const cached = getCachedApplicantAnalysis(applicationId);
+      queueMicrotask(async () => {
+        const cached = await getCachedApplicantAnalysis(applicationId);
+        if (currentAppIdRef.current !== applicationId) return;
         setAnalysis(cached || null);
         setError(null);
         setLoading(!cached);

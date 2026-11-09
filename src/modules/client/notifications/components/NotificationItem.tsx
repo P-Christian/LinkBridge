@@ -2,13 +2,14 @@
 
 // src/modules/client/notifications/components/NotificationItem.tsx
 
-import React from "react";
+import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, ChevronRight, Mail, Star } from "lucide-react";
+import { Check, ChevronRight, Loader2, Mail, Star } from "lucide-react";
 import { Notification } from "../types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { triggerTopProgress } from "@/components/shared/TopProgressBar";
 import {
   formatFullDate,
   formatRelativeTime,
@@ -33,15 +34,22 @@ export default function NotificationItem({
   onToggleSelect,
 }: NotificationItemProps) {
   const router = useRouter();
+  const [isNavigating, setIsNavigating] = useState(false);
   const { icon: Icon, label, badge, text } = getNotificationVisual(notification);
   const unread = !notification.is_read;
   const isStarred = Boolean(notification.is_starred);
 
   const handleOpen = () => {
+    if (isNavigating) return;
+
     if (unread) onMarkRead(notification.notification_id);
 
     const url = notification.action_url;
     if (!url) return;
+
+    setIsNavigating(true);
+    triggerTopProgress();
+
     if (/^https?:\/\//i.test(url)) {
       window.location.assign(url);
     } else {
@@ -82,12 +90,14 @@ export default function NotificationItem({
   return (
     <div
       role="button"
-      tabIndex={0}
+      tabIndex={isNavigating ? -1 : 0}
+      aria-busy={isNavigating}
       onClick={handleOpen}
       onKeyDown={handleKeyDown}
       className={cn(
         "group relative flex items-start gap-3.5 px-5 py-4 max-md:px-4 cursor-pointer select-none transition-colors duration-150",
         "hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary/40",
+        isNavigating && "pointer-events-none opacity-80 cursor-wait",
         isSelected
           ? "bg-primary/[0.08] dark:bg-primary/[0.14] ring-1 ring-inset ring-primary/20"
           : unread
@@ -126,7 +136,11 @@ export default function NotificationItem({
           badge
         )}
       >
-        <Icon className="h-[18px] w-[18px]" />
+        {isNavigating ? (
+          <Loader2 className="h-[18px] w-[18px] animate-spin text-primary" />
+        ) : (
+          <Icon className="h-[18px] w-[18px]" />
+        )}
       </div>
 
       {/* Content */}
@@ -236,7 +250,11 @@ export default function NotificationItem({
           </Button>
         ) : null}
 
-        <ChevronRight className="hidden sm:block h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
+        {isNavigating ? (
+          <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" aria-label="Loading..." />
+        ) : (
+          <ChevronRight className="hidden sm:block h-4 w-4 text-muted-foreground/40 transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
+        )}
       </div>
     </div>
   );
