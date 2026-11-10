@@ -115,13 +115,13 @@ export async function sendPasswordResetOTP(email: string, otpCode: string) {
             from: MAIL_FROM,
             to: email,
             subject: "LinkBridge Password Reset",
-            text: `Your password reset code is: ${otpCode}. It will expire in 2 minutes.`,
+            text: `Your password reset code is: ${otpCode}. It will expire in 10 minutes.`,
             html: `
                 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                     <h2>LinkBridge Password Reset</h2>
                     <p>We received a request to reset your password. Your reset code is:</p>
                     <h1 style="font-size: 32px; letter-spacing: 5px; color: #1e40af;">${otpCode}</h1>
-                    <p>This code will expire in 2 minutes. If you did not request this, please ignore this email.</p>
+                    <p>This code will expire in 10 minutes. If you did not request this, please ignore this email.</p>
                 </div>
             `
         });

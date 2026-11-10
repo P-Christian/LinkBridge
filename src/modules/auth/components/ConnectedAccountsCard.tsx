@@ -61,17 +61,6 @@ function GoogleIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
-function LinkedInIcon({ className = "w-4 h-4" }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="#0A66C2"
-        d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76c.94 0 1.7-.76 1.7-1.7s-.76-1.7-1.7-1.7a1.7 1.7 0 0 0-1.7 1.7c0 .94.76 1.7 1.7 1.7m1.39 9.74v-8.37H5.07v8.37h2.78z"
-      />
-    </svg>
-  );
-}
-
 function FacebookIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
@@ -83,14 +72,13 @@ function FacebookIcon({ className = "w-4 h-4" }: { className?: string }) {
   );
 }
 
-type ProviderKey = "google" | "linkedin" | "facebook";
+type ProviderKey = "google" | "facebook";
 
 export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   const [googleStatus, setGoogleStatus] = useState<SocialAuthStatus | null>(null);
-  const [linkedinStatus, setLinkedinStatus] = useState<SocialAuthStatus | null>(null);
   const [facebookStatus, setFacebookStatus] = useState<SocialAuthStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [unlinkingProvider, setUnlinkingProvider] = useState<ProviderKey | null>(null);
@@ -117,9 +105,8 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
   const fetchStatuses = useCallback(async () => {
     try {
       setLoading(true);
-      const [googleRes, linkedinRes, facebookRes] = await Promise.all([
+      const [googleRes, facebookRes] = await Promise.all([
         fetch("/api/auth/google/status", { cache: "no-store" }),
-        fetch("/api/auth/linkedin/status", { cache: "no-store" }),
         fetch("/api/auth/facebook/status", { cache: "no-store" }),
       ]);
 
@@ -132,19 +119,6 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
             email: gData.email,
             linked_at: gData.linked_at,
             has_password: gData.has_password,
-          });
-        }
-      }
-
-      if (linkedinRes.ok) {
-        const lData = (await linkedinRes.json()) as { ok: boolean } & SocialAuthStatus;
-        if (lData.ok) {
-          setLinkedinStatus({
-            connected: lData.connected,
-            name: lData.name ?? null,
-            email: lData.email,
-            linked_at: lData.linked_at,
-            has_password: lData.has_password,
           });
         }
       }
@@ -230,16 +204,6 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
       const nextUrl = new URL(window.location.href);
       nextUrl.searchParams.delete("linked");
       router.replace(nextUrl.pathname + nextUrl.search);
-    } else if (linked === "linkedin") {
-      toast.success("LinkedIn account connected", {
-        description: "Your LinkedIn identity was successfully linked to this account.",
-      });
-      queueMicrotask(() => {
-        fetchStatuses();
-      });
-      const nextUrl = new URL(window.location.href);
-      nextUrl.searchParams.delete("linked");
-      router.replace(nextUrl.pathname + nextUrl.search);
     } else if (linked === "facebook") {
       toast.success("Facebook account connected", {
         description: "Your Facebook identity was successfully linked to this account.",
@@ -255,12 +219,10 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
     if (error) {
       const errorMap: Record<string, string> = {
         google_already_linked: "This Google account is already linked to another LinkBridge user. Linking is blocked.",
-        linkedin_already_linked: "This LinkedIn account is already linked to another LinkBridge user. Linking is blocked.",
         facebook_already_linked: "This Facebook account is already linked to another LinkBridge user. Linking is blocked.",
         link_unauthorized: "Authentication session verification failed. Please try again.",
         session_expired: "Your active session expired during linking. Please log in again.",
         oauth_callback_failed: "Could not complete social account authentication.",
-        linkedin_callback_failed: "Could not complete LinkedIn authentication.",
         facebook_callback_failed: "Could not complete Facebook authentication.",
       };
       const description = errorMap[error];
@@ -344,12 +306,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
             }
           }
 
-          const providerLabel =
-            provider === "google"
-              ? "Google"
-              : provider === "linkedin"
-                ? "LinkedIn"
-                : "Facebook";
+          const providerLabel = provider === "google" ? "Google" : "Facebook";
           toast.success(`${providerLabel} account connected`, {
             description: `Your ${providerLabel} identity was successfully linked to this account.`,
           });
@@ -376,12 +333,10 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
 
           const errorMap: Record<string, string> = {
             google_already_linked: "This Google account is already linked to another LinkBridge user. Linking is blocked.",
-            linkedin_already_linked: "This LinkedIn account is already linked to another LinkBridge user. Linking is blocked.",
             facebook_already_linked: "This Facebook account is already linked to another LinkBridge user. Linking is blocked.",
             link_unauthorized: "Authentication session verification failed. Please try again.",
             session_expired: "Your active session expired during linking. Please log in again.",
             oauth_callback_failed: "Could not complete social account authentication.",
-            linkedin_callback_failed: "Could not complete LinkedIn authentication.",
             facebook_callback_failed: "Could not complete Facebook authentication.",
             cancelled: "Authentication was cancelled.",
           };
@@ -398,19 +353,14 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
 
   const handleDisconnectClick = useCallback(
     (provider: ProviderKey) => {
-      const currentStatus =
-        provider === "google"
-          ? googleStatus
-          : provider === "linkedin"
-            ? linkedinStatus
-            : facebookStatus;
+      const currentStatus = provider === "google" ? googleStatus : facebookStatus;
       if (!currentStatus?.has_password) {
         setNoPasswordProvider(provider);
         return;
       }
       setConfirmProvider(provider);
     },
-    [googleStatus, linkedinStatus, facebookStatus]
+    [googleStatus, facebookStatus]
   );
 
   const handleConfirmDisconnect = useCallback(async () => {
@@ -429,12 +379,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
         throw new Error(data.error || `Failed to disconnect ${provider} account.`);
       }
 
-      const providerLabel =
-        provider === "google"
-          ? "Google"
-          : provider === "linkedin"
-            ? "LinkedIn"
-            : "Facebook";
+      const providerLabel = provider === "google" ? "Google" : "Facebook";
       toast.success("Account disconnected", {
         description: `Your ${providerLabel} account has been disconnected successfully.`,
       });
@@ -451,27 +396,18 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
   const activeDisconnectEmail =
     confirmProvider === "google"
       ? googleStatus?.email
-      : confirmProvider === "linkedin"
-        ? linkedinStatus?.email
-        : confirmProvider === "facebook"
-          ? facebookStatus?.email
-          : "";
+      : confirmProvider === "facebook"
+        ? facebookStatus?.email
+        : "";
 
   const activeDisconnectName =
     confirmProvider === "google"
       ? googleStatus?.name
-      : confirmProvider === "linkedin"
-        ? linkedinStatus?.name
-        : confirmProvider === "facebook"
-          ? facebookStatus?.name
-          : "";
+      : confirmProvider === "facebook"
+        ? facebookStatus?.name
+        : "";
 
-  const activeDisconnectLabel =
-    confirmProvider === "google"
-      ? "Google"
-      : confirmProvider === "linkedin"
-        ? "LinkedIn"
-        : "Facebook";
+  const activeDisconnectLabel = confirmProvider === "google" ? "Google" : "Facebook";
 
   return (
     <div className="space-y-4 pt-6 ">
@@ -567,94 +503,6 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                   <>
                     <Globe className="w-3.5 h-3.5 mr-1.5 text-primary" />
                     Connect Google
-                  </>
-                )}
-              </Button>
-            )}
-          </div>
-        </div>
-
-        <div className="border-t border-border" />
-
-        {/* LinkedIn Provider Row */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg border border-border bg-background flex items-center justify-center shrink-0">
-              <LinkedInIcon className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-foreground">LinkedIn Account</span>
-                {loading ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />
-                ) : linkedinStatus?.connected ? (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                    <CheckCircle2 className="w-3 h-3" /> Connected
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-muted text-muted-foreground border border-border">
-                    Not Connected
-                  </span>
-                )}
-              </div>
-              {linkedinStatus?.connected ? (
-                <div className="text-xs mt-0.5 space-y-0.5">
-                  {linkedinStatus.name && (
-                    <div className="font-medium text-foreground">{linkedinStatus.name}</div>
-                  )}
-                  <div className="text-muted-foreground">{linkedinStatus.email || "No email available"}</div>
-                </div>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  No LinkedIn identity linked to this account
-                </p>
-              )}
-            </div>
-          </div>
-
-          <div>
-            {loading ? (
-              <Button variant="outline" size="sm" disabled className="h-9">
-                <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                Checking...
-              </Button>
-            ) : linkedinStatus?.connected ? (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleDisconnectClick("linkedin")}
-                disabled={unlinkingProvider === "linkedin"}
-                className="h-9 border-border text-foreground hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
-              >
-                {unlinkingProvider === "linkedin" ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    Disconnecting...
-                  </>
-                ) : (
-                  <>
-                    <Unlink className="w-3.5 h-3.5 mr-1.5" />
-                    Disconnect
-                  </>
-                )}
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleConnect("linkedin")}
-                disabled={connectingProvider !== null}
-                className="h-9 border-border text-foreground hover:bg-muted transition-colors"
-              >
-                {connectingProvider === "linkedin" ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <Globe className="w-3.5 h-3.5 mr-1.5 text-primary" />
-                    Connect LinkedIn
                   </>
                 )}
               </Button>
@@ -800,7 +648,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
             </div>
             <DialogDescription className="pt-2 text-foreground/90">
               Your account currently does not have a password configured. Disconnecting your{" "}
-              {noPasswordProvider === "google" ? "Google" : "LinkedIn"} account now would leave you without a sign-in method and lock you out of your account.
+              {noPasswordProvider === "google" ? "Google" : "Facebook"} account now would leave you without a sign-in method and lock you out of your account.
             </DialogDescription>
           </DialogHeader>
           <div className="p-3 rounded-lg bg-muted text-xs text-muted-foreground border border-border">
@@ -889,11 +737,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                 <DialogDescription className="text-xs text-muted-foreground leading-relaxed">
                   The email address associated with your{" "}
                   <strong className="text-foreground">
-                    {conflictModal.provider === "facebook"
-                      ? "Facebook"
-                      : conflictModal.provider === "linkedin"
-                        ? "LinkedIn"
-                        : "Google"}
+                    {conflictModal.provider === "facebook" ? "Facebook" : "Google"}
                   </strong>{" "}
                   account is already linked to another account on LinkBridge.
                 </DialogDescription>
@@ -914,11 +758,7 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
 
             {(() => {
               const providerLabel =
-                conflictModal.provider === "facebook"
-                  ? "Facebook"
-                  : conflictModal.provider === "linkedin"
-                    ? "LinkedIn"
-                    : "Google";
+                conflictModal.provider === "facebook" ? "Facebook" : "Google";
 
               return (
                 <div className="space-y-2 pt-1">
@@ -930,11 +770,9 @@ export function ConnectedAccountsCard({ returnTo }: ConnectedAccountsCardProps) 
                       className="w-full text-xs min-h-9 h-auto py-2 px-2.5 justify-center border-border hover:bg-muted font-medium text-center leading-snug"
                       onClick={() => {
                         const logoutUrl =
-                          conflictModal.provider === "linkedin"
-                            ? "https://www.linkedin.com/m/logout"
-                            : conflictModal.provider === "facebook"
-                              ? "https://www.facebook.com"
-                              : "https://accounts.google.com/Logout";
+                          conflictModal.provider === "facebook"
+                            ? "https://www.facebook.com"
+                            : "https://accounts.google.com/Logout";
                         window.open(logoutUrl, "_blank", "noopener,noreferrer");
                         setConflictModal({ open: false, provider: "facebook", email: null });
                         toast.info(`Signed out of ${providerLabel}`, {

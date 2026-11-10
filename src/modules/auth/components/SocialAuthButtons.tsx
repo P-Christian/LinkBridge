@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { openOAuthPopup } from "@/modules/auth/utils/oauth-popup";
 
-export type AuthProviderId = "google" | "facebook" | "apple" | "linkedin";
+export type AuthProviderId = "google" | "facebook" | "apple";
 
 export interface AuthProviderConfig {
   id: AuthProviderId;
@@ -44,21 +44,6 @@ function GoogleIcon({ className }: { className?: string }) {
       <path
         fill="#EA4335"
         d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.28 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.73-4.96z"
-      />
-    </svg>
-  );
-}
-
-function LinkedInIcon({ className }: { className?: string }) {
-  return (
-    <svg
-      className={cn("w-5 h-5", className)}
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-    >
-      <path
-        fill="#0A66C2"
-        d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76c.94 0 1.7-.76 1.7-1.7s-.76-1.7-1.7-1.7a1.7 1.7 0 0 0-1.7 1.7c0 .94.76 1.7 1.7 1.7m1.39 9.74v-8.37H5.07v8.37h2.78z"
       />
     </svg>
   );
@@ -125,10 +110,8 @@ export function SocialAuthButtons({
               account_inactive: "Your account is inactive. Please contact support.",
               account_not_found: "No account found with this email. Please sign up first.",
               google_not_connected: "This Google account is not connected. Sign up or link it in settings.",
-              linkedin_not_connected: "This LinkedIn account is not connected. Sign up or link it in settings.",
               facebook_not_connected: "This Facebook account is not connected. Sign up or link it in settings.",
               google_identity_conflict: "Identity conflict: this email belongs to a different account.",
-              linkedin_identity_conflict: "Identity conflict: this email belongs to a different account.",
               facebook_identity_conflict: "Identity conflict: this email belongs to a different account.",
               oauth_callback_failed: "Social authentication failed. Please try again.",
               cancelled: "Authentication was cancelled.",
@@ -153,13 +136,6 @@ export function SocialAuthButtons({
         icon: <GoogleIcon />,
         enabled: true,
         href: `/api/auth/google?mode=${mode}`,
-      },
-      {
-        id: "linkedin",
-        label: mode === "signup" ? "Sign up with LinkedIn" : "Continue with LinkedIn",
-        icon: <LinkedInIcon />,
-        enabled: true,
-        href: `/api/auth/linkedin?mode=${mode}`,
       },
       {
         id: "facebook",

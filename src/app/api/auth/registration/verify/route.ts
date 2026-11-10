@@ -28,7 +28,6 @@ import {
   decryptGoogleRegistration,
   linkUserIdentity,
 } from "@/modules/auth/google/google.service";
-import { decryptLinkedInRegistration } from "@/modules/auth/linkedin/linkedin.service";
 import { decryptFacebookRegistration } from "@/modules/auth/facebook/facebook.service";
 import { createAuditRecordRepo } from "@/modules/vos-admin/audit-trail";
 
@@ -96,7 +95,7 @@ export async function POST(request: NextRequest) {
       lease.leaseId
     );
 
-    // Link federated provider identities (Google / LinkedIn) if registration was initiated via social OAuth
+    // Link federated provider identities if registration was initiated via social OAuth
     const googleRegCookie = request.cookies.get("vos_sync_google_reg")?.value;
     if (googleRegCookie) {
       try {
@@ -122,34 +121,6 @@ export async function POST(request: NextRequest) {
         }
       } catch (err) {
         console.error("[registration/verify] Failed to link Google identity:", err);
-      }
-    }
-
-    const linkedInRegCookie = request.cookies.get("vos_sync_linkedin_reg")?.value;
-    if (linkedInRegCookie) {
-      try {
-        const linkedInPayload = await decryptLinkedInRegistration(linkedInRegCookie);
-        if (linkedInPayload?.sub && linkedInPayload?.email) {
-          await linkUserIdentity({
-            userId: user.user_id,
-            provider: "linkedin",
-            providerSubject: linkedInPayload.sub,
-            providerEmail: linkedInPayload.email,
-            providerName: linkedInPayload.name ?? null,
-          });
-
-          createAuditRecordRepo({
-            event_type: "USER_IDENTITY_LINKED",
-            event_category: "AUTHENTICATION",
-            action: "LINK_IDENTITY",
-            status: "SUCCESS",
-            actor_type: user.role_id === 3 ? "ADMIN" : "USER",
-            actor_user_id: Number(user.user_id),
-            reason: `Automatically linked LinkedIn identity upon user registration for ${linkedInPayload.email}`,
-          });
-        }
-      } catch (err) {
-        console.error("[registration/verify] Failed to link LinkedIn identity:", err);
       }
     }
 
@@ -196,14 +167,6 @@ export async function POST(request: NextRequest) {
     if (googleRegCookie) {
       response.cookies.set({
         name: "vos_sync_google_reg",
-        value: "",
-        maxAge: 0,
-        path: "/",
-      });
-    }
-    if (linkedInRegCookie) {
-      response.cookies.set({
-        name: "vos_sync_linkedin_reg",
         value: "",
         maxAge: 0,
         path: "/",

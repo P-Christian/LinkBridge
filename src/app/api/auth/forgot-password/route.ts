@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
     if (retryAfterMs) return tooManyRequestsResponse(retryAfterMs);
 
     try {
-        await requestPasswordReset(email);
+        const result = await requestPasswordReset(email);
 
         return NextResponse.json(
-            { ok: true, message: "If that email is registered, a reset code has been sent." },
+            { ok: true, message: "If that email is registered, a reset code has been sent.", expires_in_seconds: result.expiresInSeconds },
             { status: 200 }
         );
 
