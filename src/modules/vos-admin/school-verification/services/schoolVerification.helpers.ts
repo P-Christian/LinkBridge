@@ -68,19 +68,25 @@ export function resolveAssetUrl(idStr: unknown): string | null {
 export function computeSchoolKpis(records: SchoolVerificationRecord[]): SchoolVerificationKPIs {
   const kpis: SchoolVerificationKPIs = {
     totalCount: records.length,
+    draftCount: 0,
     pendingCount: 0,
+    correctionCount: 0,
     verifiedCount: 0,
-    rejectedCount: 0,
+    inactiveCount: 0,
   };
 
   records.forEach((record) => {
     const status = String(record.verification_status || "").toUpperCase();
-    if (status === "PENDING_VERIFICATION" || status === "DRAFT" || status === "CORRECTION_REQUIRED") {
+    if (status === "DRAFT") {
+      kpis.draftCount += 1;
+    } else if (status === "PENDING_VERIFICATION") {
       kpis.pendingCount += 1;
+    } else if (status === "CORRECTION_REQUIRED") {
+      kpis.correctionCount += 1;
     } else if (status === "VERIFIED") {
       kpis.verifiedCount += 1;
-    } else if (status === "REJECTED" || status === "SUSPENDED") {
-      kpis.rejectedCount += 1;
+    } else if (status === "REJECTED" || status === "SUSPENDED" || status === "INACTIVE") {
+      kpis.inactiveCount += 1;
     }
   });
 

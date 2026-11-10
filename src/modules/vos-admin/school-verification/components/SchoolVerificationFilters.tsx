@@ -20,7 +20,7 @@ const SCHOOL_STATUS_OPTIONS = [
   { value: "PENDING_VERIFICATION", label: "Pending Verification" },
   { value: "CORRECTION_REQUIRED", label: "Pending: Correction Required" },
   { value: "VERIFIED", label: "Verified" },
-  { value: "REJECTED", label: "Rejected" },
+  { value: "REJECTED", label: "Rejected (legacy)" },
   { value: "SUSPENDED", label: "Suspended" },
   { value: "DRAFT", label: "Draft" },
 ];

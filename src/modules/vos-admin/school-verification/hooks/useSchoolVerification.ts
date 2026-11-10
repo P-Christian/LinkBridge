@@ -15,6 +15,7 @@ import {
   submitSchoolVerificationDecision,
 } from "../services/schoolVerification.api";
 import { computeSchoolKpis } from "../services/schoolVerification.helpers";
+import { requestSchoolInvite, type SchoolInviteResult } from "@/lib/school-invite";
 
 export function useSchoolVerification() {
   const searchParams = useSearchParams();
@@ -80,12 +81,12 @@ export function useSchoolVerification() {
 
   // Client-side filtering for fast, smooth table experience
   const filteredRecords = useMemo(() => {
-    return allRecords.filter((rec) => {
+    const matches = allRecords.filter((rec) => {
       // 1. Status filter
       if (statusFilter !== "ALL") {
         const s = String(rec.verification_status || "").toUpperCase();
-        if (statusFilter === "PENDING_VERIFICATION") {
-          if (s !== "PENDING_VERIFICATION" && s !== "DRAFT" && s !== "CORRECTION_REQUIRED") {
+        if (statusFilter === "INACTIVE") {
+          if (s !== "REJECTED" && s !== "SUSPENDED" && s !== "INACTIVE") {
             return false;
           }
         } else if (s !== statusFilter) {
@@ -107,6 +108,15 @@ export function useSchoolVerification() {
 
       return true;
     });
+
+    // Drafts sort after all non-Draft records; API order is preserved in each group.
+    const nonDrafts = matches.filter(
+      (rec) => String(rec.verification_status || "").toUpperCase() !== "DRAFT"
+    );
+    const drafts = matches.filter(
+      (rec) => String(rec.verification_status || "").toUpperCase() === "DRAFT"
+    );
+    return [...nonDrafts, ...drafts];
   }, [allRecords, statusFilter, searchQuery]);
 
   const openDetailModal = (school: SchoolVerificationRecord) => {
@@ -128,6 +138,13 @@ export function useSchoolVerification() {
     setIsRejectionModalOpen(false);
   };
 
+  const generateSchoolInvite = useCallback(
+    async (schoolId: number, email: string): Promise<SchoolInviteResult | null> => {
+      return requestSchoolInvite(schoolId, email);
+    },
+    []
+  );
+
   const handleDecision = async (
     action: VerificationDecisionPayload["action"],
     rejectionReason?: string,
@@ -146,7 +163,6 @@ export function useSchoolVerification() {
 
       const actionLabels: Record<string, string> = {
         approve: "approved",
-        reject: "rejected",
         suspend: "suspended",
         request_correction: "returned for correction",
       };
@@ -186,6 +202,7 @@ export function useSchoolVerification() {
     openRejectionModal,
     closeRejectionModal,
     handleDecision,
+    generateSchoolInvite,
     refetch: loadRecords,
   };
 }

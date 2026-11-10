@@ -176,11 +176,12 @@ export async function POST(req: Request) {
             userId = userJson.data.user_id || userJson.data.id;
         }
 
-        // 3. Update vs_school to 'Pending'
+        // 3. Update vs_school to Pending Verification
+        const submittedAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
         await fetch(`${DIRECTUS_BASE}/items/vs_school/${schoolId}`, {
             method: 'PATCH',
             headers: getHeaders(),
-            body: JSON.stringify({ school_status: 'Pending' })
+            body: JSON.stringify({ school_status: 'Pending', verification_status: 'PENDING_VERIFICATION', submitted_at: submittedAt })
         });
 
         // 4. Create vs_school_admin link (if not exists)

@@ -137,6 +137,7 @@ export async function POST(req: Request) {
         if (!schoolId) {
             // Calculate base completion (10% name, 10% type, 10% email, 5% city, 5% province = 40%)
             const baseCompletion = 40;
+            const submittedAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
             const createSchoolRes = await fetch(`${DIRECTUS_BASE}/items/vs_school`, {
                 method: 'POST',
                 headers: getHeaders(),
@@ -146,7 +147,9 @@ export async function POST(req: Request) {
                     school_email: user_email,
                     city_municipality,
                     province,
-                    school_status: 'Draft',
+                    school_status: 'Pending',
+                    verification_status: 'PENDING_VERIFICATION',
+                    submitted_at: submittedAt,
                     profile_completion_percent: baseCompletion,
                     created_by: userId
                 })
@@ -160,11 +163,11 @@ export async function POST(req: Request) {
             }
             schoolId = schoolJson.data.school_id || schoolJson.data.id;
         } else {
-            // Update existing school status if registered via invite
+            const invitedSubmittedAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
             await fetch(`${DIRECTUS_BASE}/items/vs_school/${schoolId}`, {
                 method: 'PATCH',
                 headers: getHeaders(),
-                body: JSON.stringify({ school_status: 'Draft' })
+                body: JSON.stringify({ school_status: 'Pending', verification_status: 'PENDING_VERIFICATION', submitted_at: invitedSubmittedAt })
             });
         }
 

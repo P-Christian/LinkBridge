@@ -3,7 +3,7 @@
 
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { GraduationCap, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { GraduationCap, Clock, CheckCircle2, FileEdit, ClipboardList, Ban } from "lucide-react";
 import { SchoolVerificationKPIs } from "../types";
 import { motion, Variants } from "framer-motion";
 import { KpiValue } from "@/components/shared/KpiValue";
@@ -52,6 +52,16 @@ export const SchoolVerificationKpis: React.FC<SchoolVerificationKpisProps> = ({
       borderColor: currentFilter === "ALL" ? "border-blue-500/50" : "border-border/60",
     },
     {
+      id: "DRAFT",
+      title: "Drafts",
+      value: kpis.draftCount,
+      icon: FileEdit,
+      color: "text-slate-500",
+      bgColor: "bg-slate-500/10",
+      activeRing: currentFilter === "DRAFT" ? "ring-2 ring-slate-500/50 shadow-sm" : "",
+      borderColor: currentFilter === "DRAFT" ? "border-slate-500/50" : "border-border/60",
+    },
+    {
       id: "PENDING_VERIFICATION",
       title: "Pending Review",
       value: kpis.pendingCount,
@@ -60,6 +70,16 @@ export const SchoolVerificationKpis: React.FC<SchoolVerificationKpisProps> = ({
       bgColor: "bg-amber-500/10",
       activeRing: currentFilter === "PENDING_VERIFICATION" ? "ring-2 ring-amber-500/50 shadow-sm" : "",
       borderColor: currentFilter === "PENDING_VERIFICATION" ? "border-amber-500/50" : "border-border/60",
+    },
+    {
+      id: "CORRECTION_REQUIRED",
+      title: "Needs Revision",
+      value: kpis.correctionCount,
+      icon: ClipboardList,
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
+      activeRing: currentFilter === "CORRECTION_REQUIRED" ? "ring-2 ring-orange-500/50 shadow-sm" : "",
+      borderColor: currentFilter === "CORRECTION_REQUIRED" ? "border-orange-500/50" : "border-border/60",
     },
     {
       id: "VERIFIED",
@@ -72,14 +92,14 @@ export const SchoolVerificationKpis: React.FC<SchoolVerificationKpisProps> = ({
       borderColor: currentFilter === "VERIFIED" ? "border-emerald-500/50" : "border-border/60",
     },
     {
-      id: "REJECTED",
-      title: "Rejected / Suspended",
-      value: kpis.rejectedCount,
-      icon: XCircle,
+      id: "INACTIVE",
+      title: "Inactive / Suspended",
+      value: kpis.inactiveCount,
+      icon: Ban,
       color: "text-rose-500",
       bgColor: "bg-rose-500/10",
-      activeRing: currentFilter === "REJECTED" ? "ring-2 ring-rose-500/50 shadow-sm" : "",
-      borderColor: currentFilter === "REJECTED" ? "border-rose-500/50" : "border-border/60",
+      activeRing: currentFilter === "INACTIVE" ? "ring-2 ring-rose-500/50 shadow-sm" : "",
+      borderColor: currentFilter === "INACTIVE" ? "border-rose-500/50" : "border-border/60",
     },
   ];
 
@@ -88,7 +108,7 @@ export const SchoolVerificationKpis: React.FC<SchoolVerificationKpisProps> = ({
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6"
+      className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 mb-6"
     >
       {cards.map((card) => {
         const Icon = card.icon;

@@ -21,8 +21,7 @@ interface SchoolRejectionReasonModalProps {
   isOpen: boolean;
   onClose: () => void;
   school: SchoolVerificationRecord | null;
-  mode: "reject" | "request_correction";
-  onConfirm: (action: "reject" | "request_correction", reason: string, internalNotes: string) => Promise<void>;
+  onConfirm: (action: "request_correction", reason: string, internalNotes: string) => Promise<void>;
   isSubmitting: boolean;
 }
 
@@ -44,7 +43,6 @@ export const SchoolRejectionReasonModal: React.FC<SchoolRejectionReasonModalProp
   isOpen,
   onClose,
   school,
-  mode,
   onConfirm,
   isSubmitting,
 }) => {
@@ -53,8 +51,6 @@ export const SchoolRejectionReasonModal: React.FC<SchoolRejectionReasonModalProp
   const [internalNotes, setInternalNotes] = useState<string>("");
 
   if (!school) return null;
-
-  const isReject = mode === "reject";
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,7 +62,7 @@ export const SchoolRejectionReasonModal: React.FC<SchoolRejectionReasonModalProp
 
     if (!finalPublicReason) return;
 
-    await onConfirm(mode, finalPublicReason, internalNotes);
+    await onConfirm("request_correction", finalPublicReason, internalNotes);
   };
 
   return (
@@ -74,13 +70,11 @@ export const SchoolRejectionReasonModal: React.FC<SchoolRejectionReasonModalProp
       <DialogContent className="sm:max-w-xl w-[90vw]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
-            <AlertCircle className={`h-5 w-5 ${isReject ? "text-destructive" : "text-amber-500"}`} />
-            {isReject ? "Reject School Verification" : "Request Document Correction"}
+            <AlertCircle className="h-5 w-5 text-amber-500" />
+            Request Document Correction
           </DialogTitle>
           <DialogDescription>
-            {isReject
-              ? `You are rejecting verification for ${school.school_name}. Please provide a clear explanation.`
-              : `Request missing or corrected accreditation documents from ${school.school_name}.`}
+            {`Request missing or corrected accreditation documents from ${school.school_name}.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -143,16 +137,12 @@ export const SchoolRejectionReasonModal: React.FC<SchoolRejectionReasonModalProp
             </Button>
             <Button
               type="submit"
-              variant={isReject ? "destructive" : "default"}
+              variant="default"
               size="sm"
               disabled={isSubmitting || (!selectedPreset && !customReason.trim())}
               className="rounded-lg text-xs shadow-2xs font-semibold"
             >
-              {isSubmitting
-                ? "Submitting..."
-                : isReject
-                ? "Confirm Rejection"
-                : "Send Correction Request"}
+              {isSubmitting ? "Submitting..." : "Send Correction Request"}
             </Button>
           </DialogFooter>
         </form>

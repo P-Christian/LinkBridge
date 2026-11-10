@@ -27,6 +27,13 @@ export async function fetchSchoolsRepo(status?: string, search?: string): Promis
   return directusItems("vs_school", { query: queries.join("&") });
 }
 
+export async function fetchSchoolByIdRepo(schoolId: number): Promise<Record<string, unknown> | null> {
+  const rows = await directusItems("vs_school", {
+    query: `filter[school_id][_eq]=${schoolId}&limit=1`,
+  });
+  return rows[0] ?? null;
+}
+
 export async function fetchSchoolDocumentsRepo(schoolIds: number[]): Promise<Record<string, unknown>[]> {
   if (schoolIds.length === 0) return [];
   return directusItemsWhereIn("vs_school_document", "school_id", schoolIds, "*");

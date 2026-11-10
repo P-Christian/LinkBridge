@@ -41,7 +41,7 @@ import type {
 } from "../hooks/useRequests";
 import type { AwaitingSchoolGroup } from "../dashboard/school-demand.selectors";
 import { SchoolDemandDetailRequests } from "./SchoolDemandDetailRequests";
-import { InviteSchoolLinkModal } from "./InviteSchoolLinkModal";
+import { InviteSchoolLinkModal } from "../../components/InviteSchoolLinkModal";
 import { useSchoolRequestActionController } from "./school-requests/SchoolRequestActionController";
 import type { SchoolRequestsMode } from "./school-requests/school-request-mode";
 
@@ -122,7 +122,7 @@ export function SchoolDemandDetailSheet(props: SchoolDemandDetailSheetProps) {
   } = props;
   const controller = useSchoolRequestActionController({
     mode, onReview, onDecide, onSearchSchools, candidatesFor, candidatesLoadingFor,
-    candidatesErrorFor, decisionBusyFor, onCreatePlaceholder, onDecided,
+    candidatesErrorFor, decisionBusyFor, onCreatePlaceholder, onDecided, allowReject: false,
   });
 
   const matchedSchoolId = group?.matchedSchoolId ?? null;
@@ -366,8 +366,7 @@ export function SchoolDemandDetailSheet(props: SchoolDemandDetailSheetProps) {
                 readOnly={readOnly}
                 feedbackFor={feedbackFor}
                 decisionBusyFor={decisionBusyFor}
-                onOpenDecision={controller.openDecision}
-                onOpenLegacyReview={controller.openLegacyReview}
+                onEdit={(request) => controller.openDecision(request, "correct")}
               />
             </section>
           </div>

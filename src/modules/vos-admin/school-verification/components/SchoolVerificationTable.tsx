@@ -34,6 +34,19 @@ interface SchoolVerificationTableProps {
   onSelectSchool: (school: SchoolVerificationRecord) => void;
 }
 
+function getActionLabel(status: SchoolVerificationRecord["verification_status"]): string {
+  switch (status) {
+    case "DRAFT":
+      return "View Profile";
+    case "PENDING_VERIFICATION":
+      return "Review & Verify";
+    case "CORRECTION_REQUIRED":
+      return "Review Resubmission";
+    default:
+      return "View Details";
+  }
+}
+
 export const SchoolVerificationTable: React.FC<SchoolVerificationTableProps> = ({
   records,
   loading,
@@ -257,7 +270,7 @@ export const SchoolVerificationTable: React.FC<SchoolVerificationTableProps> = (
                         className="h-8 px-3 gap-1.5 text-xs font-semibold shadow-xs transition-all hover:scale-102 active:scale-98"
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        Review & Verify
+                        {getActionLabel(school.verification_status)}
                       </Button>
                     </TableCell>
                   </motion.tr>

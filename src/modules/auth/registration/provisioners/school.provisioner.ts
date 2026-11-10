@@ -2,6 +2,7 @@ import { RegistrationError } from "../registration.errors";
 import type { SchoolProvisioningInput } from "../registration.types";
 import { RegistrationProvisioningRepository } from "../registration.provisioning.repo";
 import { parseDirectusUtcDateTime } from "../registration.timestamps";
+import { getPHTimeString } from "@/lib/utils";
 
 type ProvisioningId = string | number;
 type ProvisioningRecord = Record<string, unknown>;
@@ -467,6 +468,23 @@ async function ensureSchoolAdminLink(
   }
 }
 
+async function markSchoolPendingVerification(
+  repo: RegistrationProvisioningRepository,
+  schoolId: ProvisioningId,
+  ledger: ProvisioningLedger
+): Promise<ProvisioningRecord> {
+  try {
+    return (await repo.update(SCHOOL_COLLECTION, schoolId, {
+      school_status: "Pending",
+      verification_status: "PENDING_VERIFICATION",
+      submitted_at: getPHTimeString(),
+    })) as ProvisioningRecord;
+  } catch (error: unknown) {
+    if (!isKnownNonAmbiguousFailure(error)) ledger.ambiguous = true;
+    throw error;
+  }
+}
+
 async function resolveSelfSignupSchool(
   repo: RegistrationProvisioningRepository,
   user: ProvisioningUser,
@@ -722,8 +740,13 @@ export async function provisionSchoolGraph(
         user,
         ledger
       );
+      const submittedSchool = await markSchoolPendingVerification(
+        repo,
+        schoolId,
+        ledger
+      );
       return {
-        school,
+        school: submittedSchool,
         schoolAdmin,
         invitation: null,
         created: ledger.created,
@@ -764,8 +787,13 @@ export async function provisionSchoolGraph(
         existingLink.is_active === "0"
           ? await ensureSchoolAdminLink(repo, schoolId, user, ledger)
           : existingLink;
+      const submittedSchool = await markSchoolPendingVerification(
+        repo,
+        schoolId,
+        ledger
+      );
       return {
-        school,
+        school: submittedSchool,
         schoolAdmin,
         invitation,
         created: ledger.created,
@@ -792,9 +820,14 @@ export async function provisionSchoolGraph(
       user,
       schoolId
     );
+    const submittedSchool = await markSchoolPendingVerification(
+      repo,
+      schoolId,
+      ledger
+    );
 
     return {
-      school,
+      school: submittedSchool,
       schoolAdmin,
       invitation: consumedInvitation,
       created: ledger.created,
