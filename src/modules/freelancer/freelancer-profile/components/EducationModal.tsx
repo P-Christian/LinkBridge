@@ -15,6 +15,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { generateUUID } from "@/lib/utils";
+import { fetchProvinces, fetchCities, type PsgcItem } from "@/lib/psgc";
+import { SearchableAddressSelect } from "./SearchableAddressSelect";
 
 interface EducationModalProps {
     isOpen: boolean;
@@ -23,9 +25,8 @@ interface EducationModalProps {
     educationToEdit?: VsEducation | null;
 }
 
-// Plan 2 Todo 7 lane B: server-derived verification route for a freelancer
-// school-search result. Consumed verbatim from GET /api/freelancer/schools
-// — never computed client-side.
+// Server-derived verification route for a school-search result, consumed
+// verbatim from GET /api/freelancer/schools.
 type FreelancerSchoolVerificationRoute =
     | "DIRECT_REVIEW"
     | "AWAITING_ACTIVATION"
@@ -55,6 +56,15 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
     const [isUnverifiedCourse, setIsUnverifiedCourse] = useState(false);
     const [rawSchoolName, setRawSchoolName] = useState("");
     const [rawCourseName, setRawCourseName] = useState("");
+    const [rawProvince, setRawProvince] = useState("");
+    const [rawCity, setRawCity] = useState("");
+    const [selectedProvinceCode, setSelectedProvinceCode] = useState("");
+    const [selectedCityCode, setSelectedCityCode] = useState("");
+    const [provinces, setProvinces] = useState<PsgcItem[]>([]);
+    const [cities, setCities] = useState<PsgcItem[]>([]);
+    const [loadingProvinces, setLoadingProvinces] = useState(false);
+    const [loadingCities, setLoadingCities] = useState(false);
+    const [provinceLoadError, setProvinceLoadError] = useState<string | null>(null);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [schoolOpen, setSchoolOpen] = useState(false);
     const newDraftKeyRef = useRef<string | null>(null);
@@ -110,6 +120,65 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
         }, 300);
     }, [fetchSchools]);
 
+    const loadProvinces = React.useCallback(async () => {
+        setLoadingProvinces(true);
+        setProvinceLoadError(null);
+        try {
+            setProvinces(await fetchProvinces());
+        } catch (e) {
+            console.error(e);
+            setProvinceLoadError("Failed to load provinces. Please try again.");
+        } finally {
+            setLoadingProvinces(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && isUnverifiedSchool) {
+            loadProvinces();
+        }
+    }, [isOpen, isUnverifiedSchool, loadProvinces]);
+
+    useEffect(() => {
+        if (provinces.length > 0 && rawProvince) {
+            const matched = provinces.find((p) => p.name === rawProvince);
+            if (matched && matched.code !== selectedProvinceCode) {
+                setSelectedProvinceCode(matched.code);
+            }
+        }
+    }, [provinces, rawProvince, selectedProvinceCode]);
+
+    useEffect(() => {
+        if (!selectedProvinceCode) {
+            setCities([]);
+            return;
+        }
+        let isMounted = true;
+        async function loadCities() {
+            setLoadingCities(true);
+            try {
+                const data = await fetchCities(selectedProvinceCode);
+                if (!isMounted) return;
+                setCities(data);
+            } catch (e) {
+                console.error(e);
+            } finally {
+                if (isMounted) setLoadingCities(false);
+            }
+        }
+        loadCities();
+        return () => { isMounted = false; };
+    }, [selectedProvinceCode]);
+
+    useEffect(() => {
+        if (cities.length > 0 && rawCity) {
+            const matched = cities.find((c) => c.name === rawCity);
+            if (matched && matched.code !== selectedCityCode) {
+                setSelectedCityCode(matched.code);
+            }
+        }
+    }, [cities, rawCity, selectedCityCode]);
+
     useEffect(() => {
         if (isOpen) {
             fetchSchools();
@@ -118,10 +187,20 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                     setSchoolId(String(educationToEdit.school_id));
                     setIsUnverifiedSchool(false);
                     setRawSchoolName("");
+                    setRawProvince("");
+                    setRawCity("");
+                    setSelectedProvinceCode("");
+                    setSelectedCityCode("");
+                    setCities([]);
                 } else {
                     setSchoolId("");
                     setIsUnverifiedSchool(true);
                     setRawSchoolName(educationToEdit.school_name_raw || "");
+                    setRawProvince(educationToEdit.school_province_raw || "");
+                    setRawCity(educationToEdit.school_city_raw || "");
+                    setSelectedProvinceCode("");
+                    setSelectedCityCode("");
+                    setCities([]);
                 }
                 setIsUnverifiedCourse(Boolean(educationToEdit.school_id && !educationToEdit.school_course_id && educationToEdit.course_name_raw));
                 setRawCourseName(educationToEdit.course_name_raw || "");
@@ -137,6 +216,12 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                 setIsUnverifiedCourse(false);
                 setRawSchoolName("");
                 setRawCourseName("");
+                setRawProvince("");
+                setRawCity("");
+                setSelectedProvinceCode("");
+                setSelectedCityCode("");
+                setCities([]);
+                setProvinceLoadError(null);
                 setCourseId("");
                 setStartDate("");
                 setEndDate("");
@@ -209,6 +294,17 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
             return;
         }
 
+        if (isUnverifiedSchool && !isVerifiedEdit) {
+            if (!rawProvince.trim()) {
+                toast.error("Please select the school province.");
+                return;
+            }
+            if (!rawCity.trim()) {
+                toast.error("Please select the school city or municipality.");
+                return;
+            }
+        }
+
         if ((isUnverifiedSchool || isUnverifiedCourse) && !rawCourseName.trim()) {
             toast.error("Please enter the course/degree name.");
             return;
@@ -223,6 +319,8 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
         const payload = {
             school_id: isUnverifiedSchool ? null : parseInt(schoolId, 10),
             school_name_raw: isUnverifiedSchool ? rawSchoolName.trim() : null,
+            school_city_raw: isUnverifiedSchool ? rawCity.trim() : null,
+            school_province_raw: isUnverifiedSchool ? rawProvince.trim() : null,
             course_name_raw: (isUnverifiedSchool || isUnverifiedCourse) ? rawCourseName.trim() : null,
             education_status: educationToEdit?.education_status ?? 'Pending' as const,
             course_request_draft_key: draftKey,
@@ -292,9 +390,39 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                                             placeholder="Enter school name" 
                                             disabled={isVerifiedEdit}
                                         />
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">Province *</label>
+                                            <SearchableAddressSelect
+                                                options={provinces}
+                                                value={selectedProvinceCode}
+                                                onChange={(code, name) => { setSelectedProvinceCode(code); setRawProvince(name); setSelectedCityCode(""); setRawCity(""); }}
+                                                placeholder="Select province"
+                                                searchPlaceholder="Search province..."
+                                                disabled={isVerifiedEdit}
+                                                loading={loadingProvinces}
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-foreground">City / Municipality *</label>
+                                            <SearchableAddressSelect
+                                                options={cities}
+                                                value={selectedCityCode}
+                                                onChange={(code, name) => { setSelectedCityCode(code); setRawCity(name); }}
+                                                placeholder="Select city / municipality"
+                                                searchPlaceholder="Search city / municipality..."
+                                                disabled={isVerifiedEdit || !selectedProvinceCode}
+                                                loading={loadingCities}
+                                            />
+                                        </div>
+                                        {provinceLoadError && (
+                                            <div className="flex items-center justify-between gap-2 text-sm text-destructive">
+                                                <span>{provinceLoadError}</span>
+                                                <button type="button" onClick={loadProvinces} className="font-medium text-primary hover:underline">Retry</button>
+                                            </div>
+                                        )}
                                         {!isVerifiedEdit && (
                                             <div className="text-sm md:text-xs text-muted-foreground mt-1 text-right">
-                                                Found your school? <button type="button" onClick={() => { setIsUnverifiedSchool(false); setRawSchoolName(""); }} className="text-primary font-medium hover:underline">Select from list</button>
+                                                Found your school? <button type="button" onClick={() => { setIsUnverifiedSchool(false); setRawSchoolName(""); setRawProvince(""); setRawCity(""); setSelectedProvinceCode(""); setSelectedCityCode(""); setCities([]); }} className="text-primary font-medium hover:underline">Select from list</button>
                                             </div>
                                         )}
                                     </>
@@ -338,6 +466,11 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                                                                             setCourseId("");
                                                                             setIsUnverifiedCourse(false);
                                                                             setRawCourseName("");
+                                                                            setRawProvince("");
+                                                                            setRawCity("");
+                                                                            setSelectedProvinceCode("");
+                                                                            setSelectedCityCode("");
+                                                                            setCities([]);
                                                                             setSchoolOpen(false);
                                                                         }}
                                                                     >

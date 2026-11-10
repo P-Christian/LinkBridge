@@ -2,19 +2,18 @@
 //
 // Per-request list for one exact matched-school demand group. Rows keep the
 // selector's deterministic oldest-first order and show only the requester name
-// fields already present in the DTO. Every action button delegates to the
-// shared per-request action controller owned by the composing sheet, so a
-// click can only ever act on one concrete `school_request_id`; frozen mode and
-// non-Pending rows render read-only.
+// fields already present in the DTO. Edit delegates to the shared per-request
+// action controller owned by the composing sheet, so a click can only ever act
+// on one concrete `school_request_id`; frozen and legacy modes and non-Pending
+// rows render read-only.
 "use client";
 
-import { Check, X } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { VsSchoolRequest } from "../types/request.types";
 import type { SchoolDecisionFeedback } from "../hooks/useRequests";
 import { extractRequesterIdentity } from "../dashboard/school-demand.selectors";
 import { RequestStatusBadge, isWaitingSchoolRequest } from "./RequestStatusBadge";
-import type { SchoolDecisionTab } from "./SchoolRequestDecisionModal";
 import type { SchoolRequestsMode } from "./school-requests/school-request-mode";
 
 const PH_DATE_TIME = new Intl.DateTimeFormat("en-PH", {
@@ -52,10 +51,8 @@ export interface SchoolDemandDetailRequestsProps {
   readonly readOnly: boolean;
   readonly feedbackFor: (requestId: number) => SchoolDecisionFeedback | undefined;
   readonly decisionBusyFor: (requestId: number) => boolean;
-  // Attendance decision dialog for one exact request.
-  readonly onOpenDecision: (request: VsSchoolRequest, tab: SchoolDecisionTab) => void;
-  // Legacy review dialog for one exact request id.
-  readonly onOpenLegacyReview: (requestId: number, action: "Approve" | "Reject") => void;
+  // Edit opens the review dialog restricted to Route / Group for one request.
+  readonly onEdit: (request: VsSchoolRequest) => void;
 }
 
 export function SchoolDemandDetailRequests({
@@ -64,8 +61,7 @@ export function SchoolDemandDetailRequests({
   readOnly,
   feedbackFor,
   decisionBusyFor,
-  onOpenDecision,
-  onOpenLegacyReview,
+  onEdit,
 }: SchoolDemandDetailRequestsProps) {
   return (
     <ul className="space-y-2" data-testid="demand-detail-requests">
@@ -73,7 +69,7 @@ export function SchoolDemandDetailRequests({
         const requestId = request.school_request_id;
         const feedback = feedbackFor(requestId);
         const busy = decisionBusyFor(requestId);
-        const actionable = !readOnly && request.request_status === "Pending";
+        const actionable = !readOnly && mode === "attendance" && request.request_status === "Pending";
         const requested = request.requested_school_name.trim();
         return (
           <li
@@ -104,42 +100,17 @@ export function SchoolDemandDetailRequests({
               {!actionable ? (
                 <span className="text-xs text-muted-foreground">Read-only</span>
               ) : (
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      mode === "attendance"
-                        ? onOpenDecision(request, "reject")
-                        : onOpenLegacyReview(requestId, "Reject")
-                    }
-                    aria-label={`Reject request #${requestId}`}
-                    data-testid={`demand-detail-reject-${requestId}`}
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                  >
-                    <X className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() =>
-                      mode === "attendance"
-                        ? onOpenDecision(request, "correct")
-                        : onOpenLegacyReview(requestId, "Approve")
-                    }
-                    aria-label={
-                      mode === "attendance"
-                        ? `Route or group request #${requestId}`
-                        : `Approve request #${requestId}`
-                    }
-                    data-testid={`demand-detail-review-${requestId}`}
-                    className="text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
-                  >
-                    <Check className="h-4 w-4" aria-hidden="true" />
-                  </Button>
-                </>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => onEdit(request)}
+                  aria-label={`Edit request #${requestId}`}
+                  data-testid={`demand-detail-edit-${requestId}`}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                  Edit
+                </Button>
               )}
             </div>
             {feedback !== undefined ? (

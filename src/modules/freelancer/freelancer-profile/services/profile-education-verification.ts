@@ -10,7 +10,7 @@ import type {
 const COURSE_REQUEST_FIELDS =
   "course_request_id,employee_education_id,request_status,admin_remarks,created_at";
 const SCHOOL_REQUEST_FIELDS =
-  "school_request_id,employee_education_id,request_status,created_at";
+  "school_request_id,employee_education_id,request_status,city_municipality,province,created_at";
 
 const courseRequestRowSchema = z.object({
   course_request_id: z.number().int().positive(),
@@ -25,6 +25,8 @@ const schoolRequestRowSchema = z.object({
   employee_education_id: z.number().int().positive(),
   // Tolerant read: an unrecognized status is never treated as a rejection.
   request_status: z.string(),
+  city_municipality: z.string().nullable(),
+  province: z.string().nullable(),
   created_at: z.string(),
 });
 
@@ -137,6 +139,8 @@ export async function attachEducationVerification(
       const attendanceRejected = schoolRequest?.request_status === "Rejected";
       return {
         ...item,
+        school_city_raw: schoolRequest?.city_municipality ?? null,
+        school_province_raw: schoolRequest?.province ?? null,
         attendance_rejected: attendanceRejected,
         course_verification: !attendanceRejected && courseRequest
           ? {

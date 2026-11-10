@@ -35,6 +35,8 @@ export type PendingEducationWrite = {
   readonly school_id: number | null;
   readonly school_name_raw: string | null;
   readonly course_name_raw: string | null;
+  readonly school_city_raw: string | null;
+  readonly school_province_raw: string | null;
   readonly school_course_id: number | null;
   readonly course_request_draft_key: string | null;
   readonly start_date: string | null;

@@ -76,6 +76,7 @@ interface Props {
   onGroup: (schoolId: number) => Promise<boolean>;
   onReject: (adminRemarks: string) => Promise<boolean>;
   onCreatePlaceholder: (input: SchoolPlaceholderInput) => Promise<SchoolDraftOutcome | null>;
+  allowReject?: boolean;
 }
 
 /** Debounce before a typed term reaches the server-classified search. */
@@ -126,8 +127,11 @@ export function SchoolRequestDecisionModal({
   onGroup,
   onReject,
   onCreatePlaceholder,
+  allowReject = true,
 }: Props) {
-  const [tab, setTab] = useState<SchoolDecisionTab>(initialTab);
+  const effectiveInitialTab: SchoolDecisionTab = allowReject ? initialTab : "correct";
+  const decisionTabs: readonly SchoolDecisionTab[] = allowReject ? ["correct", "reject"] : ["correct"];
+  const [tab, setTab] = useState<SchoolDecisionTab>(effectiveInitialTab);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>(undefined);
   const [remarks, setRemarks] = useState("");
   const [confirmArmed, setConfirmArmed] = useState(false);
@@ -137,11 +141,11 @@ export function SchoolRequestDecisionModal({
 
   const requestKey = request?.school_request_id ?? null;
   const [lastSessionKey, setLastSessionKey] = useState<string | null>(null);
-  const sessionKey = open && requestKey !== null ? `${requestKey}:${initialTab}` : null;
+  const sessionKey = open && requestKey !== null ? `${requestKey}:${effectiveInitialTab}` : null;
   if (sessionKey !== lastSessionKey) {
     setLastSessionKey(sessionKey);
     if (sessionKey !== null) {
-      setTab(initialTab);
+      setTab(effectiveInitialTab);
       setSelectedSchoolId(undefined);
       setRemarks("");
       setConfirmArmed(false);
@@ -274,24 +278,26 @@ export function SchoolRequestDecisionModal({
               <div className="mt-1 break-words text-muted-foreground">Submitted by {submitterLabel(request)}</div>
             </div>
 
-            <div className="flex gap-2" role="tablist" aria-label="Decision type">
-              {(["correct", "reject"] as const).map((t) => (
-                <Button
-                  key={t}
-                  type="button"
-                  variant={tab === t ? "default" : "outline"}
-                  size="sm"
-                  disabled={busy}
-                  onClick={() => {
-                    setTab(t);
-                    resetArmed();
-                  }}
-                  data-testid={`school-decision-tab-${t}`}
-                >
-                  {t === "correct" ? "Route / Group" : "Reject"}
-                </Button>
-              ))}
-            </div>
+            {decisionTabs.length > 1 ? (
+              <div className="flex gap-2" role="tablist" aria-label="Decision type">
+                {decisionTabs.map((t) => (
+                  <Button
+                    key={t}
+                    type="button"
+                    variant={tab === t ? "default" : "outline"}
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setTab(t);
+                      resetArmed();
+                    }}
+                    data-testid={`school-decision-tab-${t}`}
+                  >
+                    {t === "correct" ? "Route / Group" : "Reject"}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
 
             {tab === "correct" && (
               <div className="space-y-2" data-testid="school-decision-correct">
@@ -403,7 +409,7 @@ export function SchoolRequestDecisionModal({
               </div>
             )}
 
-            {tab === "reject" && (
+            {allowReject && tab === "reject" && (
               <div className="space-y-2" data-testid="school-decision-reject">
                 <Label>Reason for rejection (required)</Label>
                 <p className="text-sm text-muted-foreground">Provide a reason for rejecting this request.</p>
@@ -462,7 +468,14 @@ export function SchoolRequestDecisionModal({
         </DialogContent>
       </Dialog>
 
-      <CreateSchoolDraftModal open={draftOpen} onOpenChange={setDraftOpen} onSubmit={handleDraftSubmit} />
+      <CreateSchoolDraftModal
+        open={draftOpen}
+        onOpenChange={setDraftOpen}
+        initialName={request.requested_school_name}
+        initialCity={request.city_municipality ?? ""}
+        initialProvince={request.province ?? ""}
+        onSubmit={handleDraftSubmit}
+      />
     </>
   );
 }

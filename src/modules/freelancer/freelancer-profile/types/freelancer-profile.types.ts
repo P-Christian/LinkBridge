@@ -90,6 +90,8 @@ export interface VsEducation {
     school_id: number | null;
     school_name_raw?: string | null;
     course_name_raw?: string | null;
+    school_city_raw?: string | null;
+    school_province_raw?: string | null;
     education_status?: 'Verified' | 'Pending' | 'Unverified';
     course_request_draft_key?: string | null;
     school_course_id: number | null;

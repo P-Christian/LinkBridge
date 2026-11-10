@@ -8,9 +8,8 @@ import {
   schoolRouteCandidateSchema,
   searchClassifiedSchools,
 } from "@/modules/vos-admin/school-verification/services/schoolRouteSearch.repo";
+import { decideSchoolDraft } from "@/modules/vos-admin/school-verification/services/schoolDraftGuard";
 
-// LOCKED Todo 4 search-term contract: trimmed, capped at 100 characters,
-// never silently truncated. Blank returns an empty array (never a dump).
 const searchTermSchema = z
   .string()
   .trim()
@@ -63,10 +62,8 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Plan 2 Todo 6: guarded VOS-Admin-only Draft-placeholder creation.
 // The system never auto-creates a school row from freelancer free text;
-// only this endpoint (wired by Todo 7 to the decision dialog) creates
-// exactly one normalized placeholder per identity.
+// only this endpoint creates exactly one normalized placeholder per identity.
 
 function directusBase(): string {
   return (
@@ -127,10 +124,6 @@ function normalizeIdentityPart(value: string): string {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function normalizeKey(value: string | null | undefined): string {
-  return (value ?? "").trim().replace(/\s+/g, " ").toLowerCase();
-}
-
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
@@ -170,37 +163,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Repeat a normalized search BEFORE creating anything: an exact
-    // normalized (name + city + province) match is reused, multiple
-    // plausible matches fail closed into VOS resolution (409), and only
-    // with no match is a placeholder created.
-    const lookupQuery = new URLSearchParams({
-      "filter[school_name][_icontains]": schoolName,
-      fields:
-        "school_id,school_name,city_municipality,province,school_status,verification_status,is_active",
-      sort: "school_name,school_id",
-      limit: "50",
-    });
-    const lookupRes = await fetch(`${base}/items/vs_school?${lookupQuery.toString()}`, {
-      headers: directusHeaders(),
-      cache: "no-store",
-    });
-    if (!lookupRes.ok) {
-      return NextResponse.json(
-        { error: "Service temporarily unavailable" },
-        { status: 503 }
-      );
+    // Scan every school BEFORE creating anything: the school name is the
+    // identity and location only disambiguates. Any name match fails closed
+    // into reuse or VOS resolution (409); only with no match is a
+    // placeholder created.
+    const PAGE_SIZE = 500;
+    const MAX_ROWS = 20000;
+    const allRows: Array<z.infer<typeof placeholderRowSchema>> = [];
+    let offset = 0;
+    for (;;) {
+      const pageQuery = new URLSearchParams({
+        fields:
+          "school_id,school_name,city_municipality,province,school_status,verification_status,is_active",
+        sort: "school_id",
+        limit: String(PAGE_SIZE),
+        offset: String(offset),
+      });
+      const pageRes = await fetch(`${base}/items/vs_school?${pageQuery.toString()}`, {
+        headers: directusHeaders(),
+        cache: "no-store",
+      });
+      if (!pageRes.ok) {
+        return NextResponse.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503 }
+        );
+      }
+      const pageJson = (await pageRes.json()) as unknown;
+      const pageRows = z
+        .object({ data: z.array(placeholderRowSchema) })
+        .parse(pageJson).data;
+      allRows.push(...pageRows);
+      if (allRows.length > MAX_ROWS) {
+        return NextResponse.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503 }
+        );
+      }
+      if (pageRows.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
     }
-    const lookupJson = (await lookupRes.json()) as unknown;
-    const lookupRows = z
-      .object({ data: z.array(placeholderRowSchema) })
-      .parse(lookupJson).data;
-    const exact = lookupRows.filter(
-      (row) =>
-        normalizeKey(row.school_name) === normalizeKey(schoolName) &&
-        normalizeKey(row.city_municipality) === normalizeKey(city) &&
-        normalizeKey(row.province) === normalizeKey(province)
-    );
+    const decision = decideSchoolDraft(allRows, {
+      school_name: schoolName,
+      city_municipality: city,
+      province,
+    });
 
     const toCandidate = async (
       row: z.infer<typeof placeholderRowSchema>
@@ -235,40 +242,75 @@ export async function POST(req: NextRequest) {
       });
     };
 
-    if (exact.length > 1) {
+    if (decision.kind === "invalid-name") {
       return NextResponse.json(
-        {
-          error:
-            "Multiple schools match this identity. Resolve the ambiguity in VOS before creating a placeholder.",
-        },
-        { status: 409 }
+        { error: "School name must not be empty." },
+        { status: 400 }
       );
     }
-    if (exact.length === 1) {
-      const only = exact[0] as z.infer<typeof placeholderRowSchema>;
-      const candidate = await toCandidate(only);
+    if (decision.kind === "reuse") {
+      const full = allRows.find((row) => row.school_id === decision.row.school_id);
+      if (!full) {
+        return NextResponse.json(
+          { error: "Service temporarily unavailable" },
+          { status: 503 }
+        );
+      }
+      const candidate = await toCandidate(full);
       if (candidate === null) {
         return NextResponse.json(
           {
             error:
-              "The matching school is not selectable. Resolve it in VOS before proceeding.",
+              "A school with this name already exists but cannot be selected. Resolve it in VOS before proceeding.",
+            code: "NOT_SELECTABLE",
+            school: {
+              school_id: decision.row.school_id,
+              school_name: decision.row.school_name,
+              city_municipality: decision.row.city_municipality,
+              province: decision.row.province,
+            },
           },
           { status: 409 }
         );
       }
       return NextResponse.json({ school: candidate, reused: true });
     }
+    if (decision.kind === "location-conflict") {
+      return NextResponse.json(
+        {
+          error:
+            "A school with this name already exists in a different location. Use the existing school or resolve the location in VOS.",
+          code: "LOCATION_CONFLICT",
+          school: {
+            school_id: decision.row.school_id,
+            school_name: decision.row.school_name,
+            city_municipality: decision.row.city_municipality,
+            province: decision.row.province,
+          },
+        },
+        { status: 409 }
+      );
+    }
+    if (decision.kind === "ambiguous") {
+      return NextResponse.json(
+        {
+          error:
+            "Multiple schools match this name. Resolve the ambiguity in VOS before creating a draft.",
+          code: decision.code,
+          candidates: decision.rows.map((row) => ({
+            school_id: row.school_id,
+            school_name: row.school_name,
+            city_municipality: row.city_municipality,
+            province: row.province,
+          })),
+        },
+        { status: 409 }
+      );
+    }
 
-    // No normalized match: create exactly one Draft placeholder row.
-    // school_status 'Draft' + verification_status 'DRAFT' with NO
-    // vs_school_admin link is the placeholder identity (spec: Placeholder
-    // creation and ownership). is_active is set so the row classifies as
-    // AWAITING_REGISTRATION; created_by records the Admin Portal actor.
-    //
-    // vs_school requires non-null school_type/city_municipality/province, and
-    // school_type is an enum (University | College | Technical/Vocational |
-    // Other). A placeholder is unclassified, so 'Other' plus empty-string
-    // locations - which compare equal to null in the reuse check above.
+    // No name match: create one Draft placeholder row.
+    // vs_school requires a non-null school_type and location, so an
+    // unclassified placeholder uses 'Other' and empty strings.
     const createRes = await fetch(`${base}/items/vs_school`, {
       method: "POST",
       headers: directusHeaders(),
