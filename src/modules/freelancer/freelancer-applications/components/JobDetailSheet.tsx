@@ -25,12 +25,17 @@ import {
   HelpCircle,
   Mail,
   Phone,
-  Facebook,
-  Linkedin,
-  Instagram,
-  Youtube,
   X,
 } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faFacebook,
+  faLinkedin,
+  faInstagram,
+  faYoutube,
+  faXTwitter,
+} from "@fortawesome/free-brands-svg-icons";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 import { PublicJobPosting, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS } from "../types";
 
 interface Props {
@@ -185,9 +190,16 @@ export function JobDetailSheet({ job, open, onClose }: Props) {
 
               {/* Job Description */}
               <Section title="Job Description">
-                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
-                  {job.job_description}
-                </p>
+                {/<(p|b|strong|ul|ol|li|div|br|h[1-6])\b[^>]*>/i.test(job.job_description || "") ? (
+                  <div
+                    className="text-sm text-foreground/80 leading-relaxed space-y-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:leading-normal [&_strong]:font-semibold [&_b]:font-semibold [&_p]:mb-2"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(job.job_description) }}
+                  />
+                ) : (
+                  <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
+                    {job.job_description}
+                  </p>
+                )}
               </Section>
 
               {/* Responsibilities */}
@@ -195,9 +207,16 @@ export function JobDetailSheet({ job, open, onClose }: Props) {
                 <>
                   <Separator />
                   <Section title="Responsibilities">
-                    <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
-                      {job.job_responsibilities}
-                    </p>
+                    {/<(p|b|strong|ul|ol|li|div|br|h[1-6])\b[^>]*>/i.test(job.job_responsibilities) ? (
+                      <div
+                        className="text-sm text-foreground/80 leading-relaxed space-y-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:leading-normal [&_strong]:font-semibold [&_b]:font-semibold [&_p]:mb-2"
+                        dangerouslySetInnerHTML={{ __html: sanitizeHtml(job.job_responsibilities) }}
+                      />
+                    ) : (
+                      <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
+                        {job.job_responsibilities}
+                      </p>
+                    )}
                   </Section>
                 </>
               )}
@@ -205,9 +224,16 @@ export function JobDetailSheet({ job, open, onClose }: Props) {
               {/* Qualifications */}
               <Separator />
               <Section title="Qualifications">
-                <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
-                  {job.job_qualifications}
-                </p>
+                {/<(p|b|strong|ul|ol|li|div|br|h[1-6])\b[^>]*>/i.test(job.job_qualifications || "") ? (
+                  <div
+                    className="text-sm text-foreground/80 leading-relaxed space-y-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ul]:space-y-1 [&_ol]:list-decimal [&_ol]:pl-5 [&_ol]:space-y-1 [&_li]:leading-normal [&_strong]:font-semibold [&_b]:font-semibold [&_p]:mb-2"
+                    dangerouslySetInnerHTML={{ __html: sanitizeHtml(job.job_qualifications) }}
+                  />
+                ) : (
+                  <p className="text-sm text-foreground/80 leading-relaxed whitespace-pre-line">
+                    {job.job_qualifications}
+                  </p>
+                )}
               </Section>
 
               {/* Skills */}
@@ -310,23 +336,58 @@ export function JobDetailSheet({ job, open, onClose }: Props) {
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">Social Media</span>
                     <div className="flex flex-wrap gap-2">
                       {job.company_facebook && (
-                        <a href={job.company_facebook} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
-                          <Facebook className="h-4 w-4" />
+                        <a
+                          href={job.company_facebook}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Facebook"
+                          className="h-8 w-8 rounded-lg bg-[#1877F2]/10 hover:bg-[#1877F2]/20 text-[#1877F2] border border-[#1877F2]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                        >
+                          <FontAwesomeIcon icon={faFacebook} className="h-4 w-4" />
                         </a>
                       )}
                       {job.company_linkedin && (
-                        <a href={job.company_linkedin} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
-                          <Linkedin className="h-4 w-4" />
+                        <a
+                          href={job.company_linkedin}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="LinkedIn"
+                          className="h-8 w-8 rounded-lg bg-[#0A66C2]/10 hover:bg-[#0A66C2]/20 text-[#0A66C2] border border-[#0A66C2]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                        >
+                          <FontAwesomeIcon icon={faLinkedin} className="h-4 w-4" />
                         </a>
                       )}
                       {job.company_instagram && (
-                        <a href={job.company_instagram} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
-                          <Instagram className="h-4 w-4" />
+                        <a
+                          href={job.company_instagram}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Instagram"
+                          className="h-8 w-8 rounded-lg bg-[#E4405F]/10 hover:bg-[#E4405F]/20 text-[#E4405F] border border-[#E4405F]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                        >
+                          <FontAwesomeIcon icon={faInstagram} className="h-4 w-4" />
+                        </a>
+                      )}
+                      {job.company_x && (
+                        <a
+                          href={job.company_x}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="X (Twitter)"
+                          className="h-8 w-8 rounded-lg bg-foreground/10 hover:bg-foreground/20 text-foreground border border-foreground/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                        >
+                          <FontAwesomeIcon icon={faXTwitter} className="h-3.5 w-3.5" />
                         </a>
                       )}
                       {job.company_youtube && (
-                        <a href={job.company_youtube} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/85 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
-                          <Youtube className="h-4 w-4" />
+                        <a
+                          href={job.company_youtube}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="YouTube"
+                          className="h-8 w-8 rounded-lg bg-[#FF0000]/10 hover:bg-[#FF0000]/20 text-[#FF0000] border border-[#FF0000]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                        >
+                          <FontAwesomeIcon icon={faYoutube} className="h-4 w-4" />
                         </a>
                       )}
                     </div>

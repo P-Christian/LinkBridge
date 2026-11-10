@@ -5,6 +5,7 @@ import React, { useRef, useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Upload, Loader2, CheckCircle2, Eye, RefreshCw, Trash2, FileText, Plus } from "lucide-react";
 import { SchoolDocumentTypeKey, UploadedSchoolDoc } from "../types/school-profile.types";
+import { SchoolDocumentPreviewModal } from "./SchoolDocumentPreviewModal";
 import { toast } from "sonner";
 
 interface DocSlotConfig {
@@ -51,6 +52,7 @@ export default function SchoolDocuments({ schoolId, onDocsChange }: SchoolDocume
   const [isUploadingOther, setIsUploadingOther] = useState(false);
   const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const [docs, setDocs] = useState<UploadedSchoolDoc[]>([]);
+  const [previewDoc, setPreviewDoc] = useState<UploadedSchoolDoc | null>(null);
   const [slotError, setSlotError] = useState<Record<string, string>>({});
   const [otherError, setOtherError] = useState<string | null>(null);
 
@@ -237,9 +239,8 @@ export default function SchoolDocuments({ schoolId, onDocsChange }: SchoolDocume
     }
   };
 
-  const handleView = (docId: string) => {
-    const directusBase = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-    window.open(`${directusBase}/assets/${docId}`, "_blank", "noopener,noreferrer");
+  const handleView = (doc: UploadedSchoolDoc) => {
+    setPreviewDoc(doc);
   };
 
   const otherDocs = docs.filter((d) => d.document_type === "OTHER_DOCUMENT");
@@ -306,7 +307,7 @@ export default function SchoolDocuments({ schoolId, onDocsChange }: SchoolDocume
                         onClick={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
-                          handleView(doc.id);
+                          handleView(doc);
                         }}
                         className="h-7 px-2.5 text-[11px] font-medium rounded-lg gap-1 border-border"
                       >
@@ -431,7 +432,7 @@ export default function SchoolDocuments({ schoolId, onDocsChange }: SchoolDocume
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
-                      handleView(d.id);
+                      handleView(d);
                     }}
                     className="h-6 px-2 text-[10px] rounded hover:text-primary"
                   >
@@ -467,6 +468,11 @@ export default function SchoolDocuments({ schoolId, onDocsChange }: SchoolDocume
           </p>
         )}
       </div>
+
+      <SchoolDocumentPreviewModal
+        doc={previewDoc}
+        onClose={() => setPreviewDoc(null)}
+      />
     </div>
   );
 }

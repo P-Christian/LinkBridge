@@ -11,11 +11,58 @@ import { issueAuthSession } from "../registration/registration.session";
 import { canAuthenticate } from "@/lib/status-validator";
 import { createUserSession } from "../sessions/session.repo";
 
-// ⚠️ TESTING: 1 min — CHANGE TO 15 * 60 * 1000 (15 min) FOR PRODUCTION
-const LOCK_DURATION_MS = 1 * 60 * 1000;
-// ⚠️ TESTING: 2 min — CHANGE TO 10 * 60 * 1000 (10 min) FOR PRODUCTION
-const RESET_OTP_EXPIRY_MS = 2 * 60 * 1000;
+// SEC-007: five consecutive failures now cost 15 minutes, not the 60 seconds
+// left behind for testing.
+const LOCK_DURATION_MS = 15 * 60 * 1000;
+const RESET_OTP_EXPIRY_MS = 10 * 60 * 1000;
 const MAX_FAILED_ATTEMPTS = 5;
+
+// SEC-023: every credential this module compares (password hashes, OTP hashes,
+// reset-code hashes) is written with this cost factor, so the placeholder hash
+// used to equalise the "no such account" path shares it. bcrypt work depends
+// only on the cost factor, which is what makes the timing indistinguishable.
+const BCRYPT_SALT_ROUNDS = 10;
+
+// SEC-023: the single message every failed credential check returns.
+const INVALID_CREDENTIALS = "Credentials invalid.";
+
+let dummyCredentialHash: string | null = null;
+
+async function getDummyCredentialHash(): Promise<string> {
+    if (!dummyCredentialHash) {
+        // Cached only after bcrypt resolves, so a transient failure cannot
+        // poison every subsequent attempt.
+        dummyCredentialHash = await bcrypt.hash(
+            "vos-sync-placeholder-credential",
+            BCRYPT_SALT_ROUNDS
+        );
+    }
+    return dummyCredentialHash;
+}
+
+/**
+ * SEC-023: machine-readable failure reasons so the route handlers can branch on
+ * `reason` instead of the user-visible wording, which lets the credential
+ * failure string stay generic.
+ */
+export type AuthFailureReason =
+    | "invalid_input"
+    | "invalid_credentials"
+    | "account_blocked"
+    | "account_locked"
+    | "account_inactive";
+
+export class AuthFailure extends Error {
+    readonly reason: AuthFailureReason;
+    readonly statusCode: number;
+
+    constructor(message: string, reason: AuthFailureReason, statusCode: number) {
+        super(message);
+        this.name = "AuthFailure";
+        this.reason = reason;
+        this.statusCode = statusCode;
+    }
+}
 
 // Format as Philippine Time (UTC+8) in YYYY-MM-DD HH:mm:ss
 const getPHTimeString = (d: Date) => new Date(d.getTime() + 8 * 60 * 60 * 1000).toISOString().replace('T', ' ').substring(0, 19);
@@ -31,23 +78,84 @@ export async function loginUser(
     }
 ) {
     if (!email || !hashPasswordParam) {
-        throw new Error('Both "email" and "password" are required.');
+        throw new AuthFailure('Both "email" and "password" are required.', "invalid_input", 400);
     }
 
     const user = await getUserByEmail(email);
-    if (!user) {
-        // Log failed login attempt with unknown email
-        createAuditRecordRepo({
-            event_type: "USER_LOGIN_FAILED",
-            event_category: "AUTHENTICATION",
-            action: "FAILED_LOGIN",
-            status: "FAILED",
-            actor_type: "USER",
-            reason: `Login attempt failed: Email ${email} not found`,
-        });
-        throw new Error("Credentials invalid.");
+    const now = new Date();
+    const lockUntilDate = user?.lock_until ? new Date(user.lock_until) : null;
+
+    // SEC-023: the compare always runs against a same-cost hash — the account's
+    // own, or a placeholder when the email is unknown — and both misses return the
+    // identical string, so neither the body nor the timing separates "no such
+    // account" from "wrong password". Blocked and locked are genuinely different
+    // states the real owner needs a signal for, so they are only revealed once the
+    // password has verified.
+    const credentialHash = user?.hash_password
+        ? String(user.hash_password)
+        : await getDummyCredentialHash();
+    const passwordMatches = await bcrypt.compare(hashPasswordParam, credentialHash);
+
+    if (!user || !passwordMatches) {
+        if (!user) {
+            createAuditRecordRepo({
+                event_type: "USER_LOGIN_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "FAILED_LOGIN",
+                status: "FAILED",
+                actor_type: "USER",
+                reason: `Login attempt failed: Email ${email} not found`,
+            });
+        } else {
+            // The counter and the lockout still work; only the remaining-attempt
+            // count stops being handed to the caller.
+            const liveLock = Boolean(lockUntilDate && now < lockUntilDate);
+            if (liveLock) {
+                createAuditRecordRepo({
+                    event_type: "USER_LOGIN_FAILED",
+                    event_category: "AUTHENTICATION",
+                    action: "FAILED_LOGIN",
+                    status: "FAILED",
+                    actor_type: "USER",
+                    actor_user_id: user.user_id,
+                    reason: "Invalid password submitted while an account lock is active",
+                });
+            } else {
+                // An expired lock grants a fresh budget; there is no lock column to
+                // clear, so the next failure restarts the count at one.
+                const baseAttempts = lockUntilDate ? 0 : user.failed_attempts || 0;
+                const newAttempts = baseAttempts + 1;
+                if (newAttempts >= MAX_FAILED_ATTEMPTS) {
+                    const lockUntil = new Date(now.getTime() + LOCK_DURATION_MS).toISOString();
+                    await updateFailedAttempts(user.user_id, newAttempts, lockUntil);
+                    createAuditRecordRepo({
+                        event_type: "ACCOUNT_LOCKOUT",
+                        event_category: "AUTHENTICATION",
+                        action: "LOCKOUT",
+                        status: "DENIED",
+                        actor_type: "SYSTEM",
+                        actor_user_id: user.user_id,
+                        reason: `Account locked due to ${MAX_FAILED_ATTEMPTS} consecutive failed attempts`,
+                    });
+                } else {
+                    await updateFailedAttempts(user.user_id, newAttempts);
+                    createAuditRecordRepo({
+                        event_type: "USER_LOGIN_FAILED",
+                        event_category: "AUTHENTICATION",
+                        action: "FAILED_LOGIN",
+                        status: "FAILED",
+                        actor_type: "USER",
+                        actor_user_id: user.user_id,
+                        reason: `Invalid password. ${MAX_FAILED_ATTEMPTS - newAttempts} attempt(s) remaining`,
+                    });
+                }
+            }
+        }
+
+        throw new AuthFailure(INVALID_CREDENTIALS, "invalid_credentials", 400);
     }
 
+    // The password is valid — safe to disclose the account state to its owner.
     if (user.is_blocked) {
         createAuditRecordRepo({
             event_type: "USER_LOGIN_BLOCKED",
@@ -58,65 +166,45 @@ export async function loginUser(
             actor_user_id: user.user_id,
             reason: "Login denied: Account is blocked",
         });
-        throw new Error("Account is blocked. Contact support.");
+        throw new AuthFailure("Account is blocked. Contact support.", "account_blocked", 403);
     }
 
-    const now = new Date();
-    let currentAttempts = user.failed_attempts || 0;
-
-    if (user.lock_until) {
-        const lockUntilDate = new Date(user.lock_until);
-        if (now < lockUntilDate) {
-            createAuditRecordRepo({
-                event_type: "USER_LOGIN_LOCKED",
-                event_category: "AUTHENTICATION",
-                action: "LOCKOUT",
-                status: "DENIED",
-                actor_type: "USER",
-                actor_user_id: user.user_id,
-                reason: `Login denied: Account locked until ${lockUntilDate.toISOString()}`,
-            });
-            throw new Error(`Account is locked. Try again at ${lockUntilDate.toLocaleTimeString()}.`);
-        } else {
-            // Lock has naturally expired. Give them a fresh set of attempts.
-            currentAttempts = 0;
-        }
+    if (lockUntilDate && now < lockUntilDate) {
+        createAuditRecordRepo({
+            event_type: "USER_LOGIN_LOCKED",
+            event_category: "AUTHENTICATION",
+            action: "LOCKOUT",
+            status: "DENIED",
+            actor_type: "USER",
+            actor_user_id: user.user_id,
+            reason: `Login denied: Account locked until ${lockUntilDate.toISOString()}`,
+        });
+        throw new AuthFailure(`Account is locked. Try again at ${lockUntilDate.toLocaleTimeString()}.`, "account_locked", 400);
     }
 
-    const isValid = await bcrypt.compare(hashPasswordParam, user.hash_password);
-    if (!isValid) {
-        const newAttempts = currentAttempts + 1;
-        if (newAttempts >= MAX_FAILED_ATTEMPTS) {
-            const lockUntil = new Date(now.getTime() + LOCK_DURATION_MS).toISOString();
-            await updateFailedAttempts(user.user_id, newAttempts, lockUntil);
-            createAuditRecordRepo({
-                event_type: "ACCOUNT_LOCKOUT",
-                event_category: "AUTHENTICATION",
-                action: "LOCKOUT",
-                status: "DENIED",
-                actor_type: "SYSTEM",
-                actor_user_id: user.user_id,
-                reason: `Account locked due to ${MAX_FAILED_ATTEMPTS} consecutive failed attempts`,
-            });
-            throw new Error("Account locked for 1 minute due to too many failed attempts.");
-        } else {
-            await updateFailedAttempts(user.user_id, newAttempts);
-            const remaining = MAX_FAILED_ATTEMPTS - newAttempts;
-            createAuditRecordRepo({
-                event_type: "USER_LOGIN_FAILED",
-                event_category: "AUTHENTICATION",
-                action: "FAILED_LOGIN",
-                status: "FAILED",
-                actor_type: "USER",
-                actor_user_id: user.user_id,
-                reason: `Invalid password. ${remaining} attempt(s) remaining`,
-            });
-            throw new Error(`Credentials invalid. ${remaining} attempt(s) remaining.`);
-        }
-    }
+    let isContainmentStatus = false;
+    let containmentStatusName = "";
 
     if (!canAuthenticate(user)) {
-        throw new Error("Account is not active or verified.");
+        const canonicalStatus = String(user.status ?? "").trim().toUpperCase();
+        const legacyStatus = String(user.user_status ?? "").trim().toUpperCase();
+        const currentStatus = canonicalStatus || legacyStatus;
+
+        // Containment statuses are allowed to authenticate into the containment portal (/linkbridge/suspended)
+        if (
+            currentStatus === "SUSPENDED" ||
+            currentStatus === "BLOCKED" ||
+            user.is_blocked ||
+            currentStatus === "DEACTIVATED" ||
+            currentStatus === "PENDING_DELETION"
+        ) {
+            isContainmentStatus = true;
+            containmentStatusName = currentStatus || "SUSPENDED";
+        } else if (currentStatus === "PENDING_VERIFICATION" || currentStatus === "PENDING") {
+            throw new AuthFailure("Your account is pending verification. Please wait for administrator approval.", "account_inactive", 403);
+        } else {
+            throw new AuthFailure("Account is not active or verified.", "account_inactive", 403);
+        }
     }
 
     // Login successful
@@ -130,7 +218,9 @@ export async function loginUser(
         actor_type: user.role_id === 3 ? "ADMIN" : "USER",
         actor_user_id: user.user_id,
         organization_type: user.role_id === 2 ? "EMPLOYER" : user.role_id === 4 ? "SCHOOL" : "FREELANCER",
-        reason: "User logged in successfully",
+        reason: isContainmentStatus
+            ? `User authenticated into containment portal (Status: ${containmentStatusName})`
+            : "User logged in successfully",
     });
 
     let sessionId: string | undefined;
@@ -147,27 +237,32 @@ export async function loginUser(
         console.error("[auth.service] Failed to persist session record in vs_user_sessions:", sessionErr);
     }
 
-    const session = await issueAuthSession({
-        user_id: user.user_id,
-        user_email: user.user_email,
-        role: user.role,
-        role_id: user.role_id,
-        status: user.status,
-        user_status: user.user_status,
-        otp_verified: user.otp_verified,
-        is_blocked: user.is_blocked,
-        lock_until: user.lock_until,
-        session_id: sessionId,
-    });
+    const session = await issueAuthSession(
+        {
+            user_id: user.user_id,
+            user_email: user.user_email,
+            role: user.role,
+            role_id: user.role_id,
+            status: user.status,
+            user_status: user.user_status,
+            otp_verified: user.otp_verified,
+            is_blocked: user.is_blocked,
+            lock_until: user.lock_until,
+            session_id: sessionId,
+        },
+        { allowContainment: isContainmentStatus }
+    );
 
-    console.log(`[auth.service] User logged in: user_id=${user.user_id}, role_id=${user.role_id}, session_id=${sessionId}`);
+    const destination = isContainmentStatus ? "/linkbridge/suspended" : session.destination;
+
+    console.log(`[auth.service] User logged in: user_id=${user.user_id}, role_id=${user.role_id}, session_id=${sessionId}, destination=${destination}`);
 
     return {
         token: session.token,
         role_id: session.role_id,
         role: session.role,
         role_name: session.role_name,
-        destination: session.destination,
+        destination,
         session_id: sessionId,
     };
 }
@@ -206,7 +301,7 @@ export async function registerUser(body: unknown) {
         throw new Error("Email is already registered.");
     }
 
-    const saltRounds = 10;
+    const saltRounds = BCRYPT_SALT_ROUNDS;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     let role_id = 1; // Default to FREELANCER
@@ -328,46 +423,70 @@ export async function registerUser(body: unknown) {
     const otpExpiry = getPHTimeString(expiry);
 
     // Hash OTP before persisting to database
-    const hashedOtp = await bcrypt.hash(otpCode, 10);
+    const hashedOtp = await bcrypt.hash(otpCode, BCRYPT_SALT_ROUNDS);
 
     await updateUserOTP(newUser.user_id, hashedOtp, otpExpiry, otpSentAt);
     await sendOTP(email, otpCode);
 
-    return { requireOtp: true, userId: newUser.user_id };
+    // SEC-023: no primary key in the response. /verify-otp is keyed by the email
+    // the caller just submitted, so nothing here has to disclose the sequential
+    // vs_user.user_id to drive the next step.
+    return { requireOtp: true };
 }
 
-export async function confirmOTP(userId: string | number, code: string) {
-    if (!userId || !code) {
-        throw new Error('User ID and OTP code are required.');
+export async function confirmOTP(email: string, code: string) {
+    if (!email || !code) {
+        throw new Error('Email and verification code are required.');
     }
 
-    const user = await getUserById(userId);
-    if (!user) {
-        throw new Error('User not found.');
+    // SEC-023: the caller now supplies an email instead of a user id, so every
+    // answer that comes back before the code itself is checked has to be the same
+    // one a wrong code gets — "no such account", "no pending code" and "attempts
+    // exhausted" would each be an existence oracle otherwise. The server-side
+    // rejection behaviour is unchanged for all of them.
+    const INVALID_OTP = 'Invalid verification code.';
+    const user = await getUserByEmail(email);
+    const hasPendingOtp = Boolean(user?.otp_code);
+    const otpHash = hasPendingOtp ? String(user.otp_code) : await getDummyCredentialHash();
+    // The compare always runs so a missing account costs the same bcrypt work as
+    // a wrong code; an absent code can never validate.
+    const codeMatches = await bcrypt.compare(String(code), otpHash);
+    const isOtpValid = hasPendingOtp && codeMatches;
+
+    if (!user || !hasPendingOtp || !isOtpValid) {
+        if (user) {
+            const currentAttempts = user.failed_attempts || 0;
+            // The budget stays server-side and is never pushed past its ceiling.
+            if (currentAttempts < MAX_FAILED_ATTEMPTS) {
+                await updateFailedAttempts(user.user_id, currentAttempts + 1);
+            }
+            createAuditRecordRepo({
+                event_type: "OTP_VERIFY_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "OTP_VERIFY",
+                status: "FAILED",
+                actor_type: "USER",
+                actor_user_id: Number(user.user_id),
+                reason: !hasPendingOtp
+                    ? "OTP verification attempted with no pending code on the account"
+                    : currentAttempts >= MAX_FAILED_ATTEMPTS
+                        ? "OTP verification rejected after the attempt budget was spent"
+                        : `Invalid OTP code entered (attempt ${currentAttempts + 1})`,
+            });
+        } else {
+            createAuditRecordRepo({
+                event_type: "OTP_VERIFY_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "OTP_VERIFY",
+                status: "FAILED",
+                actor_type: "USER",
+                reason: `OTP verification attempted for unknown email ${email}`,
+            });
+        }
+        throw new Error(INVALID_OTP);
     }
 
-    const currentAttempts = user.failed_attempts || 0;
-    if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
-        throw new Error('Too many failed attempts. Please request a new verification code.');
-    }
-
-    // Verify OTP code against hashed value
-    const isOtpValid = user.otp_code ? await bcrypt.compare(String(code), String(user.otp_code)) : false;
-
-    if (!isOtpValid) {
-        const nextAttempts = currentAttempts + 1;
-        await updateFailedAttempts(userId, nextAttempts);
-        createAuditRecordRepo({
-            event_type: "OTP_VERIFY_FAILED",
-            event_category: "AUTHENTICATION",
-            action: "OTP_VERIFY",
-            status: "FAILED",
-            actor_type: "USER",
-            actor_user_id: Number(userId),
-            reason: `Invalid OTP code entered (attempt ${nextAttempts})`,
-        });
-        throw new Error('Invalid verification code.');
-    }
+    const userId = user.user_id;
 
     // Validate expiry using pure string comparison against current PH Time
     const expiryStr = String(user.otp_expiry).replace('T', ' ').substring(0, 19);
@@ -464,7 +583,7 @@ export async function requestPasswordReset(email: string) {
     
     const otpExpiryPH = getPHTimeString(expiry);
     
-    const saltRounds = 10;
+    const saltRounds = BCRYPT_SALT_ROUNDS;
     const hashedOtp = await bcrypt.hash(otpCode, saltRounds);
     const tokenId = randomUUID();
     
@@ -484,53 +603,76 @@ export async function requestPasswordReset(email: string) {
     return { ok: true };
 }
 
-export async function confirmPasswordReset(identifier: string | number, code: string, newPassword: string) {
-    if (!identifier || !code || !newPassword) {
-        throw new Error('Email or user identifier, OTP code, and new password are required.');
+export async function confirmPasswordReset(email: string, code: string, newPassword: string) {
+    if (!email || !code || !newPassword) {
+        throw new Error('Email, reset code, and new password are required.');
     }
 
     if (!validatePasswordStrict(newPassword)) {
         throw new Error('New password does not meet security requirements.');
     }
 
-    const isEmail = typeof identifier === "string" && identifier.includes("@");
-    const user = isEmail ? await getUserByEmail(identifier) : await getUserById(identifier);
-    if (!user) {
-        throw new Error('User not found.');
-    }
-    
-    if (!user.reset_token_hash) {
-        throw new Error('No password reset requested.');
-    }
+    // SEC-023: this step is now keyed only by the email the requester already
+    // holds — never by vs_user.user_id — and every outcome short of a valid code
+    // returns the same string, so an unknown address, an account that never asked
+    // for a reset and a spent attempt budget are indistinguishable.
+    const INVALID_CODE = 'Invalid or expired code.';
+    const user = await getUserByEmail(email);
+    const hasPendingReset = Boolean(user?.reset_token_hash);
+    const tokenHash = hasPendingReset ? String(user.reset_token_hash) : await getDummyCredentialHash();
+    const codeMatches = await bcrypt.compare(code, tokenHash);
+    const currentAttempts = user?.failed_attempts || 0;
+    const budgetExhausted = currentAttempts >= MAX_FAILED_ATTEMPTS;
 
-    // Prevent OTP brute-forcing by tracking failed attempts and invalidating after max attempts
-    const currentAttempts = user.failed_attempts || 0;
-    if (currentAttempts >= MAX_FAILED_ATTEMPTS) {
+    if (hasPendingReset && budgetExhausted) {
+        // SEC-007: a spent budget invalidates the code even for a caller who
+        // happens to hold the right one.
         await clearResetToken(user.user_id);
-        throw new Error('Too many failed attempts. This reset code has been invalidated for security.');
-    }
-    
-    const isValid = await bcrypt.compare(code, user.reset_token_hash);
-    if (!isValid) {
-        const nextAttempts = currentAttempts + 1;
-        if (nextAttempts >= MAX_FAILED_ATTEMPTS) {
-            await clearResetToken(user.user_id);
-        } else {
-            await updateFailedAttempts(user.user_id, nextAttempts);
-        }
-        createAuditRecordRepo({
-            event_type: "PASSWORD_RESET_FAILED",
-            event_category: "AUTHENTICATION",
-            action: "PASSWORD_RESET",
-            status: "FAILED",
-            actor_type: "USER",
-            actor_user_id: Number(user.user_id),
-            reason: `Invalid password reset code submitted (attempt ${nextAttempts})`,
-        });
-        throw new Error('Invalid or expired code.');
     }
 
-    // Validate expiry
+    if (!user || !hasPendingReset || budgetExhausted || !codeMatches) {
+        if (user && hasPendingReset && !budgetExhausted) {
+            const nextAttempts = currentAttempts + 1;
+            if (nextAttempts >= MAX_FAILED_ATTEMPTS) {
+                await clearResetToken(user.user_id);
+            } else {
+                await updateFailedAttempts(user.user_id, nextAttempts);
+            }
+            createAuditRecordRepo({
+                event_type: "PASSWORD_RESET_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "PASSWORD_RESET",
+                status: "FAILED",
+                actor_type: "USER",
+                actor_user_id: Number(user.user_id),
+                reason: `Invalid password reset code submitted (attempt ${nextAttempts})`,
+            });
+        } else if (user) {
+            createAuditRecordRepo({
+                event_type: "PASSWORD_RESET_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "PASSWORD_RESET",
+                status: "FAILED",
+                actor_type: "USER",
+                actor_user_id: Number(user.user_id),
+                reason: budgetExhausted
+                    ? "Password reset code invalidated after too many failed attempts"
+                    : "Password reset code submitted with no pending reset on the account",
+            });
+        } else {
+            createAuditRecordRepo({
+                event_type: "PASSWORD_RESET_FAILED",
+                event_category: "AUTHENTICATION",
+                action: "PASSWORD_RESET",
+                status: "FAILED",
+                actor_type: "USER",
+                reason: `Password reset code submitted for unknown email ${email}`,
+            });
+        }
+        throw new Error(INVALID_CODE);
+    }
+
+    // Validate expiry — only reachable with the correct code.
     const expiryStr = String(user.reset_token_expiry).replace('T', ' ').substring(0, 19);
     const nowPH = getPHTimeString(new Date());
 
@@ -547,7 +689,7 @@ export async function confirmPasswordReset(identifier: string | number, code: st
         throw new Error('Reset code has expired.');
     }
     
-    const saltRounds = 10;
+    const saltRounds = BCRYPT_SALT_ROUNDS;
     const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
     // Retain user_password column parameter as explicitly requested by user (hashed)

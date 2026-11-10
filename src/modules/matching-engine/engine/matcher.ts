@@ -54,7 +54,7 @@ export function runMatchingEngine(profile: NormalizedProfile, context: MatchCont
   const scoringOutput = calculateNormalizedScore(evaluatorResults, enrichedContext);
 
   // 2. Internal Ranking Scorer
-  const rankingScore = calculateRankingScore(scoringOutput.compatibilityScore, profile, enrichedContext.keyword);
+  const rankingScore = calculateRankingScore(scoringOutput.compatibilityScore, profile, enrichedContext.keyword, enrichedContext.layer1Score);
 
   // 3. Signal-based Confidence Rating
   const confidence = calculateConfidence(profile);

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PublicJobPosting } from "../types";
 import { useAuthSession } from "@/hooks/useAuthSession";
+import { formatJobType } from "@/lib/utils";
 
 import { motion } from "framer-motion";
 
@@ -137,7 +138,7 @@ export function PublicJobCard({ job, onSelectJob, onApplyClick, index = 0 }: Pro
         <div className="flex flex-wrap items-center gap-2 pt-1 text-xs">
           <Badge variant="secondary" className="text-[10px] font-semibold">
             <Briefcase className="h-3 w-3 mr-1" />
-            {job.job_type}
+            {formatJobType(job.job_type)}
           </Badge>
 
           <span className="text-muted-foreground text-[11px] flex items-center gap-1">

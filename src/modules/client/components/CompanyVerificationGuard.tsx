@@ -31,9 +31,13 @@ export default function CompanyVerificationGuard({
       const res = await fetch("/api/client/company-profile", { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
-        const status = json.company?.verification_status
+        // A company with a non-null verified_at is always treated as VERIFIED,
+        // regardless of the verification_status string (handles stale status edge cases).
+        const hasVerifiedAt = Boolean(json.company?.verified_at);
+        const rawStatus = json.company?.verification_status
           ? String(json.company.verification_status).toUpperCase()
           : "DRAFT";
+        const status = hasVerifiedAt ? "VERIFIED" : rawStatus;
         setVerificationStatus(status);
         try {
           sessionStorage.setItem(STORAGE_KEY, status);
@@ -228,14 +232,14 @@ export default function CompanyVerificationGuard({
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto pt-2">
               <Button
-                onClick={() => router.push("/vos-sync/client/company-profile")}
+                onClick={() => router.push("/linkbridge/client/company-profile")}
                 className="w-full sm:w-auto h-12 px-8 bg-primary hover:bg-primary/90 text-primary-foreground rounded-2xl font-bold text-sm shadow-md gap-2 transition-all border-0"
               >
                 Go to Company Profile <ArrowRight size={16} />
               </Button>
               <Button
                 variant="outline"
-                onClick={() => router.push("/vos-sync/client/dashboard")}
+                onClick={() => router.push("/linkbridge/client/dashboard")}
                 className="w-full sm:w-auto h-12 px-6 rounded-2xl text-sm font-semibold border-border"
               >
                 Return to Dashboard

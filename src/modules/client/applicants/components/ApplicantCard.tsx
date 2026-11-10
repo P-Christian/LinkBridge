@@ -27,7 +27,6 @@ import {
   MessageSquare,
   FileText,
   CheckCircle2,
-  Eye,
   MoreVertical,
   Edit3,
   ClipboardCheck,
@@ -65,7 +64,6 @@ function hashString(input: string): number {
 interface ApplicantCardProps {
   applicant: Applicant;
   onUpdateStatus: (applicant: Applicant) => void;
-  onQuickStatusUpdate?: (applicant: Applicant, status: ApplicationStatus) => void;
   onQuickStageUpdate?: (applicant: Applicant, toStageId: number, stageName: string) => void;
   onScheduleInterview: (applicant: Applicant) => void;
   onViewScheduledInterview?: (interviewId: number) => void;
@@ -102,6 +100,7 @@ export default function ApplicantCard({
     <Card
       role="button"
       tabIndex={0}
+      title="View candidate profile"
       onClick={() => onViewDetails(applicant)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
@@ -314,23 +313,9 @@ export default function ApplicantCard({
                 )
               ) : null}
 
-              {/* View Candidate Button */}
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onViewDetails(applicant);
-                }}
-                className="h-8 max-md:min-h-10 px-3 text-xs font-medium rounded-lg gap-1.5 hover:bg-muted text-foreground cursor-pointer"
-              >
-                <Eye className="h-3.5 w-3.5 text-muted-foreground" />
-                View Candidate
-              </Button>
-
               {/* Message Button */}
               <Link
-                href={`/vos-sync/client/messaging?freelancer_id=${applicant.user_id}&job_id=${applicant.job_id}`}
+                href={`/linkbridge/client/messaging?freelancer_id=${applicant.user_id}&job_id=${applicant.job_id}`}
                 onClick={(e) => e.stopPropagation()}
               >
                 <Button

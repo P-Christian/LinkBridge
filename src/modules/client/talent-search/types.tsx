@@ -70,7 +70,6 @@ export interface TalentCard {
   user_id: number;
   profile_id: number;
   name: string;
-  email: string;
   profile_image_url: string | null;
   headline: string | null;
   summary: string | null;
@@ -93,11 +92,25 @@ export interface TalentCard {
 
 export interface TalentSearchResponse {
   search_mode?: "browse" | "search";
+  search_context?: RoleTaxonomyContext | null;
   talents: TalentCard[];
   total: number;
   page: number;
   limit: number;
+  sort?: TalentSort;
   ai_reranked?: boolean;
+}
+
+/** What the server made of the keyword: the role it resolved to, or nothing. */
+export interface RoleTaxonomyContext {
+  keyword: string;
+  resolved_role: string | null;
+  resolved_role_id: number | null;
+  category_code: string | null;
+  category_name: string | null;
+  matched_alias: string | null;
+  match_weight: number;
+  expanded_aliases: string[];
 }
 
 /** Full talent profile (drawer / detail view) */
@@ -113,6 +126,7 @@ export interface TalentProfile {
   headline: string | null;
   summary: string | null;
   expected_salary: number | null;
+  work_setup?: string | null;
   profile_visibility: string;
   availability_status: "AVAILABLE" | "EMPLOYED" | "OPEN" | "IMMEDIATELY_AVAILABLE";
   skills: string[];
@@ -166,7 +180,6 @@ export interface TalentProfile {
 export interface SavedTalent {
   id: number;
   talent_user_id: number;
-  folder_name: string;
   notes: string | null;
   created_at: string | null;
   name: string;
@@ -177,30 +190,78 @@ export interface SavedTalent {
   skills: string[];
 }
 
+export type WorkSetup = "Remote" | "Hybrid" | "On-site";
+
+export const WORK_SETUP_LABELS: Record<WorkSetup, string> = {
+  Remote: "Remote",
+  Hybrid: "Hybrid",
+  "On-site": "On-site",
+};
+
+/**
+ * The order the recruiter asked for. `relevance` is not a sort the client picks
+ * so much as the absence of one: it keeps the engine policy for the mode plus the
+ * Layer B rerank, which is the only case in which the AI call is worth making.
+ */
+export type TalentSort = "relevance" | "experience" | "name";
+
+export const TALENT_SORT_LABELS: Record<TalentSort, string> = {
+  relevance: "Best match",
+  experience: "Most experience",
+  name: "Name (A–Z)",
+};
+
+export const TALENT_SORTS = Object.keys(TALENT_SORT_LABELS) as TalentSort[];
+
+/** The route clamps `limit` at 50, so nothing larger may be offered. */
+export const PAGE_SIZE_OPTIONS = [20, 30, 50];
+
 /** Search filters */
 export interface TalentFilters {
   keyword: string;
   skills: string[];
-  location: string;
-  experience_level: ExperienceLevel | "";
-  availability: AvailabilityStatus | "";
-  school_id: string;
+  locations: string[];
+  experience_level?: ExperienceLevel | "";
+  experience_levels: ExperienceLevel[];
+  schools: SchoolFilter[];
+  work_setups: WorkSetup[];
+}
+
+/**
+ * A school chosen from the `vs_school` registry keeps its numeric id so the
+ * search can match it exactly; free-typed schools fall back to name matching.
+ * `campus` is display only — `vs_school` repeats one name across several towns.
+ */
+export interface SchoolFilter {
+  id: number | null;
+  name: string;
+  campus?: string | null;
+}
+
+export type FilterSuggestionType = "skills" | "locations" | "schools";
+
+/** One row returned by the filter autocomplete endpoint. */
+export interface FilterSuggestion {
+  value: string;
+  label: string;
+  hint: string | null;
 }
 
 export const EMPTY_FILTERS: TalentFilters = {
   keyword: "",
   skills: [],
-  location: "",
+  locations: [],
   experience_level: "",
-  availability: "",
-  school_id: "",
+  experience_levels: [],
+  schools: [],
+  work_setups: [],
 };
 
 export const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
-  ENTRY: "Entry Level (0–2 yrs)",
-  JUNIOR: "Junior (0–3 yrs)",
-  MID: "Mid Level (2–6 yrs)",
-  SENIOR: "Senior (5+ yrs)",
+  ENTRY: "Entry Level (< 1 yr)",
+  JUNIOR: "Junior (1–3 yrs)",
+  MID: "Mid Level (3–6 yrs)",
+  SENIOR: "Senior (6–10 yrs)",
   MANAGER: "Manager (7+ yrs)",
   EXECUTIVE: "Executive (10+ yrs)",
 };

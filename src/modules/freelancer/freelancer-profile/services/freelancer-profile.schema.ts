@@ -136,6 +136,7 @@ export const jobPreferencesSchema = z.object({
     currency: z.string().nullable().optional(),
     availability: z.string().nullable().optional(),
     preferred_industry: z.string().nullable().optional(),
+    updated_at: z.string().nullable().optional(),
 });
 
 export type JobPreferencesPayload = z.infer<typeof jobPreferencesSchema>;

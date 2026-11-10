@@ -1,8 +1,9 @@
 import { NextRequest } from 'next/server';
 import * as jose from 'jose';
+import { isDevAuthBypassEnabled, DEV_BYPASS_USER_ID } from '@/lib/dev-auth-bypass';
+import { getJwtVerificationSecret } from '@/modules/auth/registration/registration.session';
 
 const COOKIE_NAME = 'vos_sync_access_token';
-const JWT_SECRET = process.env.JWT_SECRET || 'default_super_secret_key_for_development';
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -43,8 +44,8 @@ function toRoleId(value: unknown): number | null {
 }
 
 async function verifySchoolAdminRequest(req: NextRequest): Promise<{ userId: number }> {
-  if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-    return { userId: 1 };
+  if (isDevAuthBypassEnabled()) {
+    return { userId: DEV_BYPASS_USER_ID };
   }
   const token =
     req.cookies.get(COOKIE_NAME)?.value ||
@@ -52,8 +53,8 @@ async function verifySchoolAdminRequest(req: NextRequest): Promise<{ userId: num
     null;
   if (!token) throw new RosterHttpError(401, 'Unauthorized');
 
+  const secret = getJwtVerificationSecret();
   try {
-    const secret = new TextEncoder().encode(JWT_SECRET);
     const { payload } = await jose.jwtVerify(token, secret);
     const userId = Number(payload.user_id ?? payload.sub ?? payload.id);
     if (!userId) throw new RosterHttpError(401, 'Unauthorized');

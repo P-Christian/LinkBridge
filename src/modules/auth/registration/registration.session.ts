@@ -4,7 +4,7 @@ import { getRoleById } from "../services/auth.repo";
 import { RegistrationError } from "./registration.errors";
 import { canAuthenticate } from "@/lib/status-validator";
 
-interface AuthSessionUser {
+export interface AuthSessionUser {
   user_id: string | number;
   user_email: string;
   role: string;
@@ -20,39 +20,37 @@ interface AuthSessionUser {
   session_id?: string;
 }
 
-export function getJwtVerificationSecret(): Uint8Array {
+/** Shortest secret accepted in any environment (SEC-006): 32 ASCII chars. */
+const MIN_JWT_SECRET_LENGTH = 32;
+
+/**
+ * Resolve the master signing secret. Missing or weak configuration fails
+ * closed in every environment: an unset `JWT_SECRET` must not degrade into an
+ * empty HMAC key that anyone can forge.
+ */
+export function requireJwtSecret(): string {
   const configuredSecret = process.env.JWT_SECRET?.trim();
-  if (!configuredSecret && process.env.NODE_ENV === "production") {
+  if (!configuredSecret) {
     throw new RegistrationError(
       "JWT_SECRET is not configured.",
       "CONFIGURATION_ERROR",
       500
     );
   }
+  if (configuredSecret.length < MIN_JWT_SECRET_LENGTH) {
+    throw new RegistrationError(
+      "JWT_SECRET must be at least 32 characters.",
+      "CONFIGURATION_ERROR",
+      500
+    );
+  }
 
-  return new TextEncoder().encode(
-    configuredSecret 
-  );
+  return configuredSecret;
 }
 
-/**
- * A short-lived capability used only for the upload that immediately follows
- * successful OTP verification. This avoids depending on the new auth cookie
- * being observable by a second request in the same browser turn.
- */
-export async function issueRegistrationAttachmentToken(
-  user: AuthSessionUser
-): Promise<string> {
-  return new jose.SignJWT({
-    purpose: "registration-attachments",
-    role: user.role,
-    role_id: user.role_id,
-  })
-    .setProtectedHeader({ alg: "HS256" })
-    .setSubject(String(user.user_id))
-    .setIssuedAt()
-    .setExpirationTime("15m")
-    .sign(getJwtVerificationSecret());
+/** Key for access-session tokens only. Other purposes derive their own key. */
+export function getJwtVerificationSecret(): Uint8Array {
+  return new TextEncoder().encode(requireJwtSecret());
 }
 
 /**
@@ -66,20 +64,20 @@ export function resolveRoleDestination(
   const id = Number(roleId);
 
   if (id === 1 || normalizedRole === "FREELANCER") {
-    return "/vos-sync/freelancer/dashboard";
+    return "/linkbridge/freelancer/dashboard";
   }
   if (id === 2 || normalizedRole === "CLIENT" || normalizedRole === "EMPLOYER") {
-    return "/vos-sync/client/dashboard";
+    return "/linkbridge/client/dashboard";
   }
   if (id === 3 || normalizedRole === "ADMIN") {
-    return "/vos-sync/vos-admin";
+    return "/linkbridge/admin";
   }
   if (
     id === 4 ||
     normalizedRole === "SCH_ADMIN" ||
     normalizedRole === "SCHOOL_ADMIN"
   ) {
-    return "/vos-sync/school-admin";
+    return "/linkbridge/school-admin";
   }
 
   return "/main-dashboard";
@@ -89,9 +87,10 @@ export function resolveRoleDestination(
  * Issues an authenticated JWT session consistent with login
  */
 export async function issueAuthSession(
-  user: AuthSessionUser
+  user: AuthSessionUser,
+  options?: { allowContainment?: boolean }
 ): Promise<SessionTokenResult> {
-  if (!canAuthenticate(user)) {
+  if (!options?.allowContainment && !canAuthenticate(user)) {
     throw new RegistrationError(
       "Account is not active or verified.",
       "REGISTRATION_RESTRICTED",

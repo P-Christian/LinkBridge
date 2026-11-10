@@ -1,6 +1,13 @@
-import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { NextRequest } from "next/server";
+import { json } from "@/lib/server/route";
+import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import {
+  MESSAGING_ATTACHMENT_UPLOAD_POLICY,
+  getUploadedFile,
+  validateUploadedFile,
+} from "@/lib/file-upload";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -10,65 +17,34 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
 
-const ALLOWED_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "text/plain",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "application/zip",
-  "application/x-zip-compressed",
-]);
-
-const FORBIDDEN_EXTENSIONS = /\.(svg|html?|xhtml|php\d*|phtml|exe|bat|cmd|sh|ps1|vbs|js|mjs|ts|jsx|tsx|jar|apk)$/i;
-
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
     if (!session) {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+      return json({ error: "Unauthorized." }, 401);
+    }
+    // Parity with /api/client/messaging/upload: this endpoint stores a file and
+    // hands back a path that becomes an attachment row, so it belongs to the
+    // portal that can actually send one.
+    if (!isFreelancerSession(session)) {
+      return json(
+        { error: "Freelancer account required." }, 403);
     }
 
     if (!DIRECTUS_BASE) {
-      return NextResponse.json(
-        { error: "Directus base URL not configured." },
-        { status: 500 }
-      );
+      return json(
+        { error: "Directus base URL not configured." }, 500);
     }
 
     const formData = await req.formData();
-    const file = formData.get("file") as File | null;
 
-    if (!file) {
-      return NextResponse.json(
-        { error: "No file provided." },
-        { status: 400 }
-      );
-    }
-
-    // Validate MIME type and file extension
-    const mimeType = (file.type || "").toLowerCase().trim();
-    if (!ALLOWED_MIME_TYPES.has(mimeType) || FORBIDDEN_EXTENSIONS.test(file.name)) {
-      return NextResponse.json(
-        {
-          error:
-            "File type not supported. Allowed formats: images (JPEG, PNG, WebP, GIF), documents (PDF, Word, Excel, text), and ZIP archives.",
-        },
-        { status: 415 }
-      );
-    }
-
-    const MAX_SIZE = 10 * 1024 * 1024;
-    if (file.size > MAX_SIZE) {
-      return NextResponse.json(
-        { error: "File size exceeds 10MB limit." },
-        { status: 413 }
-      );
+    let file: File;
+    try {
+      file = getUploadedFile(formData);
+      await validateUploadedFile(file, MESSAGING_ATTACHMENT_UPLOAD_POLICY);
+    } catch (error: unknown) {
+      return json(
+        { error: error instanceof Error ? error.message : "Invalid file." }, 400);
     }
 
     const uploadForm = new FormData();
@@ -88,10 +64,8 @@ export async function POST(req: NextRequest) {
     if (!uploadRes.ok) {
       const text = await uploadRes.text();
       console.error("Directus file upload error:", text);
-      return NextResponse.json(
-        { error: "Failed to upload file." },
-        { status: uploadRes.status }
-      );
+      return json(
+        { error: "Failed to upload file." }, uploadRes.status);
     }
 
     const uploadJson = await uploadRes.json();
@@ -99,7 +73,7 @@ export async function POST(req: NextRequest) {
 
     const fileUrl = `/api/assets/${fileData.id}`;
 
-    return NextResponse.json({
+    return json({
       file_id: fileData.id,
       file_name: fileData.filename_download || file.name,
       file_path: fileUrl,
@@ -108,9 +82,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     console.error("POST /api/freelancer/messaging/upload error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

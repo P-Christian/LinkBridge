@@ -9,6 +9,7 @@ export interface UserIdentityRecord {
   provider_key: string;
   user_provider_key: string;
   provider_email: string;
+  provider_name?: string | null;
   email_verified: boolean;
   linked_at: string;
   last_login_at: string;
@@ -103,6 +104,7 @@ export async function linkUserIdentity(params: {
   provider: string;
   providerSubject: string;
   providerEmail: string;
+  providerName?: string | null;
 }): Promise<UserIdentityRecord> {
   const { baseUrl, token } = getDirectusConfig();
   const numUserId = Number(params.userId);
@@ -111,13 +113,17 @@ export async function linkUserIdentity(params: {
   const existing = await getUserIdentityByUserId(numUserId, params.provider);
 
   if (existing) {
-    const updatePayload = {
+    const updatePayload: Record<string, unknown> = {
       provider_subject: params.providerSubject,
       provider_key: `${params.provider}:${params.providerSubject}`,
       provider_email: params.providerEmail,
       email_verified: true,
       last_login_at: nowPH,
     };
+
+    if (params.providerName !== undefined) {
+      updatePayload.provider_name = params.providerName;
+    }
 
     const res = await fetch(`${baseUrl}/items/vs_user_identity/${existing.identity_id}`, {
       method: "PATCH",
@@ -138,7 +144,7 @@ export async function linkUserIdentity(params: {
   }
 
   const identityId = crypto.randomUUID();
-  const newRecord = {
+  const newRecord: Record<string, unknown> = {
     identity_id: identityId,
     user_id: numUserId,
     provider: params.provider,
@@ -146,6 +152,7 @@ export async function linkUserIdentity(params: {
     provider_key: `${params.provider}:${params.providerSubject}`,
     user_provider_key: `${numUserId}:${params.provider}`,
     provider_email: params.providerEmail,
+    provider_name: params.providerName ?? null,
     email_verified: true,
     linked_at: nowPH,
     last_login_at: nowPH,

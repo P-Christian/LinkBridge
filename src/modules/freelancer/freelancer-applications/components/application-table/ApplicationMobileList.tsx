@@ -14,7 +14,7 @@ import type { ApplicationItem } from "../../types";
 import { ApplicationStatusBadge } from "./ApplicationStatusBadge";
 import { AssessmentActionItem } from "./AssessmentActionItem";
 import { AssessmentDueBadge } from "./AssessmentDueBadge";
-import { formatDate } from "./formatters";
+import { formatDate, formatJobType } from "./formatters";
 
 interface Props {
   applications: ApplicationItem[];
@@ -70,7 +70,7 @@ export function ApplicationMobileList({
             <div className="min-w-0 flex-1">
               <h3 className="text-base font-semibold text-foreground">{app.job_title ?? "—"}</h3>
               <p className="text-sm text-muted-foreground mt-0.5 break-words">
-                {[app.job_type, app.job_location].filter(Boolean).join(" • ")}
+                {[formatJobType(app.job_type), app.job_location].filter(Boolean).join(" • ")}
               </p>
               <p className="text-sm text-muted-foreground mt-0.5 break-words">
                 {app.company_name ?? "—"}

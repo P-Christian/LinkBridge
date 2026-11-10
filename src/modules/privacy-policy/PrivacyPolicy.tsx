@@ -1,9 +1,12 @@
+"use client";
+
 import { Shield, Clock, ArrowLeft, Mail, Globe, Lock } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SlideUp, StaggerContainer, StaggerChild } from "@/components/shared/MotionContainer";
+import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
 
 const SECTIONS = [
   { id: "collection", title: "1. Information We Collect" },
@@ -17,6 +20,12 @@ const SECTIONS = [
 ];
 
 export default function PrivacyPolicy() {
+  const { company } = usePrimaryPlatformCompany();
+  const brandName = company?.company_name || "LinkBridge";
+  const contactEmail = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
+  const addressParts = [company?.company_city, company?.company_province, company?.company_country].filter(Boolean).join(", ");
+  const complianceOffice = `${brandName} Legal Compliance Team${addressParts ? `, ${addressParts}` : ", Philippines"}`;
+
   return (
     <div className="bg-background text-foreground font-sans max-md:pt-2 md:pt-16">
       {/* HERO */}
@@ -48,7 +57,7 @@ export default function PrivacyPolicy() {
             </StaggerChild>
             <StaggerChild>
               <p className="text-lg text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                At Vos Sync, we are committed to protecting your privacy. This policy describes how we collect, use, process, and share your personal data when you use our platform.
+                At {brandName}, we are committed to protecting your privacy. This policy describes how we collect, use, process, and share your personal data when you use our platform.
               </p>
             </StaggerChild>
           </StaggerContainer>
@@ -132,7 +141,7 @@ export default function PrivacyPolicy() {
               <div id="retention" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Data Retention & Deletion</h2>
                 <p>
-                  We retain personal data for as long as your account is active or needed to provide services. You can delete or deactivate your account at any time in your Settings panel. 
+                  We retain personal data for as long as your account is active or needed to provide services. You can delete or deactivate your account at any time in your Settings panel.
                 </p>
                 <p>
                   Once requested, your account profile materials are permanently purged from our primary databases within 30 days, unless required to be kept for legal compliance.
@@ -193,12 +202,14 @@ export default function PrivacyPolicy() {
                 </p>
                 <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-6 space-y-3">
                   <div className="flex items-center gap-3">
-                    <Mail className="w-5 h-5 text-zinc-500" />
-                    <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">vertextechcorpofficial@gmail.com</span>
+                    <Mail className="w-5 h-5 text-zinc-500 shrink-0" />
+                    <a href={`mailto:${contactEmail}`} className="text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:text-primary transition-colors">
+                      {contactEmail}
+                    </a>
                   </div>
                   <div className="flex items-center gap-3">
-                    <Globe className="w-5 h-5 text-zinc-500" />
-                    <span className="text-sm text-zinc-500 dark:text-zinc-400">Vos Sync Legal Compliance Team, Manila, Philippines</span>
+                    <Globe className="w-5 h-5 text-zinc-500 shrink-0" />
+                    <span className="text-sm text-zinc-500 dark:text-zinc-400">{complianceOffice}</span>
                   </div>
                 </div>
               </div>

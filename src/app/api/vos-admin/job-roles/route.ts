@@ -1,6 +1,8 @@
 // src/app/api/vos-admin/job-roles/route.ts
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,27 +16,40 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
-export async function GET() {
+/**
+ * A count that could not be read must not answer `0`. These five figures are
+ * rendered as the size of the taxonomy, so a Directus outage looked exactly like
+ * an administrator having emptied it.
+ */
+async function readCount(collection: string, countKey: string, extra = ""): Promise<number> {
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/${collection}?aggregate[count]=${countKey}${extra}`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!res.ok) throw new Error(`${collection} count could not be read (${res.status}).`);
+  const json = await res.json();
+  return Number(json?.data?.[0]?.count?.[countKey] ?? 0);
+}
+
+export async function GET(req: NextRequest) {
   try {
-    const [catRes, rolesRes, aliasesRes, skillsRes, pendingRes] = await Promise.all([
-      fetch(`${DIRECTUS_BASE}/items/vs_role_category?aggregate[count]=category_id`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_title?aggregate[count]=role_id`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_title_alias?aggregate[count]=alias_id`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_skill_mapping?aggregate[count]=id`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_category_suggestion?aggregate[count]=suggestion_id&filter[status][_eq]=PENDING`, { headers: getHeaders(), cache: "no-store" }),
+    if (!(await requireAdministrator(req))) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const [
+      totalCategories,
+      totalStandardRoles,
+      totalSearchKeywords,
+      totalRoleSkills,
+      pendingRequests,
+    ] = await Promise.all([
+      readCount("vs_role_category", "category_id"),
+      readCount("vs_role_title", "role_id"),
+      readCount("vs_role_title_alias", "alias_id"),
+      readCount("vs_role_skill_mapping", "id"),
+      readCount("vs_role_category_suggestion", "suggestion_id", "&filter[status][_eq]=PENDING"),
     ]);
-
-    const catJson = catRes.ok ? await catRes.json() : {};
-    const rolesJson = rolesRes.ok ? await rolesRes.json() : {};
-    const aliasesJson = aliasesRes.ok ? await aliasesRes.json() : {};
-    const skillsJson = skillsRes.ok ? await skillsRes.json() : {};
-    const pendingJson = pendingRes.ok ? await pendingRes.json() : {};
-
-    const totalCategories = Number(catJson.data?.[0]?.count?.category_id ?? 0);
-    const totalStandardRoles = Number(rolesJson.data?.[0]?.count?.role_id ?? 0);
-    const totalSearchKeywords = Number(aliasesJson.data?.[0]?.count?.alias_id ?? 0);
-    const totalRoleSkills = Number(skillsJson.data?.[0]?.count?.id ?? 0);
-    const pendingRequests = Number(pendingJson.data?.[0]?.count?.suggestion_id ?? 0);
 
     return NextResponse.json({
       totalCategories,
@@ -45,6 +60,6 @@ export async function GET() {
       lastUpdated: new Date().toISOString(),
     });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Failed to fetch dashboard metrics." }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Failed to fetch dashboard metrics.") }, { status: 500 });
   }
 }

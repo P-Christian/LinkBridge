@@ -13,6 +13,10 @@ interface NotificationListProps {
   notifications: Notification[];
   loading: boolean;
   onMarkRead: (id: number) => void;
+  onToggleRead?: (id: number, currentReadStatus: boolean) => void;
+  onToggleStar?: (id: number, currentStarredStatus: boolean) => void;
+  selectedIds?: Set<number>;
+  onToggleSelect?: (id: number) => void;
   isFiltered?: boolean;
   onClearFilters?: () => void;
   /** Changes whenever the active filters change; resets "show more" back to one page */
@@ -99,6 +103,10 @@ export default function NotificationList({
   notifications,
   loading,
   onMarkRead,
+  onToggleRead,
+  onToggleStar,
+  selectedIds,
+  onToggleSelect,
   isFiltered = false,
   onClearFilters,
   resetKey = "",
@@ -212,7 +220,14 @@ export default function NotificationList({
                   {...rowMotion(index)}
                   className="border-b border-border/40"
                 >
-                  <NotificationItem notification={row.notification} onMarkRead={onMarkRead} />
+                  <NotificationItem
+                    notification={row.notification}
+                    onMarkRead={onMarkRead}
+                    onToggleRead={onToggleRead}
+                    onToggleStar={onToggleStar}
+                    isSelected={selectedIds?.has(row.notification.notification_id)}
+                    onToggleSelect={onToggleSelect}
+                  />
                 </motion.div>
               )
             )

@@ -13,6 +13,7 @@ export function PopupCallbackContent() {
     const redirectUrl = searchParams.get("redirectUrl") || "";
     const error = searchParams.get("error") || "";
     const notice = searchParams.get("notice") || "";
+    const email = searchParams.get("email") || "";
 
     // If opened inside a popup with an active opener
     if (window.opener && window.opener !== window) {
@@ -25,6 +26,7 @@ export function PopupCallbackContent() {
           redirectUrl,
           error,
           notice,
+          email,
         },
         window.location.origin
       );

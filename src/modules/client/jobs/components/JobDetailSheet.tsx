@@ -52,11 +52,12 @@ import { sanitizeHtml } from "@/lib/sanitize-html";
 import { cn } from "@/lib/utils";
 import {
   applicantsHref,
+  companyHeadquarters,
   formatPosted,
   formatSalary,
   getJobMeta,
   getStatusStyle,
-  shortLocation,
+  pluralizeApplicants,
   JOB_STATUSES,
 } from "../job-helpers";
 import ConfirmCloseJobDialog from "./ConfirmCloseJobDialog";
@@ -94,13 +95,23 @@ function InfoRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function Chip({ icon: Icon, children, title }: { icon: React.ComponentType<{ className?: string }>; children: React.ReactNode; title?: string }) {
+function Chip({
+  icon: Icon,
+  children,
+  title,
+  iconClass,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  children: React.ReactNode;
+  title?: string;
+  iconClass?: string;
+}) {
   return (
     <span
       title={title}
       className="inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-xs text-muted-foreground"
     >
-      <Icon className="h-3 w-3 shrink-0" /> {children}
+      <Icon className={cn("h-3 w-3 shrink-0", iconClass ?? "text-muted-foreground")} /> {children}
     </span>
   );
 }
@@ -211,24 +222,50 @@ function renderFormattedContent(text: string | null | undefined) {
 }
 
 function CompanyDetails({ job }: { job: PublicJobPosting }) {
-  const address =
-    [job.company_address, job.company_city, job.company_province].filter(Boolean).join(", ") ||
-    job.job_location;
+  const hqAddress = companyHeadquarters(
+    job.company_address ?? job.company?.company_address,
+    job.company_city ?? job.company?.company_city,
+    job.company_province ?? job.company?.company_province
+  );
 
   const socials = [
-    { href: job.company_facebook, label: "Facebook", Icon: Facebook },
-    { href: job.company_instagram, label: "Instagram", Icon: Instagram },
-    { href: job.company_x, label: "X (Twitter)", Icon: Twitter },
-    { href: job.company_youtube, label: "YouTube", Icon: Youtube },
+    {
+      href: job.company_facebook,
+      label: "Facebook",
+      Icon: Facebook,
+      tone: "text-[#1877F2] bg-[#1877F2]/10 hover:bg-[#1877F2]/20",
+    },
+    {
+      href: job.company_instagram,
+      label: "Instagram",
+      Icon: Instagram,
+      tone: "text-[#E1306C] bg-[#E1306C]/10 hover:bg-[#E1306C]/20",
+    },
+    {
+      href: job.company_x,
+      label: "X (Twitter)",
+      Icon: Twitter,
+      tone: "text-[#1DA1F2] bg-[#1DA1F2]/10 hover:bg-[#1DA1F2]/20",
+    },
+    {
+      href: job.company_youtube,
+      label: "YouTube",
+      Icon: Youtube,
+      tone: "text-[#FF0000] bg-[#FF0000]/10 hover:bg-[#FF0000]/20",
+    },
   ].filter((s) => !!s.href);
 
   return (
     <dl className="space-y-4">
-      <InfoRow label="Location">
-        <span className="flex items-start gap-1.5">
-          <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span>{address}</span>
-        </span>
+      <InfoRow label="Company headquarters">
+        {hqAddress ? (
+          <span className="flex items-start gap-1.5">
+            <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-500" />
+            <span>{hqAddress}</span>
+          </span>
+        ) : (
+          <span className="text-muted-foreground italic">Not provided</span>
+        )}
       </InfoRow>
 
       {job.company_email && (
@@ -238,7 +275,7 @@ function CompanyDetails({ job }: { job: PublicJobPosting }) {
             className="flex items-center gap-1.5 hover:underline"
             title={job.company_email}
           >
-            <Mail className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Mail className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
             <span className="truncate">{job.company_email}</span>
           </a>
         </InfoRow>
@@ -247,7 +284,7 @@ function CompanyDetails({ job }: { job: PublicJobPosting }) {
       {job.company_contact && (
         <InfoRow label="Company contact">
           <a href={`tel:${job.company_contact}`} className="flex items-center gap-1.5 hover:underline">
-            <Phone className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+            <Phone className="h-3.5 w-3.5 shrink-0 text-violet-500" />
             {job.company_contact}
           </a>
         </InfoRow>
@@ -256,7 +293,7 @@ function CompanyDetails({ job }: { job: PublicJobPosting }) {
       {socials.length > 0 && (
         <InfoRow label="Social media">
           <div className="flex flex-wrap gap-2 pt-1">
-            {socials.map(({ href, label, Icon }) => (
+            {socials.map(({ href, label, Icon, tone }) => (
               <a
                 key={label}
                 href={href as string}
@@ -264,7 +301,10 @@ function CompanyDetails({ job }: { job: PublicJobPosting }) {
                 rel="noopener noreferrer"
                 aria-label={label}
                 title={label}
-                className="flex items-center justify-center rounded-lg bg-muted p-1.5 text-muted-foreground transition-colors hover:bg-muted/80 hover:text-foreground max-md:size-10 max-md:p-0"
+                className={cn(
+                  "flex items-center justify-center rounded-lg p-1.5 transition-colors max-md:size-10 max-md:p-0",
+                  tone
+                )}
               >
                 <Icon className="h-4 w-4" />
               </a>
@@ -284,7 +324,6 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
   // Owners get management controls; candidates browsing the same sheet don't.
   const isOwner = !!(onEdit || onStatusChange);
   const meta = getJobMeta(job);
-  const status = getStatusStyle(job.status);
   const posted = formatPosted(meta.postedAt);
 
   const descData = parseJsonField(job.job_description);
@@ -297,9 +336,33 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
   const arrangement = (descData.extra.work_arrangement as string) || job.work_arrangement || "Remote";
   const openings = (descData.extra.number_of_openings as string) || job.number_of_openings || "1";
   const education = (reqsData.extra.education as string) || job.education || "";
+  const department = job.job_department || "";
+  const category = job.job_category || "";
   const skills = (reqsData.extra.skills as JobSkill[]) || job.skills || [];
   const benefits = (reqsData.extra.benefits as string[]) || job.benefits || [];
   const screeningQuestions = (reqsData.extra.screening_questions as string[]) || job.screening_questions || [];
+
+  const totalApplicants = meta.applicantCount;
+  const activeApplicants = meta.activeApplicantCount ?? totalApplicants;
+  // null means the count was never resolved, so keep the link available.
+  const hasApplicants = (totalApplicants ?? 1) > 0;
+
+  const applicantsButtonInner = (
+    <>
+      <Users className="h-3.5 w-3.5" />
+      View applicants
+      <span
+        className={cn(
+          "rounded-full px-1.5 py-0.2 text-[10px] font-bold",
+          (activeApplicants ?? 0) > 0
+            ? "bg-amber-300 text-amber-950"
+            : "bg-primary-foreground/20 text-primary-foreground"
+        )}
+      >
+        {activeApplicants ?? 0}
+      </span>
+    </>
+  );
 
   const handleStatus = (value: string) => {
     const next = value as JobStatus;
@@ -308,11 +371,6 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
     if (value === "CLOSED") setConfirmClose(true);
     else onStatusChange?.(job.job_id, next);
   };
-
-  const applicantLabel =
-    meta.applicantCount === null
-      ? "View applicants"
-      : `${meta.applicantCount} ${meta.applicantCount === 1 ? "applicant" : "applicants"}`;
 
   return (
     <>
@@ -402,30 +460,55 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                   </Button>
                 )}
 
-                {isOwner && (
-                  <Button
-                    asChild
-                    size="sm"
-                    className="h-9 gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 max-md:min-h-10"
-                  >
-                    <Link href={applicantsHref(job.job_id)}>
-                      <Users className="h-3.5 w-3.5" />
-                      {applicantLabel}
-                    </Link>
-                  </Button>
-                )}
+                {isOwner &&
+                  (hasApplicants ? (
+                    <Button
+                      asChild
+                      size="sm"
+                      title={
+                        totalApplicants === null
+                          ? undefined
+                          : `${pluralizeApplicants(totalApplicants)} total, ${activeApplicants} in the pipeline`
+                      }
+                      className="h-9 gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground hover:bg-primary/90 max-md:min-h-10"
+                    >
+                      <Link href={applicantsHref(job.job_id)}>{applicantsButtonInner}</Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled
+                      title="No applicants yet for this posting"
+                      className="h-9 gap-1.5 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground max-md:min-h-10 disabled:pointer-events-auto"
+                    >
+                      {applicantsButtonInner}
+                    </Button>
+                  ))}
               </div>
             </div>
 
             {/* Quick meta */}
             <div className="mt-3 flex flex-wrap gap-2">
-              <Chip icon={MapPin} title={job.job_location}>
-                {shortLocation(job.job_location) || job.job_location}
+              <Chip icon={MapPin} title={job.job_location} iconClass="text-rose-500">
+                {job.job_location || "Location undisclosed"}
               </Chip>
-              <Chip icon={Briefcase}>{JOB_TYPE_LABELS[job.job_type] ?? job.job_type}</Chip>
-              <Chip icon={Building2}>{arrangement}</Chip>
-              {Number(openings) > 1 && <Chip icon={Users}>{openings} openings</Chip>}
-              {posted && <Chip icon={Clock}>{posted}</Chip>}
+              <Chip icon={Briefcase} iconClass="text-sky-500">
+                {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
+              </Chip>
+              <Chip icon={Building2} iconClass="text-violet-500">
+                {arrangement}
+              </Chip>
+              {!isOwner && Number(openings) > 1 && (
+                <Chip icon={Users} iconClass="text-amber-500">
+                  {openings} openings
+                </Chip>
+              )}
+              {posted && (
+                <Chip icon={Clock} iconClass="text-teal-500">
+                  {posted}
+                </Chip>
+              )}
             </div>
           </SheetHeader>
 
@@ -437,7 +520,7 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                 <div className="grid grid-cols-2 gap-3">
                   <div className="rounded-xl border bg-muted/40 p-3">
                     <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                      <DollarSign className="h-3.5 w-3.5" /> Salary
+                      <DollarSign className="h-3.5 w-3.5 text-emerald-500" /> Salary
                     </div>
                     <p className="text-sm font-semibold text-foreground">{formatSalary(job)}</p>
                     {/* "Negotiable" + "Salary Range" read as contradictory, so only show the type for real amounts */}
@@ -448,7 +531,7 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                   {job.experience_level && (
                     <div className="rounded-xl border bg-muted/40 p-3">
                       <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                        <Layers className="h-3.5 w-3.5" /> Experience
+                        <Layers className="h-3.5 w-3.5 text-sky-500" /> Experience
                       </div>
                       <p className="text-sm font-semibold text-foreground">
                         {EXPERIENCE_LEVEL_LABELS[job.experience_level] ?? job.experience_level}
@@ -458,7 +541,7 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                   {education && (
                     <div className="col-span-2 rounded-xl border bg-muted/40 p-3">
                       <div className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                        <GraduationCap className="h-3.5 w-3.5" /> Education
+                        <GraduationCap className="h-3.5 w-3.5 text-violet-500" /> Education
                       </div>
                       <p className="text-sm text-foreground">{education}</p>
                     </div>
@@ -489,7 +572,11 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                     <Section title="Required skills">
                       <div className="flex flex-wrap gap-1.5">
                         {skills.map((s) => (
-                          <Badge key={s.id} variant="secondary" className="rounded-full px-2.5 py-0.5 text-xs font-normal">
+                          <Badge
+                            key={s.id}
+                            variant="secondary"
+                            className="rounded-full px-2.5 py-1 text-xs font-normal whitespace-normal break-words max-w-full text-left leading-snug h-auto"
+                          >
                             {s.skill_name}
                           </Badge>
                         ))}
@@ -526,7 +613,7 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
                             key={i}
                             className="flex items-start gap-2 rounded-lg bg-muted/40 p-2 text-sm text-foreground/80"
                           >
-                            <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                            <HelpCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                             <span>{q}</span>
                           </li>
                         ))}
@@ -550,23 +637,25 @@ export function JobDetailSheet({ job, open, onClose, onEdit, onStatusChange }: P
               <aside className="space-y-6 border-t border-border/80 pt-5 md:col-span-1 md:border-l md:border-t-0 md:pl-5 md:pt-0">
                 {isOwner && (
                   <div className="space-y-3">
-                    <h3 className="text-sm font-semibold text-foreground">Overview</h3>
+                    <h3 className="text-sm font-semibold text-foreground">Role details</h3>
                     <dl className="space-y-3">
-                      <InfoRow label="Status">
-                        <span className="flex items-center gap-2">
-                          <span className={cn("h-2 w-2 rounded-full", status.dot)} aria-hidden />
-                          {status.label}
-                        </span>
-                      </InfoRow>
-                      <InfoRow label="Applicants">
-                        <Link href={applicantsHref(job.job_id)} className="text-primary hover:underline">
-                          {meta.applicantCount === null
-                            ? "View applicants"
-                            : `${meta.applicantCount} ${meta.applicantCount === 1 ? "applicant" : "applicants"}`}
-                        </Link>
-                      </InfoRow>
-                      {posted && <InfoRow label="Posted">{posted.replace(/^Posted /, "")}</InfoRow>}
+                      {department && (
+                        <InfoRow label="Department">{department}</InfoRow>
+                      )}
+                      {category && (
+                        <InfoRow label="Job category">{category}</InfoRow>
+                      )}
                       <InfoRow label="Openings">{openings}</InfoRow>
+                      {totalApplicants !== null && (
+                        <InfoRow label="Applicants">
+                          {pluralizeApplicants(totalApplicants)}
+                          {activeApplicants !== totalApplicants && (
+                            <span className="text-muted-foreground">
+                              {" "}· {activeApplicants} in the pipeline
+                            </span>
+                          )}
+                        </InfoRow>
+                      )}
                     </dl>
                     <Separator />
                   </div>

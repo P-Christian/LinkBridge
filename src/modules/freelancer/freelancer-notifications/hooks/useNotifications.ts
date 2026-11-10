@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import { FreelancerNotification, FreelancerNotificationPreference } from "../types";
 
 export function useNotifications() {
   const [notifications, setNotifications] = useState<FreelancerNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState("");
 
   // Preferences & Quiet Hours State
   const [preferences, setPreferences] = useState<FreelancerNotificationPreference[]>([]);
@@ -20,7 +20,6 @@ export function useNotifications() {
 
   const fetchNotifications = useCallback(async (opts?: { unread_only?: boolean }) => {
     setIsLoading(true);
-    setError("");
     try {
       const query = new URLSearchParams();
       if (opts?.unread_only) query.set("unread_only", "true");
@@ -34,7 +33,7 @@ export function useNotifications() {
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+      toast.error(err instanceof Error ? err.message : "An error occurred");
     } finally {
       setIsLoading(false);
     }
@@ -97,7 +96,6 @@ export function useNotifications() {
     setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
     setUnreadCount(0);
     setSaving(true);
-    setError("");
 
     try {
       const res = await fetch("/api/freelancer/notifications", {
@@ -111,7 +109,11 @@ export function useNotifications() {
       }
       return true;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to mark all notifications as read.");
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to mark all notifications as read."
+      );
       // Rollback unread count
       fetchNotifications();
       return false;
@@ -184,7 +186,6 @@ export function useNotifications() {
     notifications,
     unreadCount,
     isLoading,
-    error,
     fetchNotifications,
     markAsRead,
     toggleStar,

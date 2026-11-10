@@ -19,5 +19,6 @@ export * from "./retrieval/tokenMatcher";
 export * from "./retrieval/schoolMatcher";
 export * from "./retrieval/nameMatcher";
 export * from "./retrieval/candidateRetriever";
+export * from "./taxonomy";
 
 export * from "./engine/matcher";

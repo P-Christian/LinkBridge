@@ -7,7 +7,8 @@ import {
   CompanyVerificationFilters,
   CompanyVerificationTable,
   CompanyVerificationDetailModal,
-  RejectionReasonModal,
+  RevisionRequestModal,
+  ApproveConfirmationModal,
 } from "./components";
 import { Building2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,8 +17,8 @@ import { motion } from "framer-motion";
 export function CompanyVerificationModule() {
   const {
     records,
+    allRecords,
     loading,
-    error,
     kpiData,
     statusFilter,
     setStatusFilter,
@@ -25,43 +26,25 @@ export function CompanyVerificationModule() {
     setSearchQuery,
     selectedCompany,
     isDetailModalOpen,
-    isRejectionModalOpen,
+    isRevisionModalOpen,
     isSubmitting,
     openDetailModal,
     closeDetailModal,
-    openRejectionModal,
-    closeRejectionModal,
+    openRevisionModal,
+    closeRevisionModal,
     handleDecision,
     refetch,
   } = useCompanyVerification();
 
-  const [modalMode, setModalMode] = useState<"reject" | "request_correction">("reject");
+  const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
 
-  const handleApproveAction = (company: typeof selectedCompany) => {
-    if (!company) return;
-    if (confirm(`Are you sure you want to APPROVE verification for ${company.company_name}?`)) {
-      handleDecision("approve");
-    }
+  const handleConfirmApprove = async () => {
+    setIsApproveModalOpen(false);
+    await handleDecision("approve");
   };
 
-  const handleOpenRejection = (company: typeof selectedCompany) => {
-    if (!company) return;
-    setModalMode("reject");
-    openRejectionModal(company);
-  };
-
-  const handleOpenCorrection = (company: typeof selectedCompany) => {
-    if (!company) return;
-    setModalMode("request_correction");
-    openRejectionModal(company);
-  };
-
-  const handleConfirmRejectionModal = async (
-    action: "reject" | "request_correction",
-    reason: string,
-    internalNotes: string
-  ) => {
-    await handleDecision(action, reason, internalNotes);
+  const handleConfirmRevision = async (reason: string, internalNotes: string) => {
+    await handleDecision("request_revision", reason, internalNotes);
   };
 
   return (
@@ -101,15 +84,10 @@ export function CompanyVerificationModule() {
       </div>
 
       {/* Error alert banner */}
-      {error && (
-        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium mb-4">
-          {error}
-        </div>
-      )}
-
       {/* KPI Stat Cards */}
       <CompanyVerificationKpis
         kpis={kpiData}
+        loading={loading && allRecords.length === 0}
         currentFilter={statusFilter}
         onFilterSelect={(status) => setStatusFilter(status)}
       />
@@ -134,19 +112,26 @@ export function CompanyVerificationModule() {
         isOpen={isDetailModalOpen}
         onClose={() => closeDetailModal()}
         company={selectedCompany}
-        onApprove={(c) => handleApproveAction(c)}
-        onRequestCorrection={(c) => handleOpenCorrection(c)}
-        onReject={(c) => handleOpenRejection(c)}
+        onApprove={() => setIsApproveModalOpen(true)}
+        onRequestRevision={(c) => openRevisionModal(c)}
         isSubmitting={isSubmitting}
       />
 
-      {/* Rejection / Correction Modal */}
-      <RejectionReasonModal
-        isOpen={isRejectionModalOpen}
-        onClose={() => closeRejectionModal()}
+      {/* Approve Confirmation Modal */}
+      <ApproveConfirmationModal
+        isOpen={isApproveModalOpen}
+        onClose={() => setIsApproveModalOpen(false)}
+        companyName={selectedCompany?.company_name}
+        onConfirm={handleConfirmApprove}
+        isSubmitting={isSubmitting}
+      />
+
+      {/* Revision Request Modal */}
+      <RevisionRequestModal
+        isOpen={isRevisionModalOpen}
+        onClose={() => closeRevisionModal()}
         company={selectedCompany}
-        mode={modalMode}
-        onConfirm={handleConfirmRejectionModal}
+        onConfirm={handleConfirmRevision}
         isSubmitting={isSubmitting}
       />
     </motion.div>

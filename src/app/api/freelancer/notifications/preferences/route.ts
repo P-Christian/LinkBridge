@@ -1,6 +1,7 @@
 // src/app/api/freelancer/notifications/preferences/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,10 +20,13 @@ function getHeaders(): Record<string, string> {
 
 // Canonical categories for freelancers
 const KNOWN_FREELANCER_CATEGORIES = [
+  { category: "APPLICATION_SUBMITTED", defaultEmail: true, defaultInApp: true },
+  { category: "APPLICATION_STATUS_UPDATED", defaultEmail: true, defaultInApp: true },
   { category: "Application Updates", defaultEmail: true, defaultInApp: true },
   { category: "INTERVIEW", defaultEmail: true, defaultInApp: true },
   { category: "Referral Updates", defaultEmail: true, defaultInApp: true },
   { category: "Profile Activity", defaultEmail: false, defaultInApp: true },
+  { category: "EDUCATION_VERIFICATION", defaultEmail: false, defaultInApp: true },
   { category: "MESSAGE_RECEIVED", defaultEmail: true, defaultInApp: true },
   { category: "UNREAD_MESSAGE_REMINDER", defaultEmail: true, defaultInApp: true },
   { category: "PRODUCT_UPDATES", defaultEmail: false, defaultInApp: true },
@@ -42,7 +46,7 @@ export async function GET(req: NextRequest) {
     const userId = Number(session.userId);
 
     const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&fields=preference_id,user_id,category,email_enabled,in_app_enabled,quiet_hours_start,quiet_hours_end,timezone,updated_at&limit=100`,
+      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&fields=preference_id,user_id,category,email_enabled,in_app_enabled,quiet_hours_start,quiet_hours_end,timezone,updated_at&sort[]=-updated_at&sort[]=-preference_id&limit=100`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -64,7 +68,9 @@ export async function GET(req: NextRequest) {
 
     rawPrefs.forEach((p) => {
       const cat = String(p.category ?? "");
-      if (cat) {
+      // Newest row wins (see the sort above), so a duplicate left behind by an
+      // earlier failed PUT cannot show a toggle the panel then writes elsewhere.
+      if (cat && !existingMap.has(cat)) {
         existingMap.set(cat, {
           preference_id: Number(p.preference_id),
           email_enabled: p.email_enabled === 1 || p.email_enabled === true,
@@ -114,7 +120,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/notifications/preferences error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -204,9 +210,11 @@ export async function PUT(req: NextRequest) {
     const failed = results.filter((r) => r.status === "rejected");
     if (failed.length > 0) {
       console.error("[PREFERENCES PUT] Some updates failed:", failed);
+      // 500, not 207: fetch treats 207 as successful, so useNotifications read a
+      // partial save as "saved" and reloaded the unchanged rows.
       return NextResponse.json(
         { error: "Some preferences could not be saved. Please try again." },
-        { status: 207 }
+        { status: 500 }
       );
     }
 
@@ -214,7 +222,7 @@ export async function PUT(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PUT /api/freelancer/notifications/preferences error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

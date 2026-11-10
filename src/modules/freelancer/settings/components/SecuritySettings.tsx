@@ -23,6 +23,8 @@ import {
   Globe,
   LogOut,
   Laptop,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { toast } from "sonner";
 import { validatePasswordStrict } from "@/lib/password-validation";
@@ -55,6 +57,9 @@ export default function SecuritySettings({
     new_password: "",
     confirm_password: "",
   });
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [localError, setLocalError] = useState("");
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [dialogLoading, setDialogLoading] = useState(false);
@@ -218,45 +223,75 @@ export default function SecuritySettings({
               <Label htmlFor="curr-pass" className="text-sm md:text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <Lock className="h-3.5 w-3.5 text-muted-foreground" /> Current Password
               </Label>
-              <Input
-                id="curr-pass"
-                type="password"
-                value={form.current_password}
-                onChange={(e) => setForm((p) => ({ ...p, current_password: e.target.value }))}
-                placeholder="••••••••"
-                className="h-11 md:h-10 text-base md:text-sm rounded-xl"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="curr-pass"
+                  type={showCurrentPassword ? "text" : "password"}
+                  value={form.current_password}
+                  onChange={(e) => setForm((p) => ({ ...p, current_password: e.target.value }))}
+                  placeholder="••••••••"
+                  className="h-11 md:h-10 text-base md:text-sm rounded-xl pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowCurrentPassword((prev) => !prev)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                  aria-label={showCurrentPassword ? "Hide current password" : "Show current password"}
+                >
+                  {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="new-pass" className="text-sm md:text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5 text-muted-foreground" /> New Password
               </Label>
-              <Input
-                id="new-pass"
-                type="password"
-                value={form.new_password}
-                onChange={(e) => setForm((p) => ({ ...p, new_password: e.target.value }))}
-                placeholder="Min. 8 characters"
-                className="h-11 md:h-10 text-base md:text-sm rounded-xl"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="new-pass"
+                  type={showNewPassword ? "text" : "password"}
+                  value={form.new_password}
+                  onChange={(e) => setForm((p) => ({ ...p, new_password: e.target.value }))}
+                  placeholder="Min. 8 characters"
+                  className="h-11 md:h-10 text-base md:text-sm rounded-xl pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowNewPassword((prev) => !prev)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                  aria-label={showNewPassword ? "Hide new password" : "Show new password"}
+                >
+                  {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <div className="space-y-2">
               <Label htmlFor="conf-pass" className="text-sm md:text-xs font-semibold text-foreground flex items-center gap-1.5">
                 <KeyRound className="h-3.5 w-3.5 text-muted-foreground" /> Confirm New Password
               </Label>
-              <Input
-                id="conf-pass"
-                type="password"
-                value={form.confirm_password}
-                onChange={(e) => setForm((p) => ({ ...p, confirm_password: e.target.value }))}
-                placeholder="Re-enter new password"
-                className="h-11 md:h-10 text-base md:text-sm rounded-xl"
-                required
-              />
+              <div className="relative">
+                <Input
+                  id="conf-pass"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={form.confirm_password}
+                  onChange={(e) => setForm((p) => ({ ...p, confirm_password: e.target.value }))}
+                  placeholder="Re-enter new password"
+                  className="h-11 md:h-10 text-base md:text-sm rounded-xl pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((prev) => !prev)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                >
+                  {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </div>
 
             <PasswordRequirementsChecklist password={form.new_password || ""} confirmPassword={form.confirm_password} />
@@ -370,7 +405,7 @@ export default function SecuritySettings({
       </div>
 
       <div className="max-w-2xl">
-        <ConnectedAccountsCard returnTo="/vos-sync/freelancer/settings" />
+        <ConnectedAccountsCard returnTo="/linkbridge/freelancer/settings" />
       </div>
 
       {/* Choice B Password Change Confirmation Dialog */}

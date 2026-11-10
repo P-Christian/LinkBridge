@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getMySchool } from "@/modules/school-admin/services/school-admin.service";
 import { authenticateCookieSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 async function getUserIdFromToken() {
   const session = await authenticateCookieSession();
@@ -22,7 +23,7 @@ export async function GET() {
     return NextResponse.json({ school });
   } catch (error: unknown) {
     console.error("GET /api/school-admin/me error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

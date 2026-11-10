@@ -1,8 +1,10 @@
 // src/app/api/messaging/system-card/route.ts
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { HiringViewerRole } from "@/modules/client/messaging/types";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { json, toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,6 +19,16 @@ function getHeaders(): Record<string, string> {
   };
   if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
   return h;
+}
+
+/**
+ * A Directus outage is not "this row was deleted". Answering 404 made the cards
+ * report a live application, interview or message as missing content.
+ */
+function upstreamFailure(res: Response, label: string): Response {
+  return res.status === 404
+    ? json({ error: `${label} not found.` }, 404)
+    : json({ error: `The ${label.toLowerCase()} could not be read.` }, 502);
 }
 
 function formatAvatarUrl(url?: string | null): string | null {
@@ -43,77 +55,293 @@ export async function GET(req: NextRequest) {
   try {
     // ── Auth ──────────────────────────────────────────────────────────────
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!session) {
+      return json({ error: "Unauthorized." }, 401);
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // ── Params ────────────────────────────────────────────────────────────
     const { searchParams } = new URL(req.url);
-    const messageId = searchParams.get("message_id");
+    const messageId = toId(searchParams.get("message_id"));
 
-    if (!messageId || isNaN(Number(messageId))) {
-      return NextResponse.json({ error: "message_id is required." }, { status: 400 });
+    if (messageId === null) {
+      return json({ error: "message_id is required." }, 400);
     }
 
     // ── Fetch message to get conversation_id ──────────────────────────────
     const msgRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_message/${messageId}?fields=message_id,conversation_id,message_type`,
+      `${DIRECTUS_BASE}/items/vs_message/${messageId}?fields=message_id,conversation_id,message_type,message_content,created_at`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
     if (!msgRes.ok) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return upstreamFailure(msgRes, "Message");
     }
 
     const msg = (await msgRes.json()).data;
     if (!msg?.conversation_id) {
-      return NextResponse.json({ error: "Message not found." }, { status: 404 });
+      return json({ error: "Message not found." }, 404);
     }
 
     // ── Verify user belongs to this conversation ──────────────────────────
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation/${msg.conversation_id}?fields=client_id,freelancer_id`,
+      // job_id is part of this read because the stage and interview cards below
+      // resolve the position title from it; omitting it made them fall back to
+      // "Position" for every card.
+      `${DIRECTUS_BASE}/items/vs_conversation/${msg.conversation_id}?fields=conversation_id,job_id,client_id,freelancer_id`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
     if (!convRes.ok) {
-      return NextResponse.json({ error: "Conversation not found." }, { status: 404 });
+      return upstreamFailure(convRes, "Conversation");
     }
 
     const conv = (await convRes.json()).data;
-    if (userId !== conv.client_id && userId !== conv.freelancer_id) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    // Compare numerically: Directus can answer these ids as strings, and a string
+    // here would 403 a participant out of their own conversation card.
+    const clientId = Number(conv?.client_id);
+    const freelancerId = Number(conv?.freelancer_id);
+    if (userId !== clientId && userId !== freelancerId) {
+      return json({ error: "Forbidden." }, 403);
     }
+    const viewerIsCandidate = userId === freelancerId;
 
     // ── Fetch vs_system_message row ───────────────────────────────────────
     const smRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_eq]=${messageId}&fields=system_message_id,event_type,application_id,interview_id&limit=1`,
+      `${DIRECTUS_BASE}/items/vs_system_message?filter[message_id][_eq]=${messageId}&fields=system_message_id,event_type,application_id,interview_id,stage_history_id&limit=1`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
     if (!smRes.ok) {
-      return NextResponse.json({ error: "System message data not found." }, { status: 404 });
+      return upstreamFailure(smRes, "System message data");
     }
 
     const smData = ((await smRes.json()).data ?? [])[0];
     if (!smData) {
-      return NextResponse.json({ error: "System message data not found." }, { status: 404 });
+      return json({ error: "System message data not found." }, 404);
     }
 
-    const { event_type, application_id, interview_id } = smData;
+    const { event_type, application_id, interview_id, stage_history_id } = smData;
+    const viewerRole: HiringViewerRole = viewerIsCandidate ? "FREELANCER" : "CLIENT";
 
     // ── Resolve card data by event type ───────────────────────────────────
 
-    // Application-based events
-    if (
-      event_type === "APPLICATION_SUBMITTED" ||
-      event_type === "APPLICATION_STATUS_CHANGED" ||
-      event_type === "HIRED"
-    ) {
+    // Stage transition events
+    if (event_type === "APPLICATION_STATUS_CHANGED" || event_type === "HIRED") {
+      let fromStageName: string | null = null;
+      let toStageName: string | null = null;
+      let fromStageType: string | null = null;
+      let toStageType: string | null = event_type === "HIRED" ? "HIRED" : null;
+      let stageCreatedAt: string | null = null;
+
+      // 1. Try to fetch from vs_application_stage_history via stage_history_id
+      if (stage_history_id) {
+        try {
+          const shRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_application_stage_history/${stage_history_id}?fields=*`,
+            { headers: getHeaders(), cache: "no-store" }
+          );
+          if (shRes.ok) {
+            const sh = (await shRes.json()).data;
+            const meta = typeof sh?.metadata === "string" ? JSON.parse(sh.metadata) : sh?.metadata;
+            fromStageName = meta?.from_stage_name ?? null;
+            toStageName = meta?.to_stage_name ?? null;
+            fromStageType = meta?.from_stage_type ?? null;
+            toStageType = meta?.to_stage_type ?? toStageType;
+            stageCreatedAt = sh?.created_at ?? null;
+          }
+        } catch {}
+      }
+
+      // 2. If no stage_history_id, try to find matching history row for this application
+      if (!toStageName && application_id) {
+        try {
+          const shListRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_application_stage_history?filter[application_id][_eq]=${application_id}&sort[]=-created_at&limit=10`,
+            { headers: getHeaders(), cache: "no-store" }
+          );
+          if (shListRes.ok) {
+            const shList = (await shListRes.json()).data ?? [];
+            const msgTime = msg.created_at ? new Date(msg.created_at).getTime() : 0;
+            let closest = shList[0];
+            let minDiff = Infinity;
+            for (const sh of shList) {
+              const diff = Math.abs((sh.created_at ? new Date(sh.created_at).getTime() : 0) - msgTime);
+              if (diff < minDiff) {
+                minDiff = diff;
+                closest = sh;
+              }
+            }
+            if (closest) {
+              const meta = typeof closest.metadata === "string" ? JSON.parse(closest.metadata) : closest.metadata;
+              fromStageName = meta?.from_stage_name ?? null;
+              toStageName = meta?.to_stage_name ?? null;
+              fromStageType = meta?.from_stage_type ?? null;
+              toStageType = meta?.to_stage_type ?? toStageType;
+              stageCreatedAt = closest.created_at ?? null;
+            }
+          }
+        } catch {}
+      }
+
+      // 3. Fallback: Parse message_content
+      if (!toStageName && msg.message_content) {
+        const arrowMatch = msg.message_content.match(
+          /(?:Stage updated:\s*)?(?:From\s+)?["']?([^"'\n➔\->]+)["']?\s*(?:➔|->)\s*["']?([^"'\n]+)["']?/i
+        );
+        if (arrowMatch) {
+          fromStageName = arrowMatch[1]?.trim() ?? null;
+          toStageName = arrowMatch[2]?.trim() ?? null;
+        } else {
+          const moveMatch = msg.message_content.match(/(?:Application moved to stage:\s*|Moved to\s+)(.+)/i);
+          if (moveMatch) {
+            toStageName = moveMatch[1]?.trim() ?? null;
+          } else if (event_type === "HIRED") {
+            toStageName = "Hired";
+            toStageType = "HIRED";
+          }
+        }
+      }
+
+      // Fetch job title for context
+      let jobTitle = "Position";
+      if (conv.job_id) {
+        try {
+          const jRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${conv.job_id}?fields=job_title`, {
+            headers: getHeaders(),
+            cache: "no-store",
+          });
+          if (jRes.ok) {
+            const jData = (await jRes.json()).data;
+            jobTitle = jData?.job_title ?? jobTitle;
+          }
+        } catch {}
+      }
+
+      // Fetch applicant details for role-aware display
+      let applicantName = "Candidate";
+      let applicationRecord: Record<string, unknown> | null = null;
+      if (application_id) {
+        try {
+          const aRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${application_id}?fields=application_id,user_id,current_stage_id,job_id`, {
+            headers: getHeaders(),
+            cache: "no-store",
+          });
+          if (aRes.ok) {
+            applicationRecord = (await aRes.json()).data ?? null;
+          }
+        } catch {}
+      }
+
+      const applicantUserId = applicationRecord?.user_id ?? conv.freelancer_id;
+      if (applicantUserId) {
+        try {
+          const uRes = await fetch(`${DIRECTUS_BASE}/items/vs_user/${applicantUserId}?fields=user_fname,user_lname`, {
+            headers: getHeaders(),
+            cache: "no-store",
+          });
+          if (uRes.ok) {
+            const uData = (await uRes.json()).data;
+            if (uData) {
+              applicantName = `${uData.user_fname ?? ""} ${uData.user_lname ?? ""}`.trim() || applicantName;
+            }
+          }
+        } catch {}
+      }
+
+      // Check if assessment tasks exist for the target stage
+      let hasAssessmentTasks = false;
+      const isAssessment =
+        toStageType === "ASSESSMENT" ||
+        (toStageName && toStageName.toLowerCase().includes("assessment"));
+
+      if (isAssessment) {
+        const stageId = applicationRecord?.current_stage_id;
+        if (stageId) {
+          try {
+            const taskRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_job_pipeline_assessment_tasks?filter[job_stage_id][_eq]=${stageId}&fields=id&limit=1`,
+              { headers: getHeaders(), cache: "no-store" }
+            );
+            if (taskRes.ok) {
+              const taskList = (await taskRes.json()).data ?? [];
+              hasAssessmentTasks = taskList.length > 0;
+            }
+          } catch {}
+        }
+      }
+
+      // Check if an active, upcoming interview is actually scheduled for this application
+      let hasScheduledInterview = false;
+      let scheduledInterviewId: number | null = null;
+      let scheduledAt: string | null = null;
+      let durationMinutes = 60;
+      let interviewStatus: string | null = null;
+
+      if (application_id) {
+        try {
+          const junctionRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_eq]=${application_id}&fields=interview_id&limit=20`,
+            { headers: getHeaders(), cache: "no-store" }
+          );
+          if (junctionRes.ok) {
+            const junctionList = (await junctionRes.json()).data ?? [];
+            const ivIds = junctionList.map((j: { interview_id: number }) => j.interview_id).filter(Boolean);
+            if (ivIds.length > 0) {
+              const ivRes = await fetch(
+                `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${ivIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id,scheduled_at,duration_minutes,interview_status&limit=10`,
+                { headers: getHeaders(), cache: "no-store" }
+              );
+              if (ivRes.ok) {
+                const ivList = (await ivRes.json()).data ?? [];
+                const now = Date.now();
+                // Find active upcoming interview that is not completed and not past the date
+                const upcoming = ivList.find((iv: { scheduled_at?: string | null; duration_minutes?: number | null }) => {
+                  if (!iv.scheduled_at) return false;
+                  const end = new Date(String(iv.scheduled_at).replace(" ", "T")).getTime() + (Number(iv.duration_minutes) || 60) * 60_000;
+                  return end >= now;
+                });
+
+                if (upcoming) {
+                  hasScheduledInterview = true;
+                  scheduledInterviewId = upcoming.interview_id;
+                  scheduledAt = upcoming.scheduled_at ?? null;
+                  durationMinutes = Number(upcoming.duration_minutes) || 60;
+                  interviewStatus = upcoming.interview_status ?? null;
+                }
+              }
+            }
+          }
+        } catch {}
+      }
+
+      return json({
+        event_type,
+        viewer_role: viewerRole,
+        application_id,
+        stage_history_id: stage_history_id ?? null,
+        from_stage_name: fromStageName,
+        to_stage_name: toStageName || (event_type === "HIRED" ? "Hired" : "Updated Stage"),
+        from_stage_type: fromStageType,
+        to_stage_type: toStageType,
+        job_title: jobTitle,
+        applicant_name: applicantName,
+        candidate_name: applicantName,
+        has_assessment_tasks: hasAssessmentTasks,
+        has_scheduled_interview: hasScheduledInterview,
+        interview_id: scheduledInterviewId,
+        scheduled_at: scheduledAt,
+        duration_minutes: durationMinutes,
+        interview_status: interviewStatus,
+        created_at: stageCreatedAt || msg.created_at,
+      });
+    }
+
+    // Initial Application Submission (Rich Card)
+    if (event_type === "APPLICATION_SUBMITTED") {
       if (!application_id) {
-        return NextResponse.json({ error: "Application reference missing." }, { status: 422 });
+        return json({ error: "Application reference missing." }, 422);
       }
 
       const appRes = await fetch(
@@ -121,7 +349,7 @@ export async function GET(req: NextRequest) {
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!appRes.ok) {
-        return NextResponse.json({ error: "Application not found." }, { status: 404 });
+        return upstreamFailure(appRes, "Application");
       }
       const app = (await appRes.json()).data;
       const applicantUserId = app?.user_id;
@@ -225,10 +453,10 @@ export async function GET(req: NextRequest) {
         url: s.profile_url || s.url || "#",
       }));
 
-      const isCandidate = app?.user_id === userId || conv.freelancer_id === userId;
+      const isCandidate = (app?.user_id != null && Number(app.user_id) === userId) || viewerIsCandidate;
       const viewerRole: HiringViewerRole = isCandidate ? "FREELANCER" : "CLIENT";
 
-      return NextResponse.json({
+      return json({
         event_type,
         viewer_role: viewerRole,
         application_id,
@@ -281,7 +509,7 @@ export async function GET(req: NextRequest) {
     // Interview-based events
     if (event_type === "INTERVIEW_SCHEDULED" || event_type === "INTERVIEW_UPDATED") {
       if (!interview_id) {
-        return NextResponse.json({ error: "Interview reference missing." }, { status: 422 });
+        return json({ error: "Interview reference missing." }, 422);
       }
 
       const ivRes = await fetch(
@@ -289,11 +517,10 @@ export async function GET(req: NextRequest) {
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!ivRes.ok) {
-        return NextResponse.json({ error: "Interview not found." }, { status: 404 });
+        return upstreamFailure(ivRes, "Interview");
       }
       const iv = (await ivRes.json()).data;
-      const isCandidate = conv.freelancer_id === userId;
-      const viewerRole: HiringViewerRole = isCandidate ? "FREELANCER" : "CLIENT";
+      const viewerRole: HiringViewerRole = viewerIsCandidate ? "FREELANCER" : "CLIENT";
 
       // Also resolve candidate name and job title from conversation if available
       const [candUserRes, jobRes] = await Promise.all([
@@ -312,11 +539,26 @@ export async function GET(req: NextRequest) {
       ]);
 
       const candUser = candUserRes.data;
-      const job = jobRes.data;
-      const applicantName = `${candUser?.user_fname ?? ""} ${candUser?.user_lname ?? ""}`.trim() || "Candidate";
-      const jobTitle = job?.job_title ?? "Position";
+      let jobTitle = jobRes.data?.job_title ?? null;
 
-      return NextResponse.json({
+      if (!jobTitle && (iv?.interview_id || interview_id)) {
+        try {
+          const ivId = iv?.interview_id ?? interview_id;
+          const iaRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${ivId}&fields=application_id.job_id.job_title&limit=1`,
+            { headers: getHeaders(), cache: "no-store" }
+          );
+          if (iaRes.ok) {
+            const iaJson = await iaRes.json();
+            jobTitle = iaJson.data?.[0]?.application_id?.job_id?.job_title ?? null;
+          }
+        } catch {}
+      }
+
+      const applicantName = `${candUser?.user_fname ?? ""} ${candUser?.user_lname ?? ""}`.trim() || "Candidate";
+      if (!jobTitle) jobTitle = "Position";
+
+      return json({
         event_type,
         viewer_role: viewerRole,
 
@@ -359,12 +601,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({ error: "Unknown event type." }, { status: 400 });
+    return json({ error: "Unknown event type." }, 400);
   } catch (err: unknown) {
     console.error("GET /api/messaging/system-card error:", err);
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

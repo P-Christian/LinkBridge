@@ -3,10 +3,12 @@
 // src/modules/client/messaging/components/MessageInput.tsx
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Send, Paperclip, X, FileText, ImageIcon, Loader2, Zap, AlertCircle } from "lucide-react";
+import { Send, Paperclip, X, FileText, ImageIcon, Loader2, AlertCircle, Reply } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
 import { formatFileSize } from "../utils";
+import { Message } from "../types";
 
 interface PendingFile {
   file: File;
@@ -15,25 +17,17 @@ interface PendingFile {
 
 interface Props {
   disabled?: boolean;
-  sending?: boolean;
   uploading?: boolean;
+  replyingTo?: Message | null;
+  onCancelReply?: () => void;
   /** Used to keep an unsent draft per conversation (sessionStorage) */
   draftKey?: string | number;
-  /** Canned replies shown in the ⚡ menu. Pass [] to hide the button. */
-  quickReplies?: string[];
   onSend: (content: string, files: File[]) => Promise<boolean>;
 }
 
 const MAX_FILES = 5;
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB, keep in sync with your upload endpoint
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB, keep in sync with upload endpoint
 const ALLOWED_EXT = /\.(pdf|docx?|xlsx?|txt|zip)$/i;
-
-export const DEFAULT_QUICK_REPLIES = [
-  "Thanks for applying! Are you available for a quick call this week?",
-  "Could you share a few examples of similar work you've done?",
-  "What is your expected rate and earliest start date?",
-  "Thank you for your time and interest. We've decided to move forward with another candidate, and we'll keep your profile in mind for future roles.",
-];
 
 // ─── Draft helpers (never throw: storage can be blocked) ─────────────────────
 
@@ -63,25 +57,23 @@ const isTouchPrimary = () =>
 
 export default function MessageInput({
   disabled,
-  sending,
   uploading,
+  replyingTo,
+  onCancelReply,
   draftKey,
-  quickReplies = DEFAULT_QUICK_REPLIES,
   onSend,
 }: Props) {
   const [content, setContent] = useState(() => readDraft(draftKey));
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const [fileError, setFileError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
-  const [showQuick, setShowQuick] = useState(false);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const quickRef = useRef<HTMLDivElement>(null);
   const dragDepthRef = useRef(0);
   const pendingRef = useRef<PendingFile[]>([]);
 
-  const isBusy = !!(sending || uploading || disabled);
+  const isBusy = !!(uploading || disabled);
   const canSend = (content.trim().length > 0 || pendingFiles.length > 0) && !isBusy;
 
   useEffect(() => {
@@ -114,26 +106,6 @@ export default function MessageInput({
     const t = setTimeout(() => setFileError(null), 6000);
     return () => clearTimeout(t);
   }, [fileError]);
-
-  // Close quick replies on outside click / Escape
-  useEffect(() => {
-    if (!showQuick) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!quickRef.current?.contains(e.target as Node)) setShowQuick(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault(); // tells the module-level Esc handler we've used it
-        setShowQuick(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [showQuick]);
 
   const updateContent = (value: string) => {
     setContent(value);
@@ -235,12 +207,6 @@ export default function MessageInput({
     void handleSend();
   };
 
-  const insertQuickReply = (text: string) => {
-    updateContent(content.trim() ? `${content.trimEnd()} ${text}` : text);
-    setShowQuick(false);
-    textareaRef.current?.focus();
-  };
-
   return (
     <div
       onDragEnter={handleDragEnter}
@@ -254,6 +220,54 @@ export default function MessageInput({
           Drop files to attach
         </div>
       )}
+
+      {/* Replying banner */}
+      <AnimatePresence>
+        {replyingTo && (
+          <motion.div
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ type: "spring", stiffness: 450, damping: 30 }}
+            className="overflow-hidden"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={replyingTo.message_id}
+                initial={{ opacity: 0, y: 6, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="mb-2.5 flex items-center justify-between rounded-xl border border-indigo-200/80 bg-indigo-50/80 px-3 py-2 text-xs text-indigo-900 dark:border-indigo-900/50 dark:bg-indigo-950/40 dark:text-indigo-200"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Reply className="h-3.5 w-3.5 shrink-0 text-indigo-600 dark:text-indigo-400" />
+                  <span className="shrink-0 font-semibold text-[11px] text-indigo-700 dark:text-indigo-300">
+                    Replying:
+                  </span>
+                  <span className="truncate text-[11px] text-zinc-600 dark:text-zinc-400">
+                    {replyingTo.message_content ||
+                      (replyingTo.attachments?.[0]?.file_name
+                        ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
+                        : "Attachment")}
+                  </span>
+                </div>
+                {onCancelReply && (
+                  <button
+                    type="button"
+                    onClick={onCancelReply}
+                    aria-label="Cancel reply"
+                    className="ml-2 shrink-0 rounded-lg p-1 text-zinc-400 hover:bg-zinc-200 hover:text-zinc-600 dark:hover:bg-zinc-800 dark:hover:text-zinc-200 transition"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* File problems */}
       {fileError && (
@@ -342,56 +356,16 @@ export default function MessageInput({
             style={{ maxHeight: "120px" }}
           />
 
-          {quickReplies.length > 0 && (
-            <div ref={quickRef} className="relative shrink-0">
-              <button
-                type="button"
-                onClick={() => setShowQuick((v) => !v)}
-                disabled={isBusy}
-                title="Quick replies"
-                aria-label="Quick replies"
-                aria-expanded={showQuick}
-                className="rounded-full p-1.5 text-zinc-400 transition hover:bg-slate-200/50 hover:text-indigo-600 disabled:opacity-40 max-md:size-10 max-md:p-0 dark:hover:bg-zinc-700/50"
-              >
-                <Zap className="mx-auto h-[18px] w-[18px]" />
-              </button>
-
-              {showQuick && (
-                <div
-                  role="menu"
-                  className="absolute bottom-full right-0 z-30 mb-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
-                >
-                  <p className="border-b border-zinc-100 px-3 py-2 text-xs font-medium text-zinc-500 dark:border-zinc-800">
-                    Quick replies
-                  </p>
-                  <ul className="max-h-64 overflow-y-auto py-1">
-                    {quickReplies.map((reply) => (
-                      <li key={reply}>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          onClick={() => insertQuickReply(reply)}
-                          className="line-clamp-2 w-full px-3 py-2 text-left text-sm text-zinc-700 transition hover:bg-indigo-50 focus-visible:bg-indigo-50 focus-visible:outline-none dark:text-zinc-200 dark:hover:bg-indigo-950/40 dark:focus-visible:bg-indigo-950/40"
-                        >
-                          {reply}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
+          {/* Inline Attachment Icon */}
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isBusy || pendingFiles.length >= MAX_FILES}
-            title="Attach file"
+            disabled={isBusy}
+            title="Attach file (max 25MB)"
             aria-label="Attach file"
-            className="shrink-0 rounded-full p-1.5 text-zinc-400 transition hover:bg-slate-200/50 hover:text-zinc-600 disabled:opacity-40 max-md:size-10 max-md:p-0 dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200"
+            className="mb-1 shrink-0 rounded-xl p-1.5 text-zinc-400 transition hover:bg-slate-200/50 hover:text-zinc-600 disabled:opacity-40 max-md:grid max-md:size-11 max-md:place-items-center dark:hover:bg-zinc-700/50 dark:hover:text-zinc-200"
           >
-            <Paperclip className="mx-auto h-[18px] w-[18px]" />
+            <Paperclip className="h-4.5 w-4.5" />
           </button>
         </div>
 
@@ -407,7 +381,7 @@ export default function MessageInput({
               : "cursor-not-allowed bg-slate-100 text-slate-300 dark:bg-zinc-800/60 dark:text-zinc-600"
           )}
         >
-          {sending || uploading ? (
+          {uploading ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Send className="ml-0.5 h-4 w-4" />

@@ -13,18 +13,17 @@ import {
   User,
   Shield,
   Bell,
-  AlertCircle,
-  CheckCircle,
   ChevronRight,
   Database,
+  Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-type SettingsTab = "account" | "general" | "security" | "notifications" | "privacy";
+type SettingsTab = "account" | "appearance" | "security" | "notifications" | "privacy";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "account", label: "Account Profile", icon: User },
-  { id: "general", label: "General & Accessibility", icon: Settings2 },
+  { id: "appearance", label: "Appearance & Themes", icon: Palette },
   { id: "security", label: "Security & Sessions", icon: Shield },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "privacy", label: "Data & Privacy Requests", icon: Database },
@@ -35,12 +34,9 @@ export default function SettingsModule() {
     user,
     loading,
     saving,
-    error,
-    successMessage,
     loadProfile,
     saveProfile,
     changePassword,
-    clearMessages,
   } = useSettings();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
@@ -52,7 +48,6 @@ export default function SettingsModule() {
   }, [loadProfile]);
 
   const handleTabChange = (tab: SettingsTab) => {
-    clearMessages();
     setActiveTab(tab);
   };
 
@@ -89,20 +84,6 @@ export default function SettingsModule() {
           </div>
         </div>
       </div>
-
-      {/* Feedback Messages */}
-      {error && (
-        <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-      {successMessage && (
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          {successMessage}
-        </div>
-      )}
 
       {/* Tabs & Module Body */}
       <Card className="shadow-sm border bg-card rounded-xl py-0 gap-0 overflow-hidden">
@@ -155,7 +136,7 @@ export default function SettingsModule() {
               {activeTab === "account" && (
                 <AccountSettings user={user} saving={saving} onSave={saveProfile} />
               )}
-              {activeTab === "general" && (
+              {activeTab === "appearance" && (
                 <GeneralSettings />
               )}
               {activeTab === "security" && (

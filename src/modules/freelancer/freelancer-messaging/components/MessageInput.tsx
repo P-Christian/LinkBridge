@@ -2,10 +2,13 @@
 
 // src/modules/freelancer/freelancer-messaging/components/MessageInput.tsx
 
-import React, { useRef, useState, KeyboardEvent, useEffect } from "react";
-import { Send, Paperclip, X, FileText, ImageIcon, Loader2 } from "lucide-react";
+import React, { useCallback, useEffect, useRef, useState, KeyboardEvent } from "react";
+import { Send, Paperclip, X, FileText, ImageIcon, Loader2, Reply } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import Image from "next/image";
+import { Message } from "../types";
 
 interface PendingFile {
   file: File;
@@ -14,10 +17,18 @@ interface PendingFile {
 
 interface Props {
   disabled?: boolean;
-  sending?: boolean;
   uploading?: boolean;
+  replyingTo?: Message | null;
+  onCancelReply?: () => void;
   onSend: (content: string, files: File[]) => Promise<boolean>;
 }
+
+// Keep in sync with the upload endpoint and the client-portal composer.
+const MAX_FILES = 5;
+const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25 MB
+const ALLOWED_EXT = /\.(pdf|docx?|xlsx?|txt|zip)$/i;
+
+const TOAST_ID = "freelancer-attachment";
 
 function getFileIcon(mimeType: string) {
   if (mimeType.startsWith("image/")) return ImageIcon;
@@ -32,47 +43,76 @@ function formatFileSize(bytes: number): string {
 
 export default function MessageInput({
   disabled,
-  sending,
   uploading,
+  replyingTo,
+  onCancelReply,
   onSend,
 }: Props) {
   const [content, setContent] = useState("");
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef<PendingFile[]>([]);
 
-  const isBusy = sending || uploading || disabled;
+  const isBusy = !!(uploading || disabled);
   const canSend = (content.trim().length > 0 || pendingFiles.length > 0) && !isBusy;
 
   useEffect(() => {
+    pendingRef.current = pendingFiles;
+  });
+
+  // Read the list back through a ref: this cleanup is registered on mount, when
+  // pendingFiles was still empty, so closing the thread used to revoke nothing
+  // and leak an object URL per image preview.
+  useEffect(() => {
     return () => {
-      pendingFiles.forEach((pf) => {
-        if (pf.preview) URL.revokeObjectURL(pf.preview);
-      });
+      pendingRef.current.forEach((pf) => pf.preview && URL.revokeObjectURL(pf.preview));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const addFiles = useCallback((incoming: File[]) => {
+    if (incoming.length === 0) return;
+
+    const problems = new Set<string>();
+    const accepted: PendingFile[] = [];
+    const room = MAX_FILES - pendingRef.current.length;
+
+    for (const file of incoming) {
+      const isImage = file.type.startsWith("image/");
+      // The accept= hint is only a filter in the picker; drag, paste or a forced
+      // file list get through it, and the upload endpoint rejects them later.
+      if (!isImage && !ALLOWED_EXT.test(file.name)) {
+        problems.add(`${file.name} isn't a supported file type`);
+        continue;
+      }
+      if (file.size > MAX_FILE_SIZE) {
+        problems.add(`${file.name} is larger than ${MAX_FILE_SIZE / 1024 / 1024} MB`);
+        continue;
+      }
+      if (accepted.length >= room) {
+        problems.add(`You can attach up to ${MAX_FILES} files per message`);
+        break;
+      }
+      accepted.push({ file, preview: isImage ? URL.createObjectURL(file) : undefined });
+    }
+
+    if (accepted.length > 0) setPendingFiles((prev) => [...prev, ...accepted]);
+    if (problems.size > 0) {
+      toast.error(Array.from(problems).join(". "), { id: TOAST_ID });
+    }
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? []);
-    const newPending: PendingFile[] = files.map((file) => {
-      const pf: PendingFile = { file };
-      if (file.type.startsWith("image/")) {
-        pf.preview = URL.createObjectURL(file);
-      }
-      return pf;
-    });
-    setPendingFiles((prev) => [...prev, ...newPending]);
+    addFiles(Array.from(e.target.files ?? []));
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const removeFile = (index: number) => {
     if (isBusy) return;
     setPendingFiles((prev) => {
-      const next = [...prev];
-      if (next[index].preview) URL.revokeObjectURL(next[index].preview!);
-      next.splice(index, 1);
-      return next;
+      const target = prev[index];
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((_, i) => i !== index);
     });
   };
 
@@ -89,10 +129,11 @@ export default function MessageInput({
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+    // Enter also commits an in-progress IME candidate; without this guard the
+    // half-typed word was sent as a message.
+    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+    e.preventDefault();
+    void handleSend();
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -103,7 +144,55 @@ export default function MessageInput({
   };
 
   return (
-    <div className="border-t border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-4 shrink-0 font-sans">
+    <div className="border-t border-border/60 bg-card p-4 shrink-0 font-sans">
+      {/* Replying banner */}
+      <AnimatePresence>
+        {replyingTo && (
+          <motion.div
+            layout
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ type: "spring", stiffness: 450, damping: 30 }}
+            className="overflow-hidden"
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={replyingTo.message_id}
+                initial={{ opacity: 0, y: 6, scale: 0.99 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.99 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="mb-2.5 flex items-center justify-between rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-xs text-primary"
+              >
+                <div className="flex min-w-0 flex-1 items-center gap-2">
+                  <Reply className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="shrink-0 font-semibold text-[11px] text-primary">
+                    Replying:
+                  </span>
+                  <span className="truncate text-[11px] text-muted-foreground">
+                    {replyingTo.message_content ||
+                      (replyingTo.attachments?.[0]?.file_name
+                        ? `${replyingTo.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${replyingTo.attachments[0].file_name}`
+                        : "Attachment")}
+                  </span>
+                </div>
+                {onCancelReply && (
+                  <button
+                    type="button"
+                    onClick={onCancelReply}
+                    aria-label="Cancel reply"
+                    className="ml-2 shrink-0 rounded-lg p-1 text-muted-foreground hover:bg-muted hover:text-foreground transition"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Pending files preview */}
       {pendingFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3 px-1">
@@ -113,7 +202,7 @@ export default function MessageInput({
               <div
                 key={i}
                 className={cn(
-                  "relative flex items-center gap-2 pl-2.5 pr-8 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 max-w-[200px]",
+                  "relative flex items-center gap-2 pl-2.5 pr-8 py-1.5 rounded-xl bg-muted border border-border/60 max-w-[200px]",
                   isBusy && "opacity-60 grayscale-[0.5]"
                 )}
               >
@@ -126,15 +215,15 @@ export default function MessageInput({
                     className="h-8 w-8 rounded-lg object-cover shrink-0"
                   />
                 ) : (
-                  <div className="h-8 w-8 rounded-lg bg-emerald-100 dark:bg-emerald-950/40 flex items-center justify-center shrink-0">
-                    <Icon className="h-4 w-4 text-emerald-500" />
+                  <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                    <Icon className="h-4 w-4 text-primary" />
                   </div>
                 )}
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                  <p className="text-xs font-medium text-foreground truncate">
                     {pf.file.name}
                   </p>
-                  <p className="text-[10px] text-zinc-400">
+                  <p className="text-[10px] text-muted-foreground">
                     {formatFileSize(pf.file.size)}
                   </p>
                 </div>
@@ -143,7 +232,7 @@ export default function MessageInput({
                   onClick={() => removeFile(i)}
                   disabled={isBusy}
                   aria-label={`Remove ${pf.file.name}`}
-                  className="absolute right-1.5 top-1.5 p-0.5 rounded-full text-zinc-400 hover:text-zinc-600 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition disabled:opacity-50 disabled:cursor-not-allowed max-md:size-11 max-md:grid max-md:place-items-center"
+                  className="absolute right-1.5 top-1.5 p-0.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition disabled:opacity-50 disabled:cursor-not-allowed max-md:size-11 max-md:grid max-md:place-items-center"
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -156,7 +245,7 @@ export default function MessageInput({
       {/* Modern Capsule Input Row */}
       <div className="flex items-center gap-3">
         {/* Input Bar */}
-        <div className="flex-1 relative flex items-center rounded-full bg-slate-50/80 dark:bg-zinc-800/80 border border-slate-200/80 dark:border-zinc-700/80 px-5 py-1.5 focus-within:ring-2 focus-within:ring-emerald-500/20 focus-within:border-emerald-400 transition-all shadow-2xs">
+        <div className="flex-1 relative flex items-center rounded-full bg-muted/40 border border-border/60 px-5 py-1.5 focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary/50 transition-all shadow-2xs">
           <textarea
             ref={textareaRef}
             rows={1}
@@ -165,7 +254,7 @@ export default function MessageInput({
             onKeyDown={handleKeyDown}
             disabled={isBusy}
             placeholder="Type here..."
-            className="flex-1 bg-transparent border-0 text-base md:text-sm text-zinc-800 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none resize-none overflow-y-auto leading-relaxed py-1.5 pr-2 disabled:opacity-50 min-h-9 max-md:min-h-11"
+            className="flex-1 bg-transparent border-0 text-base md:text-sm text-foreground placeholder:text-muted-foreground focus:outline-none resize-none overflow-y-auto leading-relaxed py-1.5 pr-2 disabled:opacity-50 min-h-9 max-md:min-h-11"
             style={{ maxHeight: "100px" }}
           />
 
@@ -176,7 +265,7 @@ export default function MessageInput({
             disabled={isBusy}
             title="Attach file"
             aria-label="Attach file"
-            className="p-1.5 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-slate-200/50 dark:hover:bg-zinc-700/50 transition shrink-0 disabled:opacity-40 max-md:size-11 max-md:grid max-md:place-items-center"
+            className="p-1.5 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition shrink-0 disabled:opacity-40 max-md:size-11 max-md:grid max-md:place-items-center"
           >
             <Paperclip className="h-4.5 w-4.5" />
           </button>
@@ -191,14 +280,14 @@ export default function MessageInput({
           className={cn(
             "h-10 w-10 rounded-full flex items-center justify-center transition-all shrink-0 max-md:size-11",
             canSend
-              ? "bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 active:scale-95 cursor-pointer shadow-xs"
-              : "bg-slate-100 dark:bg-zinc-800/60 text-slate-300 dark:text-zinc-600 cursor-not-allowed"
+              ? "bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 cursor-pointer shadow-xs"
+              : "bg-muted text-muted-foreground/40 cursor-not-allowed"
           )}
         >
-          {sending || uploading ? (
-            <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+          {uploading ? (
+            <Loader2 className="h-4 w-4 animate-spin text-primary-foreground" />
           ) : (
-            <Send className="h-4 w-4 text-blue-600 dark:text-blue-400 ml-0.5" />
+            <Send className="h-4 w-4 text-primary-foreground ml-0.5" />
           )}
         </button>
       </div>

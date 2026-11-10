@@ -116,6 +116,45 @@ export interface ApplicationItem {
     to_stage_id: number;
     created_at?: string;
   }>;
+  screening_answers?: ApplicationScreeningAnswer[] | null;
+  profile_snapshot?: ApplicationProfileSnapshot | null;
+}
+
+export interface ApplicationScreeningAnswer {
+  question_id: number;
+  question_text: string;
+  answer_text: string;
+}
+
+export interface ApplicationProfileSnapshot {
+  professional_summary?: string;
+  skills?: Array<{
+    skill?: {
+      skill_name?: string;
+    };
+    skill_name?: string;
+  }>;
+  work_experience?: Array<{
+    job_title: string;
+    company_name: string;
+    start_date?: string;
+    end_date?: string;
+    is_current_role?: boolean;
+    description?: string;
+  }>;
+  education?: Array<{
+    school_name: string;
+    degree?: string;
+    field_of_study?: string;
+    start_date?: string;
+    end_date?: string;
+  }>;
+  user_fname?: string;
+  user_lname?: string;
+  user_email?: string;
+  user_contact?: string;
+  user_city?: string;
+  user_province?: string;
 }
 
 export interface ApplicationSummary {
@@ -151,6 +190,10 @@ export interface BookmarkedJob {
   currency?: string;
   salary_negotiable?: boolean;
   bookmarked_at?: string;
+  is_referred?: boolean;
+  referrer_name?: string | null;
+  school_name?: string | null;
+  referral_expires_at?: string | null;
 }
 
 export type JobType = 'FULL_TIME' | 'PART_TIME' | 'CONTRACT' | 'INTERNSHIP' | 'FREELANCE';

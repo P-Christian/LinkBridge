@@ -3,7 +3,6 @@
 // src/modules/client/messaging/MessagingModule.tsx
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { AlertCircle } from "lucide-react";
 import { useConversations } from "./hooks/useConversations";
 import { useMessages } from "./hooks/useMessages";
 import ConversationList from "./components/ConversationList";
@@ -28,39 +27,41 @@ export default function MessagingModule({
   initialFreelancerId,
   initialJobId,
 }: Props) {
+  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
+  const [unreadAtOpen, setUnreadAtOpen] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+
   const {
     conversations,
     loading: convsLoading,
-    error: convsError,
+    loadFailed: convsLoadFailed,
     loadConversations,
     openOrCreateConversation,
     clearUnreadCount,
+    updateConversationPreview,
     archive,
-    clearError: clearConvsError,
-  } = useConversations();
+  } = useConversations(activeConversation?.conversation_id ?? null);
 
   const {
     messages,
     loading: msgsLoading,
     loadingOlder,
     hasMore,
-    sending,
     uploading,
     error: msgsError,
     loadMessages,
     loadOlderMessages,
     refreshMessages,
     send,
+    retry,
     upload,
+    deleteMessage,
+    togglePin,
     toggleReaction,
     clearMessages,
-  } = useMessages();
-
-  const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
-  const [unreadAtOpen, setUnreadAtOpen] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showArchived, setShowArchived] = useState(false);
-  const [mobileShowChat, setMobileShowChat] = useState(false);
+  } = useMessages(currentUserId);
   const [toast, setToast] = useState<{ text: string; onUndo?: () => void } | null>(null);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -149,7 +150,8 @@ export default function MessagingModule({
   // FIX: the old handler ignored `nextArchived` and always archived, so "Unarchive" did nothing.
   const handleArchive = useCallback(
     async (conversationId: number, nextArchived: boolean) => {
-      await archive(conversationId, nextArchived);
+      const ok = await archive(conversationId, nextArchived);
+      if (!ok) return;
       if (activeConversation?.conversation_id === conversationId) handleCloseConversation();
       loadConversations({ archived: showArchived, silent: true });
 
@@ -166,7 +168,7 @@ export default function MessagingModule({
   );
 
   const handleSend = useCallback(
-    async (content: string, files: File[]): Promise<boolean> => {
+    async (content: string, files: File[], replyToMessageId?: number): Promise<boolean> => {
       if (!activeConversation) return false;
 
       let attachments: {
@@ -190,24 +192,42 @@ export default function MessagingModule({
         }));
       }
 
-      const messageType =
-        attachments.length > 0 && !content
-          ? attachments[0].mime_type.startsWith("image/")
-            ? "IMAGE"
-            : "FILE"
-          : "TEXT";
+      const hasText = Boolean(content.trim());
+      if (!hasText && attachments.length === 0) return false;
 
-      const ok = await send(activeConversation.conversation_id, {
-        message_content: content || undefined,
-        message_type: messageType,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      });
+      // Optimistic: update the sidebar preview instantly without any fetch or skeleton
+      const now = new Date().toISOString();
+      const rawText =
+        content.trim() ||
+        (attachments[0]?.mime_type?.startsWith("image/") ? "📷 Image" : "📎 File");
+      const preview = `You: ${rawText}`;
+      updateConversationPreview(activeConversation.conversation_id, preview, now);
 
-      // Update the list preview silently (no skeleton flash)
-      loadConversations({ archived: showArchived, silent: true });
-      return ok;
+      // If text is provided, send text message first
+      if (hasText) {
+        await send(activeConversation.conversation_id, {
+          message_content: content.trim(),
+          message_type: "TEXT",
+          reply_to_message_id: replyToMessageId,
+        });
+      }
+
+      // Send each file as its own message so each file can be pinned independently
+      if (attachments.length > 0) {
+        for (let i = 0; i < attachments.length; i++) {
+          const att = attachments[i];
+          const isImg = att.mime_type.startsWith("image/");
+          await send(activeConversation.conversation_id, {
+            message_type: isImg ? "IMAGE" : "FILE",
+            attachments: [att],
+            reply_to_message_id: !hasText && i === 0 ? replyToMessageId : undefined,
+          });
+        }
+      }
+
+      return true;
     },
-    [activeConversation, upload, send, loadConversations, showArchived]
+    [activeConversation, upload, send, updateConversationPreview]
   );
 
   const handleToggleArchived = useCallback(() => {
@@ -243,7 +263,8 @@ export default function MessagingModule({
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
-  const showNoConversations = !convsLoading && !showArchived && conversations.length === 0;
+  const showNoConversations =
+    !convsLoading && !showArchived && conversations.length === 0 && !convsLoadFailed;
 
   return (
     <CompanyVerificationGuard moduleName="Candidate Messages">
@@ -261,27 +282,9 @@ export default function MessagingModule({
           }
         `}</style>
 
-        {/* Error banner */}
-        {convsError && (
-          <div
-            role="alert"
-            className="flex items-center gap-3 rounded-xl border border-rose-200/50 bg-rose-50 p-4 text-sm text-rose-700 dark:bg-rose-950/30 dark:text-rose-300"
-          >
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {convsError}
-            <button
-              type="button"
-              onClick={clearConvsError}
-              className="ml-auto text-sm underline max-md:min-h-10 md:text-xs"
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
         {/* Main chat layout */}
         <div className="relative h-[calc(100dvh-96px)] overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm sm:h-[calc(100dvh-104px)] max-md:flex max-md:min-h-0 max-md:flex-1 max-md:flex-col dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="flex h-full">
+          <div className="flex h-full w-full min-w-0 overflow-hidden">
             {/* Conversation list: hidden on mobile while a chat is open */}
             <div
               className={cn(
@@ -293,6 +296,7 @@ export default function MessagingModule({
                 conversations={conversations}
                 activeConversationId={activeConversation?.conversation_id ?? null}
                 loading={convsLoading}
+                loadFailed={convsLoadFailed}
                 searchQuery={searchQuery}
                 showArchived={showArchived}
                 searchInputRef={searchInputRef}
@@ -312,7 +316,7 @@ export default function MessagingModule({
               )}
             >
               {activeConversation ? (
-                <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
+                <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden">
                   <ChatPanel
                     key={activeConversation.conversation_id}
                     conversation={activeConversation}
@@ -321,7 +325,6 @@ export default function MessagingModule({
                     loading={msgsLoading}
                     loadingOlder={loadingOlder}
                     hasMore={hasMore}
-                    sending={sending}
                     uploading={uploading}
                     error={msgsError}
                     unreadAtOpen={unreadAtOpen}
@@ -337,6 +340,9 @@ export default function MessagingModule({
                     }
                     onBack={handleCloseConversation}
                     onToggleReaction={toggleReaction}
+                    onRetry={retry}
+                    onDeleteMessage={deleteMessage}
+                    onTogglePin={togglePin}
                   />
                 </div>
               ) : (

@@ -2,10 +2,11 @@
 // src/modules/client/jobs/JobsModule.tsx
 "use client";
 import { JobDetailSheet } from "./components/JobDetailSheet";
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import { useJobs } from "./hooks/useJobs";
 import JobList from "./components/JobList";
+import JobPagination from "./components/JobPagination";
 import JobForm from "./components/JobForm";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,11 +20,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle, Plus, Search, X, RotateCcw, Sparkles } from "lucide-react";
+import { Plus, Search, X, RotateCcw, Sparkles } from "lucide-react";
 import CompanyVerificationGuard from "../components/CompanyVerificationGuard";
 import ListSkeleton from "../components/ListSkeleton";
+import { KpiPending } from "@/components/shared/KpiValue";
 
-import { JobPosting, JobFormData, JobStatus, JobType, WorkArrangement, JOB_TYPE_LABELS } from "./types";
+import { JobPosting, JobFormData, JobStatus, JobType, WorkArrangement, JOB_TYPE_LABELS, JOB_STATUS_LABELS } from "./types";
+import { countByStatus } from "./components/JobListControls";
 import { AutoCreateJobModal } from "./components/AutoCreateJobModal";
 import { useRoleCategories } from "./hooks/useRoleCategories";
 
@@ -63,8 +66,6 @@ export default function JobsModule() {
     jobs,
     loading,
     saving,
-    error,
-    successMessage,
     filterStatus,
     setFilterStatus,
     fetchJobs,
@@ -161,6 +162,35 @@ export default function JobsModule() {
       return true;
     });
   }, [jobs, searchQuery, filterCategory, filterJobType, filterWorkArrangement, roleCategories]);
+
+  // Pagination over the filtered result set. The page is keyed to a signature of
+  // the active filters, so any filter change falls back to page 1 during render
+  // instead of needing a reset effect.
+  const filterSignature = `${filterStatus}|${searchQuery.trim()}|${filterCategory}|${filterJobType}|${filterWorkArrangement}`;
+  const [pageState, setPageState] = useState({ signature: "", page: 1 });
+  const [pageSize, setPageSize] = useState(10);
+  const listRef = useRef<HTMLDivElement>(null);
+
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / pageSize));
+  const requestedPage = pageState.signature === filterSignature ? pageState.page : 1;
+  const page = Math.min(requestedPage, totalPages);
+  const paginatedJobs = useMemo(
+    () => filteredJobs.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize),
+    [filteredJobs, page, pageSize]
+  );
+
+  const changePage = (nextPage: number) => {
+    setPageState({
+      signature: filterSignature,
+      page: Math.min(Math.max(1, nextPage), totalPages),
+    });
+    listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const changePageSize = (nextSize: number) => {
+    setPageSize(nextSize);
+    setPageState({ signature: filterSignature, page: 1 });
+  };
 
   const hasActiveFilters = Boolean(
     searchQuery.trim() ||
@@ -378,8 +408,14 @@ export default function JobsModule() {
     clearMessages();
   };
 
-  const activeCount = jobs.filter((j) => j.status === "ACTIVE").length;
-  const draftCount = jobs.filter((j) => j.status === "DRAFT").length;
+  const statusCounts = countByStatus(jobs);
+  // A refetch keeps the previous postings, so only a first load with nothing to
+  // count may replace these numbers with a placeholder.
+  const countsPending = loading && jobs.length === 0;
+  const breakdown = (["ACTIVE", "DRAFT", "CLOSED"] as JobStatus[])
+    .map((s) => `${statusCounts[s]} ${JOB_STATUS_LABELS[s].toLowerCase()}`)
+    .join(" • ");
+  const shownCount = statusCounts[filterStatus];
 
   return (
     <CompanyVerificationGuard moduleName="Job Postings">
@@ -399,7 +435,13 @@ export default function JobsModule() {
           <div>
             <h1 className="text-2xl md:text-3xl font-bold text-foreground">Job Postings</h1>
             <p className="text-sm text-muted-foreground mt-1">
-              {activeCount} active &bull; {draftCount} draft
+              {countsPending ? (
+                <KpiPending />
+              ) : filterStatus === "ALL" ? (
+                breakdown
+              ) : (
+                `${shownCount} ${JOB_STATUS_LABELS[filterStatus].toLowerCase()} shown`
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2.5 w-full sm:w-auto">
@@ -421,19 +463,7 @@ export default function JobsModule() {
           </div>
         </div>
 
-        {/* Messages */}
-        {successMessage && (
-          <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">
-            <CheckCircle className="h-4 w-4 shrink-0" />
-            {successMessage}
-          </div>
-        )}
-        {error && (
-          <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
-          </div>
-        )}
+
 
         {/* Filter & Job List */}
         <Card className="shadow-sm border border-border/80 bg-card rounded-xl py-0 gap-0 overflow-hidden">
@@ -514,9 +544,19 @@ export default function JobsModule() {
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border/40 text-sm md:text-xs text-muted-foreground">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium text-foreground">
-                  Showing {filteredJobs.length} {filteredJobs.length === 1 ? "posting" : "postings"}
-                  {jobs.length !== filteredJobs.length && (
-                    <span className="text-muted-foreground font-normal"> (filtered from {jobs.length})</span>
+                  {countsPending ? (
+                    <KpiPending />
+                  ) : (
+                    <>
+                      Found {filteredJobs.length}{" "}
+                      {filteredJobs.length === 1 ? "posting" : "postings"}
+                      {jobs.length !== filteredJobs.length && (
+                        <span className="text-muted-foreground font-normal">
+                          {" "}
+                          (filtered from {jobs.length})
+                        </span>
+                      )}
+                    </>
                   )}
                 </span>
 
@@ -582,15 +622,26 @@ export default function JobsModule() {
               <ListSkeleton rows={4} label="Loading job postings…" />
             ) : (
               <>
-                <JobList
-                  jobs={filteredJobs}
-                  totalJobsCount={jobs.length}
-                  hasActiveFilters={hasActiveFilters}
-                  onResetFilters={handleResetFilters}
-                  onView={handleViewJob}
-                  onEdit={handleEditJob}
-                  onStatusChange={changeJobStatus}
-                />
+                <div ref={listRef}>
+                  <JobList
+                    jobs={paginatedJobs}
+                    totalJobsCount={jobs.length}
+                    hasActiveFilters={hasActiveFilters}
+                    onResetFilters={handleResetFilters}
+                    onView={handleViewJob}
+                    onEdit={handleEditJob}
+                    onStatusChange={changeJobStatus}
+                  />
+                  {filteredJobs.length > 0 && (
+                    <JobPagination
+                      page={page}
+                      pageSize={pageSize}
+                      total={filteredJobs.length}
+                      onPageChange={changePage}
+                      onPageSizeChange={changePageSize}
+                    />
+                  )}
+                </div>
                 <JobDetailSheet
                   job={selectedJob ? (() => {
                     const descData = parseJsonField(selectedJob.job_description);
@@ -649,12 +700,6 @@ export default function JobsModule() {
               </DialogDescription>
             </DialogHeader>
 
-            {error && (
-              <div className="flex items-center gap-2 p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-lg text-rose-700 dark:text-rose-300 text-sm md:text-xs">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-                {error}
-              </div>
-            )}
             <JobForm
               data={formData}
               onChange={handleFieldChange}

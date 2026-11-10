@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatRelativeTime, getNotificationVisual } from "../utils/notificationVisuals";
 
-const NOTIFICATIONS_HREF = "/vos-sync/client/notifications";
+const NOTIFICATIONS_HREF = "/linkbridge/client/notifications";
 const PREVIEW_COUNT = 6;
 
 interface Props {

@@ -2,6 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,15 +11,15 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => ({}));
     const text = (body.text || "").trim();
@@ -26,44 +28,80 @@ export async function POST(req: NextRequest) {
     const fieldType = body.field_type || "job_description"; // "job_description" | "job_responsibilities" | "job_qualifications"
     const jobTitle = body.job_title || "Job Posting";
 
-    if (!text && action !== "regenerate") {
+    if (!text && action !== "regenerate" && !(action === "custom" && customPrompt)) {
       return NextResponse.json({ error: "Content is required to refine." }, { status: 400 });
+    }
+
+    let fieldScopeDesc = "";
+    let fieldFormatRule = "";
+    let negativeConstraints = "";
+
+    if (fieldType === "job_description") {
+      fieldScopeDesc = "role overview, company and team context, mission, and why this opportunity is compelling";
+      fieldFormatRule = "Output clean, structured HTML paragraphs (<p>...</p>) only. Optionally use <b>...</b> for key highlights.";
+      negativeConstraints = "CRITICAL BOUNDARY: Strictly DO NOT include bullet points, lists, sections, headings, or summaries for responsibilities, daily tasks, duties, qualifications, requirements, or skills. Those exist as separate dedicated fields in the form.";
+    } else if (fieldType === "job_responsibilities") {
+      fieldScopeDesc = "day-to-day core responsibilities, key deliverables, and team impact";
+      fieldFormatRule = "Output strictly a single <ul> list containing 5 to 8 clear, high-impact <li> bullet items. Each bullet must start with an active verb in the present tense.";
+      negativeConstraints = "CRITICAL BOUNDARY: Strictly DO NOT include company introduction, role overview, education, years of experience, requirements, or qualifications. Focus only on actionable daily responsibilities.";
+    } else if (fieldType === "job_qualifications") {
+      fieldScopeDesc = "required skills, domain experience, technical proficiencies, education, and preferred qualifications";
+      fieldFormatRule = "Output strictly a single <ul> list containing 5 to 8 realistic <li> requirement items.";
+      negativeConstraints = "CRITICAL BOUNDARY: Strictly DO NOT include company overview, role intro, or day-to-day tasks. Focus only on candidate qualifications and competencies.";
+    } else {
+      fieldScopeDesc = "professional job posting content";
+      fieldFormatRule = "Format output in clean, structured HTML.";
+      negativeConstraints = "";
     }
 
     let instructionDetails = "";
     switch (action) {
       case "concise":
-        instructionDetails = "Make this text clear, concise, and punchy while preserving key technical terms and responsibilities.";
+        instructionDetails = "Make this text clear, concise, and punchy. Eliminate filler, fluff, and wordy corporate jargon while preserving essential terminology, metrics, and key details.";
         break;
       case "technical":
-        instructionDetails = "Enhance the technical depth and professional precision of the terminology suitable for modern software engineering hiring standards.";
+        instructionDetails = "Enhance the technical depth, precision, and modern industry terminology appropriate for contemporary software engineering and technology standards.";
         break;
       case "regenerate":
-        instructionDetails = `Generate a fresh, compelling, and high-standard ${fieldType.replace("job_", "")} for the position "${jobTitle}".`;
+        if (fieldType === "job_description") {
+          instructionDetails = `Generate a fresh, engaging 2-3 paragraph overview of the role and team mission for "${jobTitle}". Highlight why this role is exciting and its organizational impact. Under no circumstances should you generate responsibilities or qualifications bullet lists.`;
+        } else if (fieldType === "job_responsibilities") {
+          instructionDetails = `Generate 5 to 8 realistic, high-impact core daily responsibilities for the position "${jobTitle}", starting each bullet with a strong action verb.`;
+        } else if (fieldType === "job_qualifications") {
+          instructionDetails = `Generate 5 to 8 realistic, industry-standard qualifications, technical proficiencies, and experience requirements for "${jobTitle}".`;
+        } else {
+          instructionDetails = `Generate fresh, compelling, and high-standard content for the position "${jobTitle}".`;
+        }
         break;
       case "custom":
-        instructionDetails = `Apply this custom user instruction: "${customPrompt}"`;
+        instructionDetails = `Apply this user instruction: "${customPrompt}". Ensure the result strictly adheres to the scope of ${fieldScopeDesc}.`;
         break;
       case "improve":
       default:
-        instructionDetails = "Elevate the clarity, tone, and professional appeal for top-tier candidates.";
+        if (fieldType === "job_description") {
+          instructionDetails = "Elevate the clarity, narrative flow, and professional appeal for top-tier candidates. Focus strictly on the role overview and mission without adding responsibilities or qualifications lists.";
+        } else if (fieldType === "job_responsibilities") {
+          instructionDetails = "Elevate the impact, clarity, and precision of each responsibility, ensuring strong action verbs and clear ownership.";
+        } else {
+          instructionDetails = "Elevate the clarity and professionalism of each qualification, ensuring standard industry expectations.";
+        }
         break;
     }
 
-    const isListField = fieldType === "job_responsibilities" || fieldType === "job_qualifications";
+    const prompt = `You are an expert technical recruiter and job posting strategist.
+You are refining the ${fieldType.replace("job_", "").toUpperCase()} for the role "${jobTitle}".
 
-    const prompt = `You are an expert technical recruiter editing job postings.
-Refine the following ${fieldType} for the role "${jobTitle}".
-
-INSTRUCTION: ${instructionDetails}
+TARGET FIELD PURPOSE: ${fieldScopeDesc}
+ACTION REQUIRED: ${instructionDetails}
 
 ORIGINAL CONTENT:
-${text || "(Empty - please generate standard professional content)"}
+${text || "(Field is currently empty — generate high-quality content following the instructions)"}
 
 CRITICAL RULES:
-1. Format output in valid, clean HTML only.
-${isListField ? "2. For lists, output ONLY a <ul><li>...</li></ul> list with 4 to 8 clear bullet items." : "2. For descriptions, output structured HTML (<p>...</p>, <b>...</b>)."}
-3. DO NOT wrap with markdown backticks or \`\`\`html tags. Return raw HTML only.`;
+1. ${negativeConstraints}
+2. FORMATTING: ${fieldFormatRule}
+3. Clean HTML only: Return only the inner HTML elements (<p>...</p> or <ul><li>...</li></ul>). Do NOT wrap with <html>, <body>, or markdown code fences (\`\`\`html).
+4. No conversational filler: Return the raw HTML only. Do NOT include phrases like "Here is the updated description:".`;
 
     const refinedHtml = await callGeminiMonitored({
       prompt,
@@ -83,17 +121,19 @@ ${isListField ? "2. For lists, output ONLY a <ul><li>...</li></ul> list with 4 t
     }
 
     let cleaned = refinedHtml.trim();
-    if (cleaned.startsWith("```")) {
-      cleaned = cleaned.replace(/^```(?:html)?\n?/, "").replace(/\n?```$/, "");
+    cleaned = cleaned.replace(/^```(?:html)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const bodyMatch = cleaned.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    if (bodyMatch) {
+      cleaned = bodyMatch[1].trim();
     }
 
     return NextResponse.json({
       success: true,
-      refined_html: cleaned,
+      refined_html: sanitizeHtml(cleaned),
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: (err as Error).message || "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

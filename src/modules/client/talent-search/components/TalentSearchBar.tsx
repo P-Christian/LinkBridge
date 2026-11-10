@@ -2,11 +2,13 @@
 
 // src/modules/client/talent-search/components/TalentSearchBar.tsx
 
-import React from "react";
+import React, { useState } from "react";
 import { Search, X, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+
+const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
 interface TalentSearchBarProps {
   keyword: string;
@@ -26,6 +28,8 @@ export default function TalentSearchBar({
   onReset,
   loading,
 }: TalentSearchBarProps) {
+  const [keywordFocused, setKeywordFocused] = useState(false);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") onSearch();
   };
@@ -35,14 +39,33 @@ export default function TalentSearchBar({
       {/* Primary search */}
       <div className="relative flex-1 flex gap-2 max-md:flex-wrap">
         <div className="relative flex-1 min-w-0">
-          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <motion.span
+            aria-hidden
+            initial={false}
+            style={{ y: "-50%" }}
+            animate={{ scale: keywordFocused ? 1.12 : 1 }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            className="pointer-events-none absolute left-3.5 top-1/2 text-muted-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </motion.span>
           <Input
             id="talent-search-keyword"
             placeholder="Search by name, skill, title, school…"
             value={keyword}
             onChange={(e) => onKeywordChange(e.target.value)}
             onKeyDown={handleKeyDown}
-            className="pl-10 pr-9 h-10 rounded-xl border-border bg-background text-foreground shadow-2xs md:text-sm max-md:text-base focus-visible:ring-primary/20"
+            onFocus={() => setKeywordFocused(true)}
+            onBlur={() => setKeywordFocused(false)}
+            className="pl-10 pr-9 h-10 rounded-xl border-border bg-background text-foreground shadow-2xs md:text-sm max-md:text-base focus-visible:border-primary/60 focus-visible:ring-0"
+          />
+          {/* Focus halo drawn as an overlay so it can grow without moving the box */}
+          <motion.span
+            aria-hidden
+            initial={false}
+            animate={{ opacity: keywordFocused ? 1 : 0, scale: keywordFocused ? 1 : 0.97 }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+            className="pointer-events-none absolute -inset-px rounded-xl border border-primary/45 shadow-md shadow-primary/25"
           />
           <AnimatePresence>
             {keyword && (

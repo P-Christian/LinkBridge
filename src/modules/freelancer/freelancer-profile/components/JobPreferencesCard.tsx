@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import { Briefcase, Pencil } from "lucide-react";
 import { useFreelancerProfileContext } from "../providers/FreelancerProfileProvider";
 import { Button } from "@/components/ui/button";
-import { JobPreferencesModal } from "./JobPreferencesModal";
+import { JobPreferencesModal, parseIndustries } from "./JobPreferencesModal";
 import { VsJobPreferences } from "../types/freelancer-profile.types";
 
 export function JobPreferencesCard() {
@@ -49,14 +49,34 @@ export function JobPreferencesCard() {
             </div>
             
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                     <p className="text-sm font-medium text-muted-foreground">Job Type</p>
-                    <p className="text-sm">{preferences.job_type || 'Not specified'}</p>
+                    {preferences.job_type ? (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {preferences.job_type.split(",").map(s => s.trim()).filter(Boolean).map(item => (
+                                <span key={item} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-foreground border border-border/60">
+                                    {item}
+                                </span>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm">Not specified</p>
+                    )}
                 </div>
                 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                     <p className="text-sm font-medium text-muted-foreground">Work Setup</p>
-                    <p className="text-sm">{preferences.work_setup || 'Not specified'}</p>
+                    {preferences.work_setup ? (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {preferences.work_setup.split(",").map(s => s.trim()).filter(Boolean).map(item => (
+                                <span key={item} className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-muted text-foreground border border-border/60">
+                                    {item}
+                                </span>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm">Not specified</p>
+                    )}
                 </div>
                 
                 <div className="space-y-1">
@@ -64,9 +84,19 @@ export function JobPreferencesCard() {
                     <p className="text-sm">{preferences.preferred_location || 'Not specified'}</p>
                 </div>
                 
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                     <p className="text-sm font-medium text-muted-foreground">Industry</p>
-                    <p className="text-sm">{preferences.preferred_industry || 'Not specified'}</p>
+                    {preferences.preferred_industry ? (
+                        <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {parseIndustries(preferences.preferred_industry).map((item, idx) => (
+                                <span key={`${item}-${idx}`} className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-muted text-foreground border border-border/60">
+                                    {item}
+                                </span>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="text-sm">Not specified</p>
+                    )}
                 </div>
                 
                 <div className="space-y-1">

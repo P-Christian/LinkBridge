@@ -7,6 +7,7 @@ import {
   CreateConversationPayload,
   SendMessagePayload,
 } from "../types";
+import { parseConversationsResponse } from "@/lib/messaging/transport/client";
 
 const BASE = "/api/client/messaging";
 
@@ -17,9 +18,11 @@ export async function fetchConversations(params?: {
 }): Promise<Conversation[]> {
   const qs = params?.archived ? "?archived=true" : "";
   const res = await fetch(`${BASE}${qs}`, { cache: "no-store" });
-  const json = await res.json();
+  const json = await parseConversationsResponse(res);
   if (!res.ok) throw new Error(json.error ?? "Failed to fetch conversations.");
-  return json.conversations ?? [];
+  // The wire rows are untyped under either format, exactly as `res.json()` left
+  // them: the protobuf path ships only the fields the conversation UI reads.
+  return (json.conversations ?? []) as unknown as Conversation[];
 }
 
 // ─── Create or get conversation ────────────────────────────────────────────
@@ -42,7 +45,7 @@ export async function createConversation(
 export async function fetchMessages(
   conversationId: number,
   params?: { limit?: number; offset?: number }
-): Promise<Message[]> {
+): Promise<{ messages: Message[]; warnings: string[] }> {
   const qs = new URLSearchParams();
   if (params?.limit) qs.set("limit", String(params.limit));
   if (params?.offset) qs.set("offset", String(params.offset));
@@ -53,7 +56,12 @@ export async function fetchMessages(
   );
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Failed to fetch messages.");
-  return json.messages ?? [];
+  // A 200 with warnings means part of the thread could not be loaded — the
+  // message list itself is still valid, so both must reach the caller.
+  return {
+    messages: Array.isArray(json.messages) ? (json.messages as Message[]) : [],
+    warnings: Array.isArray(json.warnings) ? (json.warnings as string[]) : [],
+  };
 }
 
 // ─── Send message ──────────────────────────────────────────────────────────
@@ -61,7 +69,7 @@ export async function fetchMessages(
 export async function sendMessage(
   conversationId: number,
   payload: SendMessagePayload
-): Promise<Message> {
+): Promise<{ message: Message; warnings: string[] }> {
   const res = await fetch(`${BASE}/${conversationId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -69,7 +77,12 @@ export async function sendMessage(
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Failed to send message.");
-  return json.message;
+  // Parts of a send can fail after the message row is committed (attachments,
+  // the conversation preview). The server reports those as warnings on a 201.
+  return {
+    message: json.message as Message,
+    warnings: Array.isArray(json.warnings) ? (json.warnings as string[]) : [],
+  };
 }
 
 // ─── Archive conversation ──────────────────────────────────────────────────
@@ -114,7 +127,7 @@ export async function uploadFile(file: File): Promise<{
 export async function toggleReaction(
   messageId: number,
   reaction: string
-): Promise<MessageReactionGroup[]> {
+): Promise<{ reactions: MessageReactionGroup[] | null; warning: string | null }> {
   const res = await fetch(`/api/shared/messaging/messages/${messageId}/reactions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -122,5 +135,10 @@ export async function toggleReaction(
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error ?? "Failed to toggle reaction.");
-  return json.reactions ?? [];
+  // null = the write landed but the server could not re-read the list. Treating
+  // that as [] would erase every other reaction from the bubble.
+  return {
+    reactions: Array.isArray(json.reactions) ? json.reactions : null,
+    warning: typeof json.warning === "string" ? json.warning : null,
+  };
 }

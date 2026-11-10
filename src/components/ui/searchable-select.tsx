@@ -70,7 +70,7 @@ export function SearchableSelect({
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                 </Button>
             </PopoverTrigger>
-            <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
+            <PopoverContent className="w-auto min-w-[max(200px,var(--radix-popover-trigger-width))] max-w-[340px] p-0 shadow-lg" align="start">
                 <Command shouldFilter={!serverFiltered}>
                     <CommandInput
               className="text-base md:text-sm"
@@ -102,7 +102,7 @@ export function SearchableSelect({
                                             value === opt.value ? "opacity-100" : "opacity-0"
                                         )}
                                     />
-                                    <span className="min-w-0 flex-1 break-words">{opt.label}</span>
+                                    <span className="min-w-0 flex-1 whitespace-nowrap">{opt.label}</span>
                                 </CommandItem>
                             ))}
                         </CommandGroup>

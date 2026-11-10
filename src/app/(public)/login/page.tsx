@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { User, Code2, CheckCircle2, Briefcase, Eye, EyeOff, AlertCircle } from "lucide-react"
 import { toast } from "sonner"
 
@@ -82,7 +82,6 @@ export default function LoginPage() {
 }
 
 function LoginForm() {
-    const router = useRouter()
     const searchParams = useSearchParams()
 
     const [showPw, setShowPw] = React.useState(false)
@@ -95,12 +94,9 @@ function LoginForm() {
 
     const [errors, setErrors] = React.useState<FieldErrors>({})
 
-    React.useEffect(() => {
-        if (typeof document !== "undefined" && document.cookie.match(/(^|;)\s*vos_sync_access_token\s*=\s*([^;]+)/)) {
-            const nextParam = sanitizeNextPath(searchParams.get("next")) || "/vos-sync/freelancer/dashboard"
-            router.replace(nextParam)
-        }
-    }, [router, searchParams])
+    // PRIV-017: no client-side "already signed in" probe here - the auth cookie
+    // is HttpOnly so document.cookie cannot see it; middleware.ts performs that
+    // redirect server-side for /login.
 
     React.useEffect(() => {
         const error = searchParams.get("error")
@@ -126,13 +122,13 @@ function LoginForm() {
 
         const errorMap: Record<string, string> = {
             account_not_found: "No account found with this email. Please sign up first.",
-            google_not_connected: "This email already has a VOS Sync account, but it isn't connected to Google.",
+            google_not_connected: "This email already has a LinkBridge account, but it isn't connected to Google.",
             google_identity_conflict: "Google identity is linked to a different account than the entered email.",
             google_not_linked: "This Google account is not connected to an existing account. Sign in using your original login method, then connect Google in Security & Auth → Connected Accounts & Social Logins.",
-            facebook_not_connected: "This email already has a VOS Sync account, but it isn't connected to Facebook.",
+            facebook_not_connected: "This email already has a LinkBridge account, but it isn't connected to Facebook.",
             facebook_identity_conflict: "Facebook identity is linked to a different account than the entered email.",
             facebook_not_linked: "This Facebook account is not connected to an existing account. Sign in using your original login method, then connect Facebook in Security & Auth → Connected Accounts & Social Logins.",
-            linkedin_not_connected: "This email already has a VOS Sync account, but it isn't connected to LinkedIn.",
+            linkedin_not_connected: "This email already has a LinkBridge account, but it isn't connected to LinkedIn.",
             linkedin_identity_conflict: "LinkedIn identity is linked to a different account than the entered email.",
             linkedin_not_linked: "This LinkedIn account is not connected to an existing account. Sign in using your original login method, then connect LinkedIn in Security & Auth → Connected Accounts & Social Logins.",
             google_already_registered: "This Google account is already registered. Please sign in.",
@@ -174,15 +170,6 @@ function LoginForm() {
 
         setLoading(true)
 
-        if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-            toast.success("Signed in", { description: "Auth disabled mode." })
-            const next = sanitizeNextPath(searchParams.get("next")) || "/vos-sync/freelancer/dashboard"
-            router.replace(next)
-            router.refresh()
-            setLoading(false)
-            return
-        }
-
         try {
             const res = await fetch("/api/auth/login", {
                 method: "POST",
@@ -213,13 +200,13 @@ function LoginForm() {
             let defaultPath = serverDestination || "/main-dashboard"
             if (!serverDestination) {
                 if (roleId === 1 || roleStr === "FREELANCER") {
-                    defaultPath = "/vos-sync/freelancer/dashboard"
+                    defaultPath = "/linkbridge/freelancer/dashboard"
                 } else if (roleId === 2 || roleStr === "CLIENT" || roleStr === "EMPLOYER") {
-                    defaultPath = "/vos-sync/client/dashboard"
+                    defaultPath = "/linkbridge/client/dashboard"
                 } else if (roleId === 3 || roleStr === "ADMIN") {
-                    defaultPath = "/vos-sync/vos-admin"
+                    defaultPath = "/linkbridge/admin"
                 } else if (roleId === 4 || roleStr === "SCHOOL_ADMIN" || roleStr === "SCH_ADMIN") {
-                    defaultPath = "/vos-sync/school-admin"
+                    defaultPath = "/linkbridge/school-admin"
                 }
             }
 
@@ -238,11 +225,11 @@ function LoginForm() {
                 const isClient = roleId === 2 || roleStr === "CLIENT" || roleStr === "EMPLOYER"
                 const isSchoolAdmin = roleId === 4 || roleStr === "SCHOOL_ADMIN" || roleStr === "SCH_ADMIN"
 
-                if (isFreelancer && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/client") || p.startsWith("/vos-sync/school-admin"))) {
+                if (isFreelancer && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/client") || p.startsWith("/linkbridge/school-admin"))) {
                     isAllowed = false
-                } else if (isClient && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/freelancer") || p.startsWith("/vos-sync/school-admin"))) {
+                } else if (isClient && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/freelancer") || p.startsWith("/linkbridge/school-admin"))) {
                     isAllowed = false
-                } else if (isSchoolAdmin && (p.startsWith("/vos-sync/vos-admin") || p.startsWith("/vos-sync/freelancer") || p.startsWith("/vos-sync/client"))) {
+                } else if (isSchoolAdmin && (p.startsWith("/linkbridge/admin") || p.startsWith("/linkbridge/freelancer") || p.startsWith("/linkbridge/client"))) {
                     isAllowed = false
                 }
 
@@ -277,7 +264,7 @@ function LoginForm() {
 
                     <div className="relative z-10">
                         <div className="mb-10">
-                            <span className="text-xl font-bold text-primary mb-2 block">Vos Sync</span>
+                            <span className="text-xl font-bold text-primary mb-2 block">LinkBridge</span>
                             <h1 className="text-5xl font-bold text-foreground mb-4 tracking-tight">How it Works</h1>
                             <div className="w-16 h-1.5 bg-primary rounded-full"></div>
                         </div>
@@ -288,9 +275,9 @@ function LoginForm() {
                                     <User className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-semibold text-foreground">Register</h3>
+                                    <h3 className="text-xl font-semibold text-foreground">Create Profile</h3>
                                     <p className="text-base text-muted-foreground max-w-sm mt-1">
-                                        Sign up through your social handles and register for challenges that excite you.
+                                        Register as a job seeker, verified employer, or educational institution partner.
                                     </p>
                                 </div>
                             </div>
@@ -299,9 +286,9 @@ function LoginForm() {
                                     <Code2 className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-semibold text-foreground">Participate</h3>
+                                    <h3 className="text-xl font-semibold text-foreground">Match & Connect</h3>
                                     <p className="text-base text-muted-foreground max-w-sm mt-1">
-                                        Once you&apos;re shortlisted you&apos;ll be able to see the problem statements and solve them.
+                                        Explore verified job opportunities, post hiring requisitions, and review applicant credentials.
                                     </p>
                                 </div>
                             </div>
@@ -310,9 +297,9 @@ function LoginForm() {
                                     <CheckCircle2 className="w-6 h-6" />
                                 </div>
                                 <div>
-                                    <h3 className="text-xl font-semibold text-foreground">Get Hired</h3>
+                                    <h3 className="text-xl font-semibold text-foreground">Direct Hiring</h3>
                                     <p className="text-base text-muted-foreground max-w-sm mt-1">
-                                        Top performers get to be shortlisted by companies for further rounds of interview.
+                                        Coordinate interviews, evaluate assessments, and make direct verified hires with ease.
                                     </p>
                                 </div>
                             </div>
@@ -327,7 +314,7 @@ function LoginForm() {
                             <div className="w-10 h-10 bg-primary rounded-lg flex items-center justify-center">
                                 <Briefcase className="w-5 h-5 text-primary-foreground" />
                             </div>
-                            <span className="text-xl font-bold text-foreground">Vos Sync</span>
+                            <span className="text-xl font-bold text-foreground">LinkBridge</span>
                         </div>
 
                         <div className="mb-5 md:mb-8">
@@ -342,7 +329,7 @@ function LoginForm() {
                                     <span>Account Not Found</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground">
-                                    No VoSync account was found with that email. If you are new to VoSync, please create an account.
+                                    No LinkBridge account was found with that email. If you are new to LinkBridge, please create an account.
                                 </p>
                                 <div className="pt-1">
                                     <Link
@@ -362,7 +349,7 @@ function LoginForm() {
                                     <span>Google account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to Google. Sign in using your original login method, then connect your Google account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to Google. Sign in using your original login method, then connect your Google account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -392,7 +379,7 @@ function LoginForm() {
                                     <span>Google Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This Google identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This Google identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}
@@ -404,7 +391,7 @@ function LoginForm() {
                                     <span>Facebook account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to Facebook. Sign in using your original login method, then connect your Facebook account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to Facebook. Sign in using your original login method, then connect your Facebook account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -434,7 +421,7 @@ function LoginForm() {
                                     <span>Facebook Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This Facebook identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This Facebook identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}
@@ -446,7 +433,7 @@ function LoginForm() {
                                     <span>LinkedIn account not connected</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This email already has a VOS Sync account, but it isn&apos;t connected to LinkedIn. Sign in using your original login method, then connect your LinkedIn account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to LinkedIn. Sign in using your original login method, then connect your LinkedIn account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
                                 </p>
                                 <div className="pt-1">
                                     <Button
@@ -476,7 +463,7 @@ function LoginForm() {
                                     <span>LinkedIn Identity Conflict</span>
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
-                                    This LinkedIn identity is associated with a different VOS Sync account than the entered email address. Please sign in using your original login credentials.
+                                    This LinkedIn identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}

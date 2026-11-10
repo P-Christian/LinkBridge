@@ -1,43 +1,30 @@
 // src/lib/notifications/preference-check.ts
-
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
-}
+import { directusItems } from "@/lib/server/directus";
 
 /**
- * Checks whether in-app notification is enabled for a user in a specific category.
- * Uses vs_notification_preference (shared across employer and freelancer).
- * Defaults to true if no preference record is set (except marketing categories).
+ * Whether the user has in-app notifications on for this category. Uses
+ * vs_notification_preference, shared across employer and freelancer.
+ *
+ * `null` means the preference could not be read; callers should skip the delivery
+ * and report it rather than treat an outage as "enabled".
  */
 export async function isInAppEnabledForUser(
   userId: number | null | undefined,
   category: string
-): Promise<boolean> {
-  if (!userId || !DIRECTUS_BASE) return true;
+): Promise<boolean | null> {
+  if (!userId) {
+    return category !== "MARKETING_UPDATES";
+  }
 
   try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_notification_preference?filter[user_id][_eq]=${userId}&filter[category][_eq]=${encodeURIComponent(category)}&fields=in_app_enabled&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
+    const records = await directusItems<{ in_app_enabled?: unknown }>(
+      "vs_notification_preference",
+      {
+        query: `filter[user_id][_eq]=${userId}&filter[category][_eq]=${encodeURIComponent(
+          category
+        )}&fields=in_app_enabled&limit=1`,
+      }
     );
-
-    if (!res.ok) {
-      console.warn(
-        `[NOTIFICATION PREFERENCE WARNING] Failed to query preference for user ${userId}, category ${category}. Status: ${res.status}`
-      );
-      return true;
-    }
-
-    const json = await res.json();
-    const records = json.data ?? [];
 
     if (records.length === 0) {
       // Default: disable for marketing categories, enable for all others
@@ -49,9 +36,9 @@ export async function isInAppEnabledForUser(
     return rec.in_app_enabled === 1 || rec.in_app_enabled === true;
   } catch (err) {
     console.error(
-      `[NOTIFICATION PREFERENCE ERROR] Failed checking in-app preference for user ${userId}, category ${category}:`,
+      `[NOTIFICATION PREFERENCE ERROR] Could not read in-app preference for user ${userId}, category ${category}:`,
       err
     );
-    return true;
+    return null;
   }
 }

@@ -142,7 +142,6 @@ export function JobsTab({ company, onArrangementsChange }: JobsTabProps) {
       salary_max: job.salary_max,
       salary_currency: job.salary_currency,
       experience_level: job.experience_level,
-      status: "ACTIVE",
       created_at: job.created_at || new Date().toISOString(),
     };
     setSelectedJob(posting);

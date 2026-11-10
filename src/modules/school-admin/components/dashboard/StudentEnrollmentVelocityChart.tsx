@@ -34,7 +34,7 @@ export function StudentEnrollmentVelocityChart({
         ];
 
   return (
-    <Card className="h-full rounded-2xl border border-border/80 shadow-xs flex flex-col justify-between">
+    <Card className="group h-full rounded-2xl border border-border/80 border-t-[3.5px] border-t-blue-500 shadow-xs flex flex-col justify-between transition-all duration-200 hover:border-blue-400/60 dark:hover:border-blue-500/40 hover:shadow-md hover:-translate-y-0.5">
       <CardHeader className="min-h-[72px] pb-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

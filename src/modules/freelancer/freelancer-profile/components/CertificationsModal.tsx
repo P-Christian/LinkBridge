@@ -86,6 +86,31 @@ export function CertificationsModal({ isOpen, onClose, userId, certificationToEd
         }
     };
 
+    const todayString = new Date().toISOString().split("T")[0];
+
+    const handleIssueDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const val = e.target.value;
+        if (!val) {
+            setIssueDate("");
+            if (errors.issueDate) setErrors(prev => ({ ...prev, issueDate: "" }));
+            return;
+        }
+
+        // Enforce strict 4-digit maximum on the year segment (YYYY-MM-DD)
+        const parts = val.split("-");
+        if (parts[0] && parts[0].length > 4) {
+            return;
+        }
+
+        if (val > todayString) {
+            setErrors(prev => ({ ...prev, issueDate: "Issue date cannot be in the future" }));
+        } else {
+            if (errors.issueDate) setErrors(prev => ({ ...prev, issueDate: "" }));
+        }
+
+        setIssueDate(val);
+    };
+
     const handleSave = async () => {
         const newErrors: Record<string, string> = {};
         
@@ -95,10 +120,13 @@ export function CertificationsModal({ isOpen, onClose, userId, certificationToEd
         if (!issuingOrganization.trim()) {
             newErrors.issuingOrganization = "Issuing organization is required";
         }
+        if (issueDate && issueDate > todayString) {
+            newErrors.issueDate = "Issue date cannot be in the future";
+        }
 
         if (Object.keys(newErrors).length > 0) {
             setErrors(newErrors);
-            toast.error("Validation failed", { description: "Please fill in all required fields." });
+            toast.error("Validation failed", { description: "Please fix the errors before saving." });
             return;
         }
 
@@ -193,10 +221,17 @@ export function CertificationsModal({ isOpen, onClose, userId, certificationToEd
                             <label className="text-sm font-medium text-foreground">Issue Date</label>
                             <input
                                 type="date"
+                                min="1900-01-01"
+                                max={todayString}
                                 value={issueDate}
-                                onChange={(e) => setIssueDate(e.target.value)}
-                                className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                                onChange={handleIssueDateChange}
+                                className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    errors.issueDate ? "border-destructive focus-visible:ring-destructive" : "border-input"
+                                }`}
                             />
+                            {errors.issueDate && (
+                                <p className="text-xs text-destructive">{errors.issueDate}</p>
+                            )}
                         </div>
                     </div>
 

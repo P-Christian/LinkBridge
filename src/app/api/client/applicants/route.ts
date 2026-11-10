@@ -1,7 +1,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
-import { getJobPipeline } from "@/modules/client/pipeline/services/job-pipeline.service";
-import { JobPipelineStage, JobPipelineVersion } from "@/modules/client/pipeline/types";
+import { getJobPipelinesForJobs } from "@/modules/client/pipeline/services/job-pipeline.service";
+import { JobPipelineStage } from "@/modules/client/pipeline/types";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
 import {
@@ -9,42 +9,42 @@ import {
   type ApplicantEducationBulkRow,
 } from "@/modules/client/applicants/utils/applicantListEducation";
 
+import { safeErrorMessage } from "@/lib/api-error";
+import {
+  DirectusError,
+  directusItems,
+  directusItemsWhereIn,
+} from "@/lib/server/directus";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (
-  process.env.NEXT_PUBLIC_API_BASE_URL || ""
-).replace(/\/$/, "");
-
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-
-  if (DIRECTUS_TOKEN) {
-    headers.Authorization = `Bearer ${DIRECTUS_TOKEN}`;
-  }
-
-  return headers;
-}
+/**
+ * `status` is interpolated into a Directus filter query string, so only these
+ * enums are accepted — anything else is rejected rather than passed through.
+ */
+const ALLOWED_APPLICATION_STATUSES = new Set([
+  "APPLIED",
+  "DRAFT",
+  "UNDER_REVIEW",
+  "SCREENING",
+  "ASSESSMENT",
+  "SHORTLISTED",
+  "INTERVIEW",
+  "INTERVIEWING",
+  "OFFER",
+  "HIRED",
+  "REJECTED",
+  "WITHDRAWN",
+]);
 
 async function getCompanyId(
   userId: number
 ): Promise<number | null> {
-  const res = await fetch(
-    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
-    {
-      headers: getHeaders(),
-      cache: "no-store",
-    }
-  );
+  const rows = await directusItems<{ company_id: number }>("vs_company_user", {
+    query: `filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+  });
 
-  const json = await res.json();
-
-  return json.data?.[0]?.company_id ?? null;
+  return rows[0]?.company_id ?? null;
 }
 
 interface RawApplication {
@@ -111,37 +111,17 @@ async function getCompanyNames(
   companyIds: number[]
 ): Promise<Record<number, Company>> {
 
+  const rows = await directusItemsWhereIn<Company>(
+    "vs_company",
+    "company_id",
+    companyIds,
+    "company_id,company_name,company_logo,company_cover"
+  );
+
   const result: Record<number, Company> = {};
-
-  if (!companyIds.length) {
-    return result;
-  }
-
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${companyIds.join(",")}&fields=company_id,company_name,company_logo,company_cover&limit=200`,
-      {
-        headers: getHeaders(),
-        cache: "no-store",
-      }
-    );
-
-    if (!res.ok) {
-      return result;
-    }
-
-    const json = await res.json();
-
-    (json.data ?? []).forEach((company: Company) => {
-      result[company.company_id] = company;
-    });
-
-  } catch (err) {
-    console.error(
-      "Error fetching companies:",
-      err
-    );
-  }
+  rows.forEach((company) => {
+    result[company.company_id] = company;
+  });
 
   return result;
 }
@@ -199,21 +179,21 @@ function calculateProfileCompletion(
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json(
         { error: "Unauthorized." },
         { status: 401 }
       );
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json(
         { error: "Forbidden: employer access required." },
         { status: 403 }
       );
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // BUSINESS RULE: Only VERIFIED companies can browse candidate profiles
     const { isVerified, verification_status } = await checkCompanyVerificationStatus(userId);
@@ -242,20 +222,17 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get("status");
     const jobId = searchParams.get("job_id");
 
+    if (status && status !== "ALL" && !ALLOWED_APPLICATION_STATUSES.has(status)) {
+      return NextResponse.json({ error: "Invalid status filter." }, { status: 400 });
+    }
+
     // ------------------------------
     // Jobs
     // ------------------------------
 
-    const jobsRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_posting?filter[company_id][_eq]=${companyId}&fields=job_id,job_title,company_id&limit=500`,
-      {
-        headers: getHeaders(),
-        cache: "no-store",
-      }
-    );
-
-    const jobsJson = await jobsRes.json();
-    const jobs: Job[] = jobsJson.data ?? [];
+    const jobs = await directusItems<Job>("vs_job_posting", {
+      query: `filter[company_id][_eq]=${companyId}&fields=job_id,job_title,company_id&limit=-1`,
+    });
     const jobIds = jobs.map((job) => job.job_id);
 
     const companyIds = [
@@ -275,32 +252,29 @@ export async function GET(req: NextRequest) {
       });
     }
     
-    let filterQuery = `filter[job_id][_in]=${jobIds.join(",")}`;
-
+    const extraFilters: string[] = [];
     if (status && status !== "ALL") {
-      filterQuery += `&filter[application_status][_eq]=${status}`;
+      extraFilters.push(`filter[application_status][_eq]=${encodeURIComponent(status)}`);
     }
-
     if (jobId) {
-      filterQuery += `&filter[job_id][_eq]=${jobId}`;
+      extraFilters.push(`filter[job_id][_eq]=${encodeURIComponent(jobId)}`);
     }
 
     // ------------------------------
     // Applications
     // ------------------------------
 
-    const appRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_application?${filterQuery}&sort[]=-applied_at&fields=application_id,job_id,user_id,application_status,current_stage_id,cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at&limit=500`,
-      {
-        headers: getHeaders(),
-        cache: "no-store",
-      }
+    const rawApps = await directusItemsWhereIn<RawApplication>(
+      "vs_job_application",
+      "job_id",
+      jobIds,
+      "application_id,job_id,user_id,application_status,current_stage_id,cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at",
+      { extra: `sort[]=-applied_at${extraFilters.length ? `&${extraFilters.join("&")}` : ""}` }
     );
 
-    const appJson = await appRes.json();
-
-    const rawApps: RawApplication[] =
-      appJson.data ?? [];
+    // Batches sort themselves, so the flattened list is grouped by job id rather
+    // than by date. The response order is what the list renders.
+    rawApps.sort((a, b) => String(b.applied_at ?? "").localeCompare(String(a.applied_at ?? "")));
 
     if (!rawApps.length) {
       return NextResponse.json({
@@ -323,134 +297,90 @@ export async function GET(req: NextRequest) {
     // ------------------------------
 
     const [
-      usersRes,
-      skillsRes,
-      workRes,
-      resumeRes,
-      interviewsRes,
-      educationRes,
-      screeningAnswersRes,
-      appReferralRes,
+      users,
+      skillsRows,
+      workRows,
+      resumeRows,
+      interviewAppRows,
+      educationRows,
+      screeningAnswerRows,
+      referralAppRows,
     ] = await Promise.all([
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_position,profile_image_url,user_city,user_province&limit=500`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<VsUser>(
+        "vs_user",
+        "user_id",
+        userIds,
+        "user_id,user_fname,user_lname,user_email,user_position,profile_image_url,user_city,user_province"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_user_skills_map?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,skill_id.skill_name&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<SkillMap>(
+        "vs_user_skills_map",
+        "user_id",
+        userIds,
+        "user_id,skill_id.skill_name"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_work_experience?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,start_date,end_date,is_current_role&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<WorkExperience>(
+        "vs_work_experience",
+        "user_id",
+        userIds,
+        "user_id,start_date,end_date,is_current_role"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_seeker_resumes?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,is_primary,id&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<Resume>(
+        "vs_job_seeker_resumes",
+        "user_id",
+        userIds,
+        "user_id,is_primary,id"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_interview_application?filter[application_id][_in]=${appIds.join(",")}&fields=interview_id,application_id&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<{ interview_id: number; application_id: number }>(
+        "vs_interview_application",
+        "application_id",
+        appIds,
+        "interview_id,application_id"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_employee_education?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,employee_education_id,school_id.school_name,school_name_raw,school_course_id.course_name,course_name_raw,education_status,start_date,end_date&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<ApplicantEducationBulkRow>(
+        "vs_employee_education",
+        "user_id",
+        userIds,
+        "user_id,employee_education_id,school_id.school_name,school_name_raw,school_course_id.course_name,course_name_raw,education_status,start_date,end_date"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_application_answer?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,question_id&limit=1000`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<{ application_id: number; question_id: number }>(
+        "vs_job_application_answer",
+        "application_id",
+        appIds,
+        "application_id,question_id"
       ),
 
-      fetch(
-        `${DIRECTUS_BASE}/items/vs_job_application_referral?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,referral_id.referral_id,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=500`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
+      directusItemsWhereIn<{
+        application_id: number;
+        referral_id?: { referral_id?: number } | number;
+        referrer_user_id?: { user_id?: number; user_fname?: string; user_lname?: string } | number;
+      }>(
+        "vs_job_application_referral",
+        "application_id",
+        appIds,
+        "application_id,referral_id.referral_id,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname"
       ),
     ]);
-
-    const users: VsUser[] =
-      usersRes.ok
-        ? (await usersRes.json()).data ?? []
-        : [];
-
-    const skillsRows: SkillMap[] =
-      skillsRes.ok
-        ? (await skillsRes.json()).data ?? []
-        : [];
-
-    const workRows: WorkExperience[] =
-      workRes.ok
-        ? (await workRes.json()).data ?? []
-        : [];
-
-    const resumeRows: Resume[] =
-      resumeRes.ok
-        ? (await resumeRes.json()).data ?? []
-        : [];
-
-    const interviewAppRows: { interview_id: number; application_id: number }[] =
-      interviewsRes.ok
-        ? (await interviewsRes.json()).data ?? []
-        : [];
 
     const distinctInterviewIds = [
       ...new Set(interviewAppRows.map((r) => r.interview_id).filter(Boolean)),
     ];
 
-    let activeInterviewIdSet = new Set<number>();
-    if (distinctInterviewIds.length > 0) {
-      const activeIvRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_interview?filter[interview_id][_in]=${distinctInterviewIds.join(",")}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&fields=interview_id,interview_status&limit=500`,
-        {
-          headers: getHeaders(),
-          cache: "no-store",
-        }
-      );
-      if (activeIvRes.ok) {
-        const activeIvRows: { interview_id: number }[] =
-          (await activeIvRes.json()).data ?? [];
-        activeInterviewIdSet = new Set(activeIvRows.map((r) => r.interview_id));
-      }
-    }
-
-    const educationRows: ApplicantEducationBulkRow[] =
-      educationRes.ok
-        ? (await educationRes.json()).data ?? []
-        : [];
-
-    const screeningAnswerRows: { application_id: number; question_id: number }[] =
-      screeningAnswersRes.ok
-        ? (await screeningAnswersRes.json()).data ?? []
-        : [];
+    // A failed status read used to clear the set, which drops the scheduled
+    // interview marker for every candidate at once.
+    const activeInterviewRows = await directusItemsWhereIn<{ interview_id: number }>(
+      "vs_interview",
+      "interview_id",
+      distinctInterviewIds,
+      "interview_id,interview_status",
+      { extra: "filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED" }
+    );
+    const activeInterviewIdSet = new Set(activeInterviewRows.map((r) => r.interview_id));
     
     // ------------------------------
     // Maps
@@ -532,41 +462,30 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    const referralAppRows: {
-      application_id: number;
-      referral_id?: { referral_id?: number } | number;
-      referrer_user_id?: { user_id?: number; user_fname?: string; user_lname?: string } | number;
-    }[] = (await appReferralRes.json().catch(() => ({ data: [] }))).data ?? [];
-
     const referrerUserIds = [
       ...new Set(
         referralAppRows
           .map((r) =>
             typeof r.referrer_user_id === "object" ? r.referrer_user_id?.user_id : Number(r.referrer_user_id)
           )
-          .filter(Boolean)
+          .filter((id): id is number => Boolean(id))
       ),
     ];
 
+    // Whether a referrer is a school admin decides the referral TYPE shown to
+    // the recruiter, so an unread lookup has to fail the list rather than
+    // relabel every school-admin referral as a freelancer one.
+    const schoolAdminRows = await directusItemsWhereIn<{
+      user_id?: number | string;
+      school_id?: { school_name?: string } | null;
+    }>("vs_school_admin", "user_id", referrerUserIds, "user_id,school_id.school_name");
+
     const schoolAdminMap: Record<number, string> = {};
-    if (referrerUserIds.length > 0) {
-      try {
-        const sRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_school_admin?filter[user_id][_in]=${referrerUserIds.join(",")}&fields=user_id,school_id.school_name&limit=500`,
-          { headers: getHeaders(), cache: "no-store" }
-        );
-        if (sRes.ok) {
-          const sJson = await sRes.json();
-          (sJson.data || []).forEach((row: { user_id?: number | string; school_id?: { school_name?: string } | null }) => {
-            const uid = Number(row.user_id);
-            const sName = typeof row.school_id === "object" ? row.school_id?.school_name : null;
-            if (sName) schoolAdminMap[uid] = sName;
-          });
-        }
-      } catch (err) {
-        console.warn("Could not fetch school admin mapping for applicants:", err);
-      }
-    }
+    schoolAdminRows.forEach((row) => {
+      const uid = Number(row.user_id);
+      const sName = typeof row.school_id === "object" ? row.school_id?.school_name : null;
+      if (sName) schoolAdminMap[uid] = sName;
+    });
 
     const appReferralMap: Record<
       number,
@@ -599,43 +518,27 @@ export async function GET(req: NextRequest) {
     // Job Pipelines resolution
     // ------------------------------
     const uniqueJobIds = [...new Set(rawApps.map((a) => a.job_id).filter(Boolean))];
-    const jobPipelineMap: Record<number, JobPipelineVersion | null> = {};
-    await Promise.all(
-      uniqueJobIds.map(async (jId) => {
-        try {
-          const pipe = await getJobPipeline(jId);
-          jobPipelineMap[jId] = pipe;
-        } catch {
-          jobPipelineMap[jId] = null;
-        }
-      })
-    );
+    const jobPipelineMap = await getJobPipelinesForJobs(uniqueJobIds, companyId);
 
     // ------------------------------
-    // Batched latest assessment attempt lookup (single query, no N+1)
+    // Latest assessment attempt per application (batched, no N+1)
     // ------------------------------
     const attemptMap: Record<string, string | null> = {};
-    try {
-      const attemptAppIds = rawApps.map((a) => a.application_id).filter(Boolean);
-      if (attemptAppIds.length > 0) {
-        const attemptRes = await fetch(
-          `${DIRECTUS_BASE}/items/vs_application_assessment_attempts?filter[application_id][_in]=${attemptAppIds.join(",")}&sort[]=-attempt_number&fields=application_id,job_stage_id,attempt_number,status&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        );
-        if (attemptRes.ok) {
-          const attemptRows: AssessmentAttemptRow[] =
-            (await attemptRes.json()).data ?? [];
-          for (const row of attemptRows) {
-            const key = `${Number(row.application_id)}:${Number(row.job_stage_id)}`;
-            if (!(key in attemptMap)) {
-              attemptMap[key] =
-                typeof row.status === "string" ? row.status : null;
-            }
-          }
-        }
+    const attemptRows = await directusItemsWhereIn<AssessmentAttemptRow>(
+      "vs_application_assessment_attempts",
+      "application_id",
+      appIds,
+      "application_id,job_stage_id,attempt_number,status",
+      { extra: "sort[]=-attempt_number" }
+    );
+    // Batches split by application id, so each application's attempts all
+    // arrive in one sorted batch: the first row per (application, stage) key is
+    // its highest attempt number.
+    for (const row of attemptRows) {
+      const key = `${Number(row.application_id)}:${Number(row.job_stage_id)}`;
+      if (!(key in attemptMap)) {
+        attemptMap[key] = typeof row.status === "string" ? row.status : null;
       }
-    } catch {
-      // Fail gracefully: rows fall back to null/false below.
     }
 
     // ------------------------------
@@ -791,17 +694,21 @@ export async function GET(req: NextRequest) {
 
     
   } catch (err: unknown) {
-    console.error(err);
+    console.error("GET /api/client/applicants:", err);
+
+    // An unread list is not an empty one. Answering 200 with whatever rows did
+    // come back renders candidates as "Applicant #123" with no skills, no
+    // education and no referral, which the recruiter reads as the real roster.
+    const upstream = err instanceof DirectusError;
 
     return NextResponse.json(
       {
-        error:
-          err instanceof Error
-            ? err.message
-            : "Internal server error",
+        error: upstream
+          ? "Applicants could not be read. Please try again."
+          : safeErrorMessage(err, "Internal server error"),
       },
       {
-        status: 500,
+        status: upstream ? 502 : 500,
       }
     );
   }

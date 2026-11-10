@@ -54,7 +54,8 @@ export function HomeSearchBar() {
       <Button
         type="submit"
         size="lg"
-        className="rounded-xl w-full md:w-auto px-8 py-6 text-base shadow-md hover:shadow-lg transition-all cursor-pointer"
+      
+        className="rounded-xl w-full md:w-auto px-8 py-6 text-base shadow-md hover:shadow-lg transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
       >
         Search Jobs
       </Button>

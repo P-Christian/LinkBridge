@@ -233,7 +233,7 @@ function PhoneCountryPicker({
 
 function StepIndicator({ currentStep, steps = CLIENT_STEPS }: { currentStep: number; steps?: Array<{ step: number; label: string }> }) {
   return (
-        <div className="flex items-start justify-center mb-3 md:mb-8">
+    <div className="flex items-start justify-center mb-3 md:mb-8">
       {steps.map((s, i) => (
         <React.Fragment key={s.step}>
           <div className="flex flex-col items-center gap-1.5 w-14">
@@ -350,6 +350,8 @@ function SignupPageContent() {
   const searchParams = useSearchParams();
   const queryType = searchParams.get('type');
   const queryRole = searchParams.get('role');
+  const nextParam = searchParams.get('next');
+  const nextQuery = nextParam ? `&next=${encodeURIComponent(nextParam)}` : '';
   const inviteToken = searchParams.get('token');
 
   // ── Navigation ────────────────────────────────────────────────────────────
@@ -782,13 +784,13 @@ function SignupPageContent() {
     if (userType === 'client') {
       setStep('client');
       setClientStep(1);
-      router.replace(`/signup?role=employer${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=employer${socialQuery}${nextQuery}`, { scroll: false });
     } else if (userType === 'school') {
       setStep('school');
-      router.replace(`/signup?role=school${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=school${socialQuery}${nextQuery}`, { scroll: false });
     } else {
       setStep('freelancer');
-      router.replace(`/signup?role=employee${socialQuery}`, { scroll: false });
+      router.replace(`/signup?role=employee${socialQuery}${nextQuery}`, { scroll: false });
     }
     window.scrollTo(0, 0);
   };
@@ -1262,9 +1264,9 @@ function SignupPageContent() {
   // ─── Render: Selection ────────────────────────────────────────────────────
 
   const renderSelectionScreen = () => (
-                <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6 md:py-12 text-center">
+    <div className="w-full max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-6 md:py-12 text-center">
       <h1 className="text-3xl md:text-4xl font-medium text-primary mb-3">
-        Join VOS Sync
+        Join LinkBridge
       </h1>
       <p className="text-base text-muted-foreground mb-4">
         Choose how you&apos;ll use the platform.
@@ -1339,9 +1341,9 @@ function SignupPageContent() {
 
 
   const renderClientStep1 = () => (
-                <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
+    <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
       <div className="mb-6">
-                    <button onClick={handleBackToSelection} className="max-md:min-h-11 flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+        <button onClick={handleBackToSelection} className="max-md:min-h-11 flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
           <ArrowLeft size={16} className="mr-2" />Back to selection
         </button>
       </div>
@@ -1383,7 +1385,7 @@ function SignupPageContent() {
                       onChange={e => s1Set('password', e.target.value)} disabled={loading} placeholder="8+ characters"
                       className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.password && 'border-destructive')} />
                     <button type="button" onClick={() => setShowPassword(!showPassword)}
-                                        className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
+                      className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
@@ -1398,7 +1400,7 @@ function SignupPageContent() {
                       onChange={e => s1Set('confirmPassword', e.target.value)} disabled={loading} placeholder="Repeat password"
                       className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.confirmPassword && 'border-destructive')} />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                                        className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
+                      className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
                       {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
                   </div>
@@ -1477,7 +1479,7 @@ function SignupPageContent() {
   // ─── Render: Client Step 2 — Gov ID Upload ────────────────────────────────
 
   const renderClientStep2 = () => (
-                <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
+    <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
       <div className="mb-6">
         <button onClick={() => { setClientStep(1); setErrors({}); }} className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
           <ArrowLeft size={16} className="mr-2" />Back
@@ -1630,7 +1632,7 @@ function SignupPageContent() {
   const renderClientStep3 = () => {
     const isPhilippines = company.companyCountryCode === 'PH';
     return (
-                  <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
+      <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
         <div className="mb-6">
           <button onClick={() => { setClientStep(2); setErrors({}); }} className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
             <ArrowLeft size={16} className="mr-2" />Back
@@ -1829,7 +1831,7 @@ function SignupPageContent() {
   // ─── Render: Client Step 4 — Compliance ──────────────────────────────────
 
   const renderClientStep4 = () => (
-                <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
+    <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-4 md:py-8">
       <div className="mb-6">
         <button onClick={() => { setClientStep(3); setErrors({}); }} className="flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
           <ArrowLeft size={16} className="mr-2" />Back
@@ -1883,7 +1885,7 @@ function SignupPageContent() {
               className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', errors.terms && 'border-destructive')} />
             <span className={cn('text-sm leading-snug select-none', errors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
               Yes, I understand and agree to the{' '}
-              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
+              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
               <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
               <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
               <span className="text-destructive ml-0.5">*</span>
@@ -2394,8 +2396,8 @@ function SignupPageContent() {
 
       {/* Compliance Preferences */}
       <div className="space-y-4">
-          <label className="flex items-start gap-3 cursor-pointer max-md:min-h-11">
-            <Checkbox id="f-marketing-checkbox" checked={freelancerMarketingConsent}
+        <label className="flex items-start gap-3 cursor-pointer max-md:min-h-11">
+          <Checkbox id="f-marketing-checkbox" checked={freelancerMarketingConsent}
             onCheckedChange={val => setFreelancerMarketingConsent(Boolean(val))}
             className="mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white" />
           <span className="text-sm text-muted-foreground leading-tight select-none">
@@ -2410,9 +2412,9 @@ function SignupPageContent() {
               className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', freelancerErrors.terms && 'border-destructive')} />
             <span className={cn('text-sm leading-tight select-none', freelancerErrors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
               Yes, I understand and agree to the{' '}
-              <Link href="#" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
-              <Link href="#" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
-              <Link href="#" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
+              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
+              <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
+              <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
               <span className="text-destructive ml-0.5">*</span>
             </span>
           </label>
@@ -2437,7 +2439,7 @@ function SignupPageContent() {
   );
 
   const renderFreelancerForm = () => (
-                <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-6 md:py-12">
+    <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-6 md:py-12">
       <div className="mb-6">
         <button onClick={handleFreelancerBack} className="max-md:min-h-11 flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
           <ArrowLeft size={16} className="mr-2" />
@@ -2679,8 +2681,18 @@ function SignupPageContent() {
     setVerifiedDestination(data.destination);
     setVerifiedRole(data.role);
     setAttachmentUploadToken(data.attachmentToken);
-    toast.success('Email verified!', { description: 'Welcome to VOS Sync.' });
-    await completeVerifiedRegistration(data.role, data.destination, data.attachmentToken);
+    toast.success('Email verified!', { description: 'Welcome to LinkBridge.' });
+
+    // If nextParam exists and is a safe internal path, prioritize it over default role dashboard
+    let targetDestination = data.destination;
+    if (nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//')) {
+      const lower = nextParam.toLowerCase();
+      if (!lower.startsWith('/signup') && !lower.startsWith('/login')) {
+        targetDestination = nextParam;
+      }
+    }
+
+    await completeVerifiedRegistration(data.role, targetDestination, data.attachmentToken);
   };
 
   const handleResendOtp = async () => {
@@ -2765,9 +2777,9 @@ function SignupPageContent() {
   };
 
   const renderSchoolForm = () => (
-                <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-6 md:py-12">
+    <div className="w-full max-w-[600px] mx-auto px-4 sm:px-6 pt-2 pb-6 md:py-12">
       <div className="mb-6">
-                    <button onClick={handleBackToSelection} className="max-md:min-h-11 flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
+        <button onClick={handleBackToSelection} className="max-md:min-h-11 flex items-center text-sm font-medium text-muted-foreground hover:text-primary transition-colors">
           <ArrowLeft size={16} className="mr-2" />Back to selection
         </button>
       </div>
@@ -2901,7 +2913,7 @@ function SignupPageContent() {
                     onChange={e => setSchoolFormData(prev => ({ ...prev, password: e.target.value }))}
                     placeholder="8+ characters" className={cn('h-12 pr-12 border-2', schoolErrors.password && 'border-destructive')} />
                   <button type="button" onClick={() => setSchoolShowPassword(!schoolShowPassword)}
-                                        className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                    className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
                     {schoolShowPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                   </button>
                 </div>
@@ -2929,9 +2941,9 @@ function SignupPageContent() {
                 className={cn('mt-0.5 data-[state=checked]:bg-primary data-[state=checked]:border-primary text-white', schoolErrors.terms && 'border-destructive')} />
               <span className={cn('text-sm leading-tight select-none', schoolErrors.terms ? 'text-destructive font-medium' : 'text-muted-foreground')}>
                 Yes, I understand and agree to the{' '}
-                <Link href="#" className="text-primary hover:underline font-medium">VOS Sync Terms of Service</Link>, including the{' '}
-                <Link href="#" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
-                <Link href="#" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
+                <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">LinkBridge Terms of Service</Link>, including the{' '}
+                <Link href="/terms-of-service" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">User Agreement</Link> and{' '}
+                <Link href="/privacy-policy" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline font-medium">Privacy Policy</Link>.
                 <span className="text-destructive ml-0.5">*</span>
               </span>
             </label>

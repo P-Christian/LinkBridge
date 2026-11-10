@@ -6,6 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Loader2, User, Mail, Phone, CheckCircle } from "lucide-react";
+import { toast } from "sonner";
+import {
+  CONTACT_MAX_LENGTH,
+  caretForDigitCount,
+  formatContactInput,
+  validatePhContact,
+} from "@/lib/phone";
 
 interface AccountSettingsProps {
   user: UserProfile | null;
@@ -19,6 +26,7 @@ export default function AccountSettings({
   onSave,
 }: AccountSettingsProps) {
   const [overrides, setOverrides] = useState<Partial<UserProfile>>({});
+  const [contactError, setContactError] = useState<string | null>(null);
 
   const formData = useMemo(
     () => ({
@@ -31,12 +39,60 @@ export default function AccountSettings({
     [user, overrides]
   );
 
+  const isDirty = useMemo(
+    () =>
+      (
+        [
+          "user_fname",
+          "user_mname",
+          "user_lname",
+          "user_contact",
+        ] as const
+      ).some((field) => {
+        const baseline = user?.[field] ?? "";
+        const current = overrides[field] ?? baseline;
+        if (field === "user_contact") {
+          // The input auto-formats; only a real digit change counts as dirty.
+          return current.replace(/\D/g, "") !== baseline.replace(/\D/g, "");
+        }
+        return current !== baseline;
+      }),
+    [user, overrides]
+  );
+
   const handleChange = (field: keyof UserProfile, value: string) => {
     setOverrides((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleContactChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target;
+    const raw = el.value;
+    const digitsBeforeCaret = raw
+      .slice(0, el.selectionStart ?? raw.length)
+      .replace(/\D/g, "").length;
+    const formatted = formatContactInput(raw);
+    const caret = caretForDigitCount(formatted, digitsBeforeCaret);
+    handleChange("user_contact", formatted);
+    setContactError(validatePhContact(formatted));
+    // React re-commits the controlled value first, then we restore the caret.
+    requestAnimationFrame(() => {
+      if (document.activeElement === el) el.setSelectionRange(caret, caret);
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Only enforce format on values modified in this session so untouched
+    // legacy contact data does not block unrelated saves.
+    const baselineContact = (user?.user_contact ?? "").replace(/\D/g, "");
+    if (formData.user_contact.replace(/\D/g, "") !== baselineContact) {
+      const error = validatePhContact(formData.user_contact);
+      if (error) {
+        setContactError(error);
+        toast.error("Please enter a valid contact number before saving.");
+        return;
+      }
+    }
     const ok = await onSave({
       user_fname: formData.user_fname,
       user_mname: formData.user_mname,
@@ -45,6 +101,7 @@ export default function AccountSettings({
     });
     if (ok) {
       setOverrides({});
+      setContactError(null);
     }
   };
 
@@ -113,18 +170,30 @@ export default function AccountSettings({
           </Label>
           <Input
             id="contact"
-            value={formData.user_contact}
-            onChange={(e) => handleChange("user_contact", e.target.value)}
-            placeholder="Contact Number"
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            maxLength={CONTACT_MAX_LENGTH}
+            value={formatContactInput(formData.user_contact)}
+            onChange={handleContactChange}
+            placeholder="+63 912 345 6789"
+            aria-invalid={!!contactError}
             className="h-11 md:h-10 text-base md:text-sm rounded-lg"
           />
+          {contactError ? (
+            <span className="text-sm md:text-xs font-medium text-rose-500">{contactError}</span>
+          ) : (
+            <span className="text-sm md:text-xs text-zinc-400">
+              Philippine mobile (+63 9XX XXX XXXX) or landline format.
+            </span>
+          )}
         </div>
       </div>
 
       <div className="flex justify-end pt-4 border-t border-zinc-100 dark:border-zinc-800">
         <Button
           type="submit"
-          disabled={saving}
+          disabled={saving || !isDirty}
           className="h-9 px-6 text-sm rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground border-0 font-medium shadow-sm transition-all max-md:min-h-11"
         >
           {saving ? (
@@ -135,7 +204,7 @@ export default function AccountSettings({
           ) : (
             <>
               <CheckCircle className="h-4 w-4 mr-2" />
-              Save Account Profile
+              {isDirty ? "Save Account Profile" : "No changes to save"}
             </>
           )}
         </Button>

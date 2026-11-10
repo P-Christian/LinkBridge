@@ -1,7 +1,6 @@
 // src/modules/matching-engine/retrieval/nameMatcher.ts
 
 import { cleanText } from "../normalizers/textNormalizer";
-import { computeTokenOverlapScore } from "./tokenMatcher";
 import { computeJaroWinkler } from "./fuzzyMatcher";
 
 export interface NameMatchResult {
@@ -30,7 +29,31 @@ export function matchCandidateName(query: string, candidateName: string): NameMa
   }
 
   // 3. Token overlap match (e.g. searching "Juan" or "Dela Cruz" matches "Juan Dela Cruz")
-  const tokenOverlap = computeTokenOverlapScore(queryClean, nameClean);
+  const queryTokens = queryClean.split(/\s+/).filter(Boolean);
+  const nameTokens = nameClean.split(/\s+/).filter(Boolean);
+
+  let matchedTokens = 0;
+  for (const q of queryTokens) {
+    if (nameTokens.includes(q)) {
+      matchedTokens++;
+      continue;
+    }
+    // Prefix match if query token is at least 4 chars (e.g. "christ" for "christian")
+    if (q.length >= 4 && nameTokens.some((n) => n.startsWith(q))) {
+      matchedTokens++;
+      continue;
+    }
+    // Stricter typo match for longer tokens (>= 5 chars) only
+    if (q.length >= 5) {
+      const isFuzzy = nameTokens.some((n) => n.length >= 5 && computeJaroWinkler(q, n) >= 0.92);
+      if (isFuzzy) {
+        matchedTokens++;
+        continue;
+      }
+    }
+  }
+
+  const tokenOverlap = queryTokens.length > 0 ? matchedTokens / queryTokens.length : 0;
   if (tokenOverlap === 1.0) {
     return { matched: true, score: 95, reason: "NAME_TOKEN_MATCH" };
   }
@@ -38,18 +61,15 @@ export function matchCandidateName(query: string, candidateName: string): NameMa
     return { matched: true, score: Math.round(tokenOverlap * 90), reason: "NAME_TOKEN_MATCH" };
   }
 
-  // 4. Substring containment (query of 3+ chars contained in name or vice versa)
-  if (queryClean.length >= 3 && nameClean.includes(queryClean)) {
-    return { matched: true, score: 90, reason: "NAME_SUBSTRING_MATCH" };
-  }
-  if (nameClean.length >= 3 && queryClean.includes(nameClean)) {
+  // 4. Substring containment (query of 4+ chars contained in candidate name)
+  if (queryClean.length >= 4 && nameClean.includes(queryClean)) {
     return { matched: true, score: 90, reason: "NAME_SUBSTRING_MATCH" };
   }
 
-  // 5. Fuzzy character match (typo handling across entire name)
-  if (queryClean.length >= 3) {
+  // 5. Fuzzy character match across entire name (typo handling on longer queries >= 5 chars)
+  if (queryClean.length >= 5) {
     const jaro = computeJaroWinkler(queryClean, nameClean);
-    if (jaro >= 0.85) {
+    if (jaro >= 0.90) {
       return { matched: true, score: Math.round(jaro * 90), reason: "NAME_FUZZY_MATCH" };
     }
   }

@@ -10,7 +10,7 @@ import { AuditTable } from './AuditTable';
 import { AuditDetailModal } from './AuditDetailModal';
 import { AuditSettingsModal } from './AuditSettingsModal';
 import { Card } from '@/components/ui/card';
-import { ShieldCheck, AlertCircle } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import { motion, Variants } from 'framer-motion';
 
 const containerVariants: Variants = {
@@ -32,6 +32,15 @@ const itemVariants: Variants = {
   },
 };
 
+const getTodayStr = () => {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+};
+
 const DEFAULT_FILTERS: AuditFiltersType = {
   search: '',
   event_category: 'ALL',
@@ -40,14 +49,14 @@ const DEFAULT_FILTERS: AuditFiltersType = {
   actor_type: 'ALL',
   organization_type: 'ALL',
   resource_type: '',
-  date_from: '',
-  date_to: '',
+  date_from: getTodayStr(),
+  date_to: getTodayStr(),
   page: 1,
   limit: 10,
 };
 
 export function AuditTrailPage() {
-  const { records, total, kpis, config, loading, error, fetchAuditLogs, fetchAuditConfig, saveAuditConfig, exportCSV } = useAuditTrail();
+  const { records, total, kpis, config, loading, fetchAuditLogs, fetchAuditConfig, saveAuditConfig, exportCSV } = useAuditTrail();
   const [filters, setFilters] = useState<AuditFiltersType>(DEFAULT_FILTERS);
   const [selectedRecord, setSelectedRecord] = useState<AuditRecord | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -109,7 +118,9 @@ export function AuditTrailPage() {
       </motion.div>
 
       {/* KPI Cards */}
-      <AuditKPICards kpis={kpis} loading={loading} />
+      {/* `loading` is true on every filter change too, and the previous counts
+          are still on hand, so only a first read with nothing to show blanks them. */}
+      <AuditKPICards kpis={kpis} loading={loading && records.length === 0} />
 
       {/* Main Content Card */}
       <motion.div variants={itemVariants}>
@@ -123,14 +134,6 @@ export function AuditTrailPage() {
             onOpenSettings={() => setSettingsOpen(true)}
             isExporting={isExporting}
           />
-
-          {/* Error Alert */}
-          {error && (
-            <div className="mb-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
-          )}
 
           {/* Audit Table */}
           <AuditTable

@@ -2,6 +2,21 @@
 import { InterviewTemplateData } from "../types";
 import { createGoogleCalendarUrl } from "../calendar/google-calendar";
 import { getBaseUrl } from "./base-url";
+import { escapeHtml, safeHttpUrl } from "./escape-html";
+
+/**
+ * meeting_link is employer-supplied free text, so it is only ever emitted as an
+ * anchor when it parses as an absolute http(s) URL. Anything else (relative
+ * text, `javascript:`, garbage) is rendered as escaped plain text. The returned
+ * string is an intentional markup fragment and is inserted unescaped.
+ */
+function renderMeetingLink(meetingLink?: string | null): string {
+  const href = safeHttpUrl(meetingLink);
+  if (href) {
+    return `<a href="${href}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Join Meeting</a>`;
+  }
+  return escapeHtml(meetingLink);
+}
 
 export function interviewScheduledTemplate(data: InterviewTemplateData) {
   const {
@@ -18,6 +33,17 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
     baseUrl: customBaseUrl,
   } = data;
   const baseUrl = getBaseUrl(customBaseUrl);
+
+  // Every value below originates from a principal (employer or candidate).
+  const safeCandidateName = escapeHtml(candidateName);
+  const safeCompanyName = escapeHtml(companyName);
+  const safeJobTitle = escapeHtml(jobTitle);
+  const safeInterviewFormat = escapeHtml(interviewFormat);
+  const safeTimezone = escapeHtml(timezone);
+  const safeDurationMinutes = escapeHtml(durationMinutes);
+  const safeMeetingLocation = escapeHtml(meetingLocation);
+  const safeCandidateNotes = escapeHtml(candidateNotes);
+  const safeBaseUrl = escapeHtml(baseUrl);
 
   const formattedDate = new Date(scheduledAt).toLocaleString("en-US", {
     weekday: "long",
@@ -44,14 +70,14 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e4e4e7; border-radius: 16px; padding: 32px; background-color: #ffffff; color: #18181b;">
         <div style="border-bottom: 1px solid #f4f4f5; padding-bottom: 20px; margin-bottom: 24px;">
-          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">VOS Sync</h1>
+          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">LinkBridge</h1>
           <p style="font-size: 12px; color: #71717a; margin: 4px 0 0 0;">Interview Invitation</p>
         </div>
 
-        <h2 style="font-size: 18px; font-weight: 700; color: #09090b; margin-top: 0;">Hello ${candidateName},</h2>
+        <h2 style="font-size: 18px; font-weight: 700; color: #09090b; margin-top: 0;">Hello ${safeCandidateName},</h2>
         
         <p style="font-size: 14px; line-height: 1.6; color: #3f3f46;">
-          Great news! <strong>${companyName}</strong> has scheduled an interview with you for the position of <strong>${jobTitle}</strong>.
+          Great news! <strong>${safeCompanyName}</strong> has scheduled an interview with you for the position of <strong>${safeJobTitle}</strong>.
         </p>
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 24px 0;">
@@ -62,22 +88,22 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">⏱️ Duration:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${durationMinutes} minutes</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeDurationMinutes} minutes</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🌐 Timezone:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${timezone}</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeTimezone}</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📌 Format:</td>
-              <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${interviewFormat}</td>
+              <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeInterviewFormat}</td>
             </tr>
             ${
               meetingLink
                 ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🔗 Meeting Link:</td>
-              <td style="padding: 6px 0;"><a href="${meetingLink}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Join Meeting</a></td>
+              <td style="padding: 6px 0;">${renderMeetingLink(meetingLink)}</td>
             </tr>
             `
                 : ""
@@ -87,7 +113,7 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
                 ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📍 Location:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${meetingLocation}</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeMeetingLocation}</td>
             </tr>
             `
                 : ""
@@ -106,18 +132,18 @@ export function interviewScheduledTemplate(data: InterviewTemplateData) {
             ? `
         <div style="background-color: #f1f5f9; border-left: 4px solid #14a800; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Message from Employer:</p>
-          <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${candidateNotes}</p>
+          <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeCandidateNotes}</p>
         </div>
         `
             : ""
         }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${baseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">VOS Sync Portal</a>.
+          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">
-          Sent by VOS Sync Recruitment System &bull; Automatic notification
+          Sent by LinkBridge Recruitment System &bull; Automatic notification
         </div>
       </div>
     `,
@@ -139,6 +165,17 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
     baseUrl: customBaseUrl,
   } = data;
   const baseUrl = getBaseUrl(customBaseUrl);
+
+  // Every value below originates from a principal (employer or candidate).
+  const safeCandidateName = escapeHtml(candidateName);
+  const safeCompanyName = escapeHtml(companyName);
+  const safeJobTitle = escapeHtml(jobTitle);
+  const safeInterviewFormat = escapeHtml(interviewFormat);
+  const safeTimezone = escapeHtml(timezone);
+  const safeDurationMinutes = escapeHtml(durationMinutes);
+  const safeMeetingLocation = escapeHtml(meetingLocation);
+  const safeCandidateNotes = escapeHtml(candidateNotes);
+  const safeBaseUrl = escapeHtml(baseUrl);
 
   const formattedDate = new Date(scheduledAt).toLocaleString("en-US", {
     weekday: "long",
@@ -165,14 +202,14 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
     html: `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #e4e4e7; border-radius: 16px; padding: 32px; background-color: #ffffff; color: #18181b;">
         <div style="border-bottom: 1px solid #f4f4f5; padding-bottom: 20px; margin-bottom: 24px;">
-          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">VOS Sync</h1>
+          <h1 style="font-size: 20px; font-weight: 800; color: #14a800; margin: 0;">LinkBridge</h1>
           <p style="font-size: 12px; color: #71717a; margin: 4px 0 0 0;">Interview Rescheduled</p>
         </div>
 
-        <h2 style="font-size: 18px; font-weight: 700; color: #09090b; margin-top: 0;">Hello ${candidateName},</h2>
+        <h2 style="font-size: 18px; font-weight: 700; color: #09090b; margin-top: 0;">Hello ${safeCandidateName},</h2>
         
         <p style="font-size: 14px; line-height: 1.6; color: #3f3f46;">
-          Your scheduled interview with <strong>${companyName}</strong> for the position of <strong>${jobTitle}</strong> has been rescheduled to a new time.
+          Your scheduled interview with <strong>${safeCompanyName}</strong> for the position of <strong>${safeJobTitle}</strong> has been rescheduled to a new time.
         </p>
 
         <div style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 20px; margin: 24px 0;">
@@ -183,22 +220,22 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">⏱️ Duration:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${durationMinutes} minutes</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeDurationMinutes} minutes</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🌐 Timezone:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${timezone}</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeTimezone}</td>
             </tr>
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📌 Format:</td>
-              <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${interviewFormat}</td>
+              <td style="padding: 6px 0; color: #0f172a; font-weight: 600;">${safeInterviewFormat}</td>
             </tr>
             ${
               meetingLink
                 ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">🔗 Meeting Link:</td>
-              <td style="padding: 6px 0;"><a href="${meetingLink}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 600;">Join Meeting</a></td>
+              <td style="padding: 6px 0;">${renderMeetingLink(meetingLink)}</td>
             </tr>
             `
                 : ""
@@ -208,7 +245,7 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
                 ? `
             <tr>
               <td style="padding: 6px 0; color: #64748b; font-weight: 600;">📍 Location:</td>
-              <td style="padding: 6px 0; color: #0f172a;">${meetingLocation}</td>
+              <td style="padding: 6px 0; color: #0f172a;">${safeMeetingLocation}</td>
             </tr>
             `
                 : ""
@@ -227,18 +264,18 @@ export function interviewRescheduledTemplate(data: InterviewTemplateData) {
             ? `
         <div style="background-color: #f1f5f9; border-left: 4px solid #14a800; padding: 16px; border-radius: 6px; margin-bottom: 24px;">
           <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 6px 0; text-transform: uppercase;">Message from Employer:</p>
-          <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${candidateNotes}</p>
+          <p style="font-size: 13px; color: #334155; margin: 0; white-space: pre-line;">${safeCandidateNotes}</p>
         </div>
         `
             : ""
         }
 
         <p style="font-size: 13px; color: #71717a; line-height: 1.5;">
-          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${baseUrl}/vos-sync/freelancer/applications" style="color: #14a800; font-weight: 600;">VOS Sync Portal</a>.
+          You can review your active applications and upcoming interview schedules anytime by logging into your <a href="${safeBaseUrl}/linkbridge/freelancer/applications" style="color: #14a800; font-weight: 600;">LinkBridge Portal</a>.
         </p>
 
         <div style="border-top: 1px solid #f4f4f5; margin-top: 32px; padding-top: 16px; font-size: 11px; color: #a1a1aa; text-align: center;">
-          Sent by VOS Sync Recruitment System &bull; Automatic notification
+          Sent by LinkBridge Recruitment System &bull; Automatic notification
         </div>
       </div>
     `,

@@ -20,6 +20,7 @@ import {
   Youtube,
   Bookmark,
   Share2,
+  ArrowRight,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,7 @@ import { ApplyModal } from "./ApplyModal";
 import { useFreelancerBookmarks } from "../../freelancer/freelancer-bookmarks/hooks/useFreelancerBookmarks";
 import ReferModal from "../../freelancer/freelancer-referrals/components/ReferModal";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { safeUrl } from "@/lib/safe-url";
 
 interface Props {
   jobId: number;
@@ -125,6 +127,9 @@ export default function JobDetailPage({ jobId }: Props) {
   const [copied, setCopied] = useState(false);
   const [alreadyApplied, setAlreadyApplied] = useState(false);
   const [referModalOpen, setReferModalOpen] = useState(false);
+  const [referralInfo, setReferralInfo] = useState<{ referrer_name: string; expires_at: string | null } | null>(null);
+  const [profileCompletion, setProfileCompletion] = useState<number | null>(null);
+  const [now] = useState(() => Date.now());
 
   const { bookmarkedJobIds, toggleBookmark, fetchBookmarks } = useFreelancerBookmarks();
   const isBookmarked = bookmarkedJobIds.includes(jobId);
@@ -134,7 +139,34 @@ export default function JobDetailPage({ jobId }: Props) {
 
   useEffect(() => {
     fetchBookmarks();
-  }, [fetchBookmarks]);
+
+    // Check referral claim for this job
+    fetch(`/api/freelancer/referrals/check-claim?job_id=${jobId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.claimed) {
+          setReferralInfo({
+            referrer_name: data.referrer_name,
+            expires_at: data.expires_at || null,
+          });
+        }
+      })
+      .catch((err) => console.error("Error checking claim in JobDetailPage:", err));
+
+    // Check freelancer profile completion
+    fetch("/api/freelancer/profile")
+      .then((res) => res.json())
+      .then((json) => {
+        const profile = json?.data;
+        if (profile) {
+          const profileObj = profile.job_seeker_profile || profile.vs_job_seeker_profile;
+          const record = Array.isArray(profileObj) ? profileObj[0] : profileObj;
+          const percent = typeof record?.profile_completion_percent === "number" ? record.profile_completion_percent : 0;
+          setProfileCompletion(percent);
+        }
+      })
+      .catch((err) => console.error("Error checking profile completion in JobDetailPage:", err));
+  }, [fetchBookmarks, jobId]);
 
   useEffect(() => {
     async function loadJob() {
@@ -191,18 +223,23 @@ export default function JobDetailPage({ jobId }: Props) {
         </div>
         <h2 className="text-lg font-bold text-foreground">Failed to load job listing</h2>
         <p className="text-sm text-muted-foreground">{error || "The job listing may have been closed or removed."}</p>
-        <Button variant="outline" size="sm" onClick={() => router.push("/vos-sync/freelancer/jobs")}>
+        <Button variant="outline" size="sm" onClick={() => router.push("/linkbridge/freelancer/jobs")}>
           Back to Jobs List
         </Button>
       </div>
     );
   }
 
+  // Employer-supplied socials must pass a scheme allowlist before reaching an href.
+  const facebookUrl = safeUrl(job.company_facebook);
+  const instagramUrl = safeUrl(job.company_instagram);
+  const youtubeUrl = safeUrl(job.company_youtube);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-8 space-y-6">
       {/* Back button */}
       <Link
-        href="/vos-sync/freelancer/jobs"
+        href="/linkbridge/freelancer/jobs"
         className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors font-medium mb-2"
       >
         <ArrowLeft className="h-4 w-4" />
@@ -242,12 +279,33 @@ export default function JobDetailPage({ jobId }: Props) {
           </div>
 
           <div className="px-6 sm:px-8 space-y-5">
-            {/* Title Block */}
-            <div className="pt-2">
-              <h1 className="text-2xl font-bold text-foreground tracking-tight leading-snug">
-                {job.job_title}
-              </h1>
-              <p className="text-sm text-muted-foreground mt-1">
+            {/* Title Block with compact Referral Badge */}
+            <div className="pt-2 space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <h1 className="text-2xl font-bold text-foreground tracking-tight leading-snug">
+                  {job.job_title}
+                </h1>
+                {referralInfo && (
+                  <Badge
+                    variant="outline"
+                    className="bg-primary/10 text-primary border-primary/25 text-xs font-semibold px-3 py-1 gap-1.5 rounded-full shrink-0 w-fit"
+                  >
+                    <span>👥 Referred by {referralInfo.referrer_name}</span>
+                    {referralInfo.expires_at && (() => {
+                      const diff = new Date(referralInfo.expires_at).getTime() - now;
+                      const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+                      if (days <= 0) return <span className="text-destructive font-bold ml-1">· Expired</span>;
+                      if (days === 1) return <span className="text-destructive font-bold ml-1">· ⚠️ Expires tomorrow</span>;
+                      return (
+                        <span className={days <= 3 ? "text-amber-600 dark:text-amber-400 font-bold ml-1" : "text-muted-foreground ml-1"}>
+                          · ⏳ {days}d left
+                        </span>
+                      );
+                    })()}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
                 {job.company_name ? (
                   <a
                     href={companyUrl}
@@ -382,24 +440,66 @@ export default function JobDetailPage({ jobId }: Props) {
 
         {/* Right Column: Actions / About Client Sidebar */}
         <div className="space-y-6">
+          {/* Strict Profile Completion Requirement Alert */}
+          {profileCompletion !== null && profileCompletion < 100 && (
+            <div className="rounded-2xl border border-amber-300 bg-amber-50/80 p-5 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/25 space-y-3">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <div className="space-y-1.5">
+                  <h4 className="text-sm font-bold text-amber-950 dark:text-amber-200">
+                    Profile Completion Required to Apply
+                  </h4>
+                  <p className="text-xs text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
+                    LinkBridge requires candidates to complete their profile (currently <strong>{profileCompletion}%</strong>) before submitting applications.
+                  </p>
+                  <p className="text-xs text-amber-800/80 dark:text-amber-400/80 leading-relaxed">
+                    Don&apos;t worry—this job has already been saved to your <strong>Bookmarked Jobs</strong> so you can easily apply right after completing your profile!
+                  </p>
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1.5">
+                    <Link
+                      href="/linkbridge/freelancer/profile"
+                      className="inline-flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-amber-600 hover:bg-amber-700 text-white shadow-xs transition-colors"
+                    >
+                      <span>Complete Profile Now</span>
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                    <Link
+                      href="/linkbridge/freelancer/bookmarks"
+                      className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-xl text-xs font-semibold text-amber-900 dark:text-amber-200 hover:bg-amber-200/50 dark:hover:bg-amber-900/40 transition-colors"
+                    >
+                      <Bookmark className="h-3.5 w-3.5" />
+                      <span>View Saved Jobs</span>
+                    </Link>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Card 1: Apply / Action card */}
           <div className="bg-card border rounded-2xl p-6 shadow-xs space-y-4">
             <Button
               id="job-page-apply-btn"
               onClick={() => setApplyModalOpen(true)}
-              disabled={alreadyApplied}
-              className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium gap-2 border-0 shadow-xs disabled:bg-zinc-100 disabled:text-zinc-400 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600 max-md:min-h-11"
+              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 100)}
+              title={
+                profileCompletion !== null && profileCompletion < 100
+                  ? "You must complete your profile (100%) before applying"
+                  : alreadyApplied
+                    ? "Already Applied"
+                    : "Apply for Job"
+              }
+              className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-medium gap-2 border-0 shadow-xs disabled:bg-zinc-100 disabled:text-zinc-400 dark:disabled:bg-zinc-900 dark:disabled:text-zinc-600 disabled:cursor-not-allowed max-md:min-h-11"
             >
               <Send className="h-4 w-4" />
               {alreadyApplied ? "Already Applied" : "Apply for Job"}
             </Button>
             <Button
               variant="outline"
-              className={`w-full h-10 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${
-                isBookmarked 
-                  ? "border-primary text-primary hover:bg-primary/5" 
+              className={`w-full h-10 rounded-xl font-medium gap-2 transition-colors max-md:min-h-11 ${isBookmarked
+                  ? "border-primary text-primary hover:bg-primary/5"
                   : "text-foreground border-zinc-200 dark:border-zinc-800"
-              }`}
+                }`}
               onClick={() => toggleBookmark(jobId)}
             >
               <Bookmark className={`h-4 w-4 ${isBookmarked ? "fill-current" : ""}`} />
@@ -462,23 +562,23 @@ export default function JobDetailPage({ jobId }: Props) {
               )}
 
               {/* Socials */}
-              {(job.company_facebook || job.company_linkedin || job.company_instagram || job.company_x || job.company_youtube) && (
+              {(facebookUrl || instagramUrl || youtubeUrl) && (
                 <div className="space-y-2 pt-1">
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wider block">Social Media</span>
                   <div className="flex flex-wrap gap-2">
-                    {job.company_facebook && (
-                      <a href={job.company_facebook} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {facebookUrl && (
+                      <a href={facebookUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Facebook className="h-4 w-4" />
                       </a>
                     )}
 
-                    {job.company_instagram && (
-                      <a href={job.company_instagram} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {instagramUrl && (
+                      <a href={instagramUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Instagram className="h-4 w-4" />
                       </a>
                     )}
-                    {job.company_youtube && (
-                      <a href={job.company_youtube} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
+                    {youtubeUrl && (
+                      <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" className="p-1.5 bg-muted hover:bg-muted/80 rounded-lg text-zinc-600 dark:text-zinc-400 max-md:size-11 max-md:grid max-md:place-items-center">
                         <Youtube className="h-4 w-4" />
                       </a>
                     )}
@@ -525,7 +625,7 @@ export default function JobDetailPage({ jobId }: Props) {
         onClose={() => setApplyModalOpen(false)}
         onSuccess={() => {
           setAlreadyApplied(true);
-          router.push("/vos-sync/freelancer/applications");
+          router.push("/linkbridge/freelancer/applications");
         }}
       />
 

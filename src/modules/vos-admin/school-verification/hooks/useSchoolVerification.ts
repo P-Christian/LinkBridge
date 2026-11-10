@@ -2,7 +2,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   SchoolVerificationRecord,
   SchoolVerificationKPIs,
@@ -11,14 +13,15 @@ import {
 import {
   fetchSchoolVerifications,
   submitSchoolVerificationDecision,
-} from "../services/schoolVerification.service";
+} from "../services/schoolVerification.api";
 import { computeSchoolKpis } from "../services/schoolVerification.helpers";
 
 export function useSchoolVerification() {
+  const searchParams = useSearchParams();
+  const targetSchoolId = searchParams?.get("schoolId") || searchParams?.get("id");
+
   const [allRecords, setAllRecords] = useState<SchoolVerificationRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -27,48 +30,48 @@ export function useSchoolVerification() {
   const [isRejectionModalOpen, setIsRejectionModalOpen] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
-  const loadRecords = useCallback(async () => {
+  const abortRead = useRequestAbort();
+
+  /**
+   * `followDeepLink` is only set by the read that runs for a `?schoolId=` entry,
+   * so a later manual refresh cannot resurrect a detail modal the admin closed.
+   */
+  const loadRecords = useCallback(async (options?: { followDeepLink?: boolean }) => {
     setLoading(true);
-    setError(null);
+    // Each read gets a token; a read that has been superseded must not write
+    // state, or a slow first page lands after a fast `refetch` and reverts the
+    // row the admin just approved.
+    const signal = abortRead();
     try {
       const data = await fetchSchoolVerifications();
+      if (signal.aborted) return;
       setAllRecords(data);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Failed to load school verifications";
-      setError(msg);
-      setAllRecords([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
-  useEffect(() => {
-    let isMounted = true;
-    const fetchRecords = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const data = await fetchSchoolVerifications();
-        if (isMounted) {
-          setAllRecords(data);
-        }
-      } catch (err: unknown) {
-        if (isMounted) {
-          const msg = err instanceof Error ? err.message : "Failed to load school verifications";
-          setError(msg);
-          setAllRecords([]);
-        }
-      } finally {
-        if (isMounted) {
-          setLoading(false);
+      if (options?.followDeepLink && targetSchoolId) {
+        const match = data.find((r) => String(r.school_id) === String(targetSchoolId));
+        if (match) {
+          setSelectedSchool(match);
+          setIsDetailModalOpen(true);
         }
       }
-    };
-    fetchRecords();
-    return () => {
-      isMounted = false;
-    };
-  }, []);
+    } catch (err: unknown) {
+      if (signal.aborted) return;
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load school verifications"
+      );
+      // Rows from the last good read stay on screen: a failed refresh must not
+      // wipe the queue the admin is working through.
+    } finally {
+      if (!signal.aborted) {
+        setLoading(false);
+      }
+    }
+  }, [targetSchoolId, abortRead]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadRecords({ followDeepLink: true });
+  }, [loadRecords]);
 
   // Derive KPI counts from all fetched records
   const kpiData: SchoolVerificationKPIs = useMemo(() => {
@@ -151,6 +154,7 @@ export function useSchoolVerification() {
       toast.success(
         res.message || `School "${selectedSchool.school_name}" has been ${actionLabels[action] || "updated"}.`
       );
+      res.warnings.forEach((warning) => toast.warning(warning));
 
       // Reload dataset and close modals
       await loadRecords();
@@ -168,7 +172,6 @@ export function useSchoolVerification() {
     records: filteredRecords,
     allRecords,
     loading,
-    error,
     kpiData,
     statusFilter,
     setStatusFilter,

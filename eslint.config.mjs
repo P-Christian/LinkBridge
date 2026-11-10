@@ -13,6 +13,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
     "public/**",
+    // Committed codegen: reviewed as the schema it came from, not as source.
+    "src/lib/messaging/protobuf/generated/**",
   ]),
 ]);
 

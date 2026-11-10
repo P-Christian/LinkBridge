@@ -3,7 +3,8 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { PublicJobPosting, JobType, WorkArrangement, ExperienceLevel } from "../types";
+import { toast } from "sonner";
+import { PublicJobPosting, JobType, WorkArrangement, ExperienceLevel, DatePostedFilter } from "../types";
 
 export const PAGE_SIZE = 15;
 
@@ -16,11 +17,12 @@ export function useJobBrowse() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  // Filter state
+  // Filter state — all multi-select arrays + date posted
   const [search, setSearch] = useState("");
-  const [filterJobType, setFilterJobType] = useState<JobType | "ALL">("ALL");
-  const [filterArrangement, setFilterArrangement] = useState<WorkArrangement | "ALL">("ALL");
-  const [filterExperience, setFilterExperience] = useState<ExperienceLevel | "ALL">("ALL");
+  const [filterJobTypes, setFilterJobTypes] = useState<JobType[]>([]);
+  const [filterArrangements, setFilterArrangements] = useState<WorkArrangement[]>([]);
+  const [filterExperienceLevels, setFilterExperienceLevels] = useState<ExperienceLevel[]>([]);
+  const [filterDatePosted, setFilterDatePosted] = useState<DatePostedFilter>("ALL");
 
   // Detail sheet state
   const [selectedJob, setSelectedJob] = useState<PublicJobPosting | null>(null);
@@ -41,7 +43,7 @@ export function useJobBrowse() {
   // Reset to page 1 on filter or search changes
   useEffect(() => {
     setPage(1);
-  }, [debouncedSearch, filterJobType, filterArrangement, filterExperience]);
+  }, [debouncedSearch, filterJobTypes, filterArrangements, filterExperienceLevels, filterDatePosted]);
 
   const fetchApplications = useCallback(async () => {
     try {
@@ -73,9 +75,10 @@ export function useJobBrowse() {
     });
 
     if (debouncedSearch.trim()) params.set("search", debouncedSearch.trim());
-    if (filterJobType !== "ALL") params.set("job_type", filterJobType);
-    if (filterArrangement !== "ALL") params.set("work_arrangement", filterArrangement);
-    if (filterExperience !== "ALL") params.set("experience_level", filterExperience);
+    if (filterJobTypes.length > 0) params.set("job_type", filterJobTypes.join(","));
+    if (filterArrangements.length > 0) params.set("work_arrangement", filterArrangements.join(","));
+    if (filterExperienceLevels.length > 0) params.set("experience_level", filterExperienceLevels.join(","));
+    if (filterDatePosted !== "ALL") params.set("date_posted", filterDatePosted);
 
     try {
       const startTime = Date.now();
@@ -96,11 +99,13 @@ export function useJobBrowse() {
       setFilteredCount(filterCount);
     } catch (err: unknown) {
       console.error("[JobBrowse] ❌ Fetch Error:", err);
-      setError(err instanceof Error ? err.message : "An error occurred.");
+      const msg = err instanceof Error ? err.message : "Failed to load jobs.";
+      setError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, filterJobType, filterArrangement, filterExperience, page]);
+  }, [debouncedSearch, filterJobTypes, filterArrangements, filterExperienceLevels, filterDatePosted, page]);
 
   // Fetch whenever page or filters change
   useEffect(() => {
@@ -132,6 +137,23 @@ export function useJobBrowse() {
     setAppliedJobIds((prev) => (prev.includes(jobId) ? prev : [...prev, jobId]));
   }, []);
 
+  const clearAllFilters = useCallback(() => {
+    setSearch("");
+    setFilterJobTypes([]);
+    setFilterArrangements([]);
+    setFilterExperienceLevels([]);
+    setFilterDatePosted("ALL");
+    setPage(1);
+  }, []);
+
+  const hasActiveFilters = Boolean(
+    search.trim() ||
+    filterJobTypes.length > 0 ||
+    filterArrangements.length > 0 ||
+    filterExperienceLevels.length > 0 ||
+    filterDatePosted !== "ALL"
+  );
+
   return {
     jobs,
     totalCount,
@@ -145,12 +167,16 @@ export function useJobBrowse() {
     appliedJobIds,
     search,
     setSearch,
-    filterJobType,
-    setFilterJobType,
-    filterArrangement,
-    setFilterArrangement,
-    filterExperience,
-    setFilterExperience,
+    filterJobTypes,
+    setFilterJobTypes,
+    filterArrangements,
+    setFilterArrangements,
+    filterExperienceLevels,
+    setFilterExperienceLevels,
+    filterDatePosted,
+    setFilterDatePosted,
+    hasActiveFilters,
+    clearAllFilters,
     selectedJob,
     sheetOpen,
     applyModalOpen,

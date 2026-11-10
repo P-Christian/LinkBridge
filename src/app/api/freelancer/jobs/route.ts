@@ -1,5 +1,6 @@
 // src/app/api/freelancer/jobs/route.ts
 import { NextRequest, NextResponse } from "next/server";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,22 +183,49 @@ export async function GET(req: NextRequest) {
     const limit = Math.max(1, Math.min(100, Number(searchParams.get("limit")) || 24));
     const offset = Math.max(0, Number(searchParams.get("offset")) || 0);
     const search = searchParams.get("search")?.trim() || "";
-    const jobType = searchParams.get("job_type");
-    const workArrangement = searchParams.get("work_arrangement");
-    const experienceLevel = searchParams.get("experience_level");
+    const jobTypeParam = searchParams.get("job_types") || searchParams.get("job_type");
+    const workArrangementParam = searchParams.get("work_arrangements") || searchParams.get("work_arrangement");
+    const experienceLevelParam = searchParams.get("experience_levels") || searchParams.get("experience_level");
+    const datePostedParam = searchParams.get("date_posted");
 
     const andConditions: Record<string, unknown>[] = [
       { status: { _eq: "ACTIVE" } },
     ];
 
-    if (jobType && jobType !== "ALL") {
-      andConditions.push({ job_type: { _eq: jobType } });
+    if (jobTypeParam && jobTypeParam !== "ALL") {
+      const types = jobTypeParam.split(",").map((t) => t.trim()).filter(Boolean);
+      if (types.length === 1) {
+        andConditions.push({ job_type: { _eq: types[0] } });
+      } else if (types.length > 1) {
+        andConditions.push({ job_type: { _in: types } });
+      }
     }
-    if (workArrangement && workArrangement !== "ALL") {
-      andConditions.push({ work_arrangement: { _eq: workArrangement } });
+    if (workArrangementParam && workArrangementParam !== "ALL") {
+      const arrangements = workArrangementParam.split(",").map((a) => a.trim()).filter(Boolean);
+      if (arrangements.length === 1) {
+        andConditions.push({ work_arrangement: { _eq: arrangements[0] } });
+      } else if (arrangements.length > 1) {
+        andConditions.push({ work_arrangement: { _in: arrangements } });
+      }
     }
-    if (experienceLevel && experienceLevel !== "ALL") {
-      andConditions.push({ experience_level: { _eq: experienceLevel } });
+    if (experienceLevelParam && experienceLevelParam !== "ALL") {
+      const levels = experienceLevelParam.split(",").map((l) => l.trim()).filter(Boolean);
+      if (levels.length === 1) {
+        andConditions.push({ experience_level: { _eq: levels[0] } });
+      } else if (levels.length > 1) {
+        andConditions.push({ experience_level: { _in: levels } });
+      }
+    }
+    if (datePostedParam && datePostedParam !== "ALL") {
+      let cutoffMs = 0;
+      if (datePostedParam === "24h") cutoffMs = 24 * 60 * 60 * 1000;
+      else if (datePostedParam === "7d") cutoffMs = 7 * 24 * 60 * 60 * 1000;
+      else if (datePostedParam === "30d") cutoffMs = 30 * 24 * 60 * 60 * 1000;
+
+      if (cutoffMs > 0) {
+        const cutoffDate = new Date(Date.now() - cutoffMs).toISOString();
+        andConditions.push({ created_at: { _gte: cutoffDate } });
+      }
     }
     if (search) {
       andConditions.push({
@@ -329,7 +357,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/jobs error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

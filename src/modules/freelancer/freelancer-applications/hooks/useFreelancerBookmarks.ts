@@ -1,23 +1,22 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { toast } from "sonner";
 import { BookmarkedJob } from "../types";
 
 export function useFreelancerBookmarks() {
   const [bookmarks, setBookmarks] = useState<BookmarkedJob[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const fetchBookmarks = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
       const res = await fetch("/api/freelancer/bookmarks");
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Failed to load bookmarks.");
       setBookmarks(json.bookmarks ?? []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred.");
+      toast.error(err instanceof Error ? err.message : "An error occurred.");
     } finally {
       setLoading(false);
     }
@@ -75,7 +74,6 @@ export function useFreelancerBookmarks() {
     bookmarks,
     bookmarkedJobIds,
     loading,
-    error,
     fetchBookmarks,
     addBookmark,
     removeBookmark,

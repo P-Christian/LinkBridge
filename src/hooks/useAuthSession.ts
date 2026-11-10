@@ -34,55 +34,69 @@ const DEFAULT_GUEST_STATE: AuthSessionState = {
   isGuest: true,
 };
 
-// In-memory module cache and in-flight promise deduplication
-let cachedSession: AuthSessionState | null = null;
+// In-memory module cache, in-flight deduplication and a TTL.
+//
+// `lastKnownSession` is the most recent answer the server actually gave;
+// `fetchedAt` marks it stale so the next mount revalidates instead of serving
+// a snapshot for the life of the tab. A network error or a 5xx never becomes
+// `lastKnownSession`: pinning the UI to guest on a transient outage used to
+// require a hard reload to undo.
+let lastKnownSession: AuthSessionState | null = null;
+let fetchedAt = 0;
 let cachedPromise: Promise<AuthSessionState> | null = null;
 
-async function fetchAuthSession(): Promise<AuthSessionState> {
-  if (cachedSession) return cachedSession;
+const SESSION_TTL_MS = 60_000;
+
+function remember(session: AuthSessionState): AuthSessionState {
+  lastKnownSession = session;
+  fetchedAt = Date.now();
+  return session;
+}
+
+function isFresh(): boolean {
+  return lastKnownSession !== null && Date.now() - fetchedAt < SESSION_TTL_MS;
+}
+
+function fetchAuthSession(): Promise<AuthSessionState> {
   if (cachedPromise) return cachedPromise;
 
   cachedPromise = (async () => {
     try {
       const res = await fetch("/api/auth/me", { cache: "no-store" });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.authenticated) {
-          const rawRole = (data.role || "").toLowerCase();
-          const role: AuthRole =
-            rawRole === "employee" || rawRole === "freelancer"
-              ? "freelancer"
-              : rawRole === "employer" || rawRole === "client"
-              ? "employer"
-              : rawRole === "admin"
-              ? "admin"
-              : rawRole === "school"
-              ? "school"
-              : "guest";
+      if (!res.ok) return lastKnownSession ?? DEFAULT_GUEST_STATE;
 
-          cachedSession = {
-            authenticated: true,
-            role,
-            dashboard: data.dashboard || null,
-            userId: data.userId || null,
-            companyId: data.companyId ? Number(data.companyId) : null,
-            companyCode: data.companyCode || null,
-            loading: false,
-            isJobSeeker: role === "freelancer",
-            isEmployer: role === "employer",
-            isAdmin: role === "admin",
-            isSchool: role === "school",
-            isGuest: false,
-          };
-          return cachedSession;
-        }
-      }
+      const data = await res.json();
+      if (!data.authenticated) return remember(DEFAULT_GUEST_STATE);
+
+      const rawRole = (data.role || "").toLowerCase();
+      const role: AuthRole =
+        rawRole === "employee" || rawRole === "freelancer"
+          ? "freelancer"
+          : rawRole === "employer" || rawRole === "client"
+          ? "employer"
+          : rawRole === "admin"
+          ? "admin"
+          : rawRole === "school"
+          ? "school"
+          : "guest";
+
+      return remember({
+        authenticated: true,
+        role,
+        dashboard: data.dashboard || null,
+        userId: data.userId || null,
+        companyId: data.companyId ? Number(data.companyId) : null,
+        companyCode: data.companyCode || null,
+        loading: false,
+        isJobSeeker: role === "freelancer",
+        isEmployer: role === "employer",
+        isAdmin: role === "admin",
+        isSchool: role === "school",
+        isGuest: false,
+      });
     } catch {
-      // Fallback to guest on error
+      return lastKnownSession ?? DEFAULT_GUEST_STATE;
     }
-
-    cachedSession = DEFAULT_GUEST_STATE;
-    return cachedSession;
   })().finally(() => {
     cachedPromise = null;
   });
@@ -92,13 +106,15 @@ async function fetchAuthSession(): Promise<AuthSessionState> {
 
 export function useAuthSession(): AuthSessionState {
   const [state, setState] = useState<AuthSessionState>(() => {
-    return cachedSession ? cachedSession : { ...DEFAULT_GUEST_STATE, loading: true };
+    return lastKnownSession
+      ? lastKnownSession
+      : { ...DEFAULT_GUEST_STATE, loading: true };
   });
 
   useEffect(() => {
     let isMounted = true;
 
-    if (!cachedSession) {
+    if (!isFresh()) {
       fetchAuthSession().then((session) => {
         if (isMounted) {
           setState(session);

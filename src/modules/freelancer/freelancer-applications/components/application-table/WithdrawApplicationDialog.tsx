@@ -83,18 +83,23 @@ export function WithdrawApplicationDialog({ application, onClose, onWithdrawn }:
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2.5 py-4">
-          <Label
-            htmlFor="withdraw-reason-input"
+          <div className="flex items-center justify-between">
+          <Label htmlFor="withdraw-reason-input"
             className="text-sm md:text-xs font-bold uppercase tracking-wider text-muted-foreground"
           >
             Reason for withdrawal (optional)
-          </Label>
+            </Label>
+            <span className="text-xs text-muted-foreground">
+              {reason.length}/255
+            </span>
+          </div>
           <Textarea
             id="withdraw-reason-input"
             placeholder="e.g. I have accepted another offer, salary misalignment, etc."
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            className="resize-none text-base md:text-sm rounded-xl bg-background"
+            className="resize-none text-base md:text-sm rounded-xl bg-background w-full min-w-0 max-w-full break-words break-all [overflow-wrap:anywhere]"
+            maxLength={255}
             rows={3}
             disabled={isWithdrawing}
           />

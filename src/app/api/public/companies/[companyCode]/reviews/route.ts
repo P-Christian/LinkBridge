@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPublicCompanyByCode, getPublicCompanyReviews, createCompanyReview } from "@/modules/public/company-profile/services/company-profile.service";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,7 +24,7 @@ export async function GET(
     return NextResponse.json(reviews);
   } catch (error: unknown) {
     console.error("API Error in company reviews GET:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
@@ -34,11 +35,11 @@ export async function POST(
 ) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized: invalid or missing session" }, { status: 401 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const { companyCode } = await params;
     const company = await getPublicCompanyByCode(companyCode);
@@ -61,7 +62,7 @@ export async function POST(
     return NextResponse.json(newReview, { status: 201 });
   } catch (error: unknown) {
     console.error("API Error in company reviews POST:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

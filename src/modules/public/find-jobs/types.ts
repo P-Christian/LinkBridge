@@ -21,7 +21,6 @@ export interface PublicJobPosting {
   show_salary_range?: boolean;
 
   experience_level?: string;
-  status: string;
   created_at: string;
 }
 
@@ -39,4 +38,10 @@ export interface CategoryPill {
   name: string;
   iconName: string;
   jobCount?: number;
+}
+
+export interface PopularPreset {
+  label: string;
+  type: "work_setup" | "job_type" | "keyword";
+  count: number;
 }

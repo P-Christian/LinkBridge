@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { useTheme } from "next-themes";
 
 /**
@@ -22,7 +23,8 @@ import { useTheme } from "next-themes";
 const TAU = Math.PI * 2;
 const DENSITY = 22000; // px² of screen per node
 const WAVE_REACH = 420;
-const WAVE_SECONDS = 1.8;
+const WAVE_SECONDS = 3;
+const ALLOW_CARD_RIPPLE = false;
 
 type RGB = [number, number, number];
 
@@ -104,11 +106,18 @@ linear-gradient(180deg,#060914 0%,#0A1022 100%)}
 export function NetworkBackground({ interactive = true }: { interactive?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const { resolvedTheme } = useTheme();
+  const pathname = usePathname();
 
   // theme -> shared refs (declared before the draw effect so the first frame already has the right mix)
   const targetRef = useRef(0); // 0 = light, 1 = dark
   const mixRef = useRef<number | null>(null);
   const redrawRef = useRef<(() => void) | null>(null);
+  const resetScrollRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    // Reset scroll tracking on route change to prevent sudden scroll jumps
+    resetScrollRef.current?.();
+  }, [pathname]);
 
   useEffect(() => {
     if (!resolvedTheme) return;
@@ -231,18 +240,27 @@ export function NetworkBackground({ interactive = true }: { interactive?: boolea
 
       // move nodes
       const decay = Math.exp(-dt * 1.8);
-      const scrollShift = scrollDelta * 0.55;
+      // Cap scroll shift to prevent nodes from bunching up during rapid scroll or jumps
+      const rawShift = scrollDelta * 0.55;
+      const scrollShift = Math.max(-20, Math.min(20, rawShift));
       scrollDelta = 0;
+
+      const spanX = W + 2 * M;
+      const spanY = H + 2 * M;
 
       for (const n of nodes) {
         n.ix *= decay;
         n.iy *= decay;
         n.x += (n.vx + n.ix) * dt;
         n.y += (n.vy + n.iy) * dt - scrollShift;
-        if (n.x < -M) n.x = W + M;
-        else if (n.x > W + M) n.x = -M;
-        if (n.y < -M) n.y = H + M;
-        else if (n.y > H + M) n.y = -M;
+
+        // Wrap around preserving relative spacing (never hard-clamp coordinates)
+        if (spanX > 0 && (n.x < -M || n.x > W + M)) {
+          n.x = ((((n.x + M) % spanX) + spanX) % spanX) - M;
+        }
+        if (spanY > 0 && (n.y < -M || n.y > H + M)) {
+          n.y = ((((n.y + M) % spanY) + spanY) % spanY) - M;
+        }
       }
 
       // 1) dot grid with a soft travelling wave of light
@@ -410,10 +428,21 @@ export function NetworkBackground({ interactive = true }: { interactive?: boolea
       draw(0, 0);
     } else raf = requestAnimationFrame(frame);
 
+    resetScrollRef.current = () => {
+      lastScrollY = typeof window !== "undefined" ? window.scrollY : 0;
+      scrollDelta = 0;
+    };
+
     const onScroll = () => {
       const currentScrollY = window.scrollY;
-      scrollDelta += currentScrollY - lastScrollY;
+      const diff = currentScrollY - lastScrollY;
       lastScrollY = currentScrollY;
+      // Filter out huge instantaneous jumps (e.g. route transitions, anchor jumps)
+      if (Math.abs(diff) < 150) {
+        scrollDelta += diff;
+      } else {
+        scrollDelta = 0;
+      }
       if (reduce) redrawRef.current?.();
     };
 
@@ -425,6 +454,25 @@ export function NetworkBackground({ interactive = true }: { interactive?: boolea
       }, 150);
     };
     const onDown = (e: PointerEvent) => {
+
+      // Always ignore right clicks / middle clicks
+      if (e.button !== 0) return;
+      // If cards are NOT allowed to ripple, block clicks inside cards/interactive UI
+      if (!ALLOW_CARD_RIPPLE) {
+        // Do not trigger ripple when clicking inside cards, forms, buttons, or interactive UI
+        const target = e.target as Element | null;
+        if (
+          target &&
+          typeof target.closest === "function" &&
+          target.closest(
+            "button, input, textarea, select, a, label, summary, [role='button'], [role='link'], [role='tab'], [role='dialog'], [role='menu'], [role='listbox'], [role='option'], [role='checkbox'], [role='radio'], [data-no-ripple], form, nav, header, footer, dialog, [role='dialog'], [role='region'], .card, [class*='card'], [class*='backdrop-blur'], [class*='bg-card'], [data-card]"
+          )
+        ) {
+          return;
+        }
+      }
+
+
       waves.push({ x: e.clientX, y: e.clientY, t: performance.now() / 1000 });
       if (waves.length > 3) waves.shift();
       // push nearby nodes away from the click point
@@ -444,6 +492,7 @@ export function NetworkBackground({ interactive = true }: { interactive?: boolea
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
       redrawRef.current = null;
+      resetScrollRef.current = null;
       window.removeEventListener("resize", onResize);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("pointerdown", onDown);

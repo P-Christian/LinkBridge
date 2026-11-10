@@ -67,6 +67,7 @@ export interface AuditRecord {
   // Dynamic resolved actor info
   actor_name?: string | null;
   actor_email?: string | null;
+  actor_role?: string | null;
   resource_type: string | null;
   resource_id: string | null;
   resource_name?: string | null;
@@ -97,10 +98,11 @@ export interface AuditFilters {
 }
 
 export interface AuditKPIData {
-  todayEvents: number;
-  failedEvents: number;
-  deniedAccess: number;
-  adminActions: number;
+  // null means the count could not be read, which the cards must not render as 0.
+  todayEvents: number | null;
+  failedEvents: number | null;
+  deniedAccess: number | null;
+  adminActions: number | null;
 }
 
 export interface AuditConfigRow {

@@ -13,7 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { stripHtmlTags } from '../services/job-referrals.helpers';
+import { stripHtmlTags } from '../utils/formatting';
 
 const ITEMS_PER_PAGE = 10;
 

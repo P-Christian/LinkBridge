@@ -16,13 +16,13 @@ export const ApplicationSummaryCards: React.FC<Props> = ({ summary }) => {
       icon: TrendingUp,
     },
     {
-      label: 'Pending Application',
-      value: summary.pendingApplications.toString().padStart(2, '0'),
+      label: 'Pending Applications',
+      value: String(summary.pendingApplications),
       icon: MessageSquare,
     },
     {
       label: 'Active Offers',
-      value: summary.activeOffers.toString().padStart(2, '0'),
+      value: String(summary.activeOffers),
       icon: Briefcase,
     },
   ];

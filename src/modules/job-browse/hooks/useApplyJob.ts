@@ -143,6 +143,15 @@ export function useApplyJob() {
     setError("");
     setSuccessMessage("");
     try {
+      if (formData.expected_salary) {
+        const sal = Number(formData.expected_salary);
+        if (isNaN(sal) || sal < 0 || sal > 99999999.99) {
+          setError("Expected salary must be between 0 and 99,999,999.99 PHP.");
+          setSaving(false);
+          return false;
+        }
+      }
+
       let finalCoverLetter = formData.cover_letter?.trim() || "";
       if (formData.cover_letter_file) {
         const fileLinkText = `[Cover Letter Document: ${formData.cover_letter_file.file_name}](${formData.cover_letter_file.file_path})`;

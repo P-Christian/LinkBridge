@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Search, AlertCircle, Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Briefcase, ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { useJobBrowse } from "./hooks/useJobBrowse";
@@ -25,16 +25,19 @@ export default function JobBrowseModule() {
     totalPages,
     pageSize,
     loading,
-    error,
     appliedJobIds,
     search,
     setSearch,
-    filterJobType,
-    setFilterJobType,
-    filterArrangement,
-    setFilterArrangement,
-    filterExperience,
-    setFilterExperience,
+    filterJobTypes,
+    setFilterJobTypes,
+    filterArrangements,
+    setFilterArrangements,
+    filterExperienceLevels,
+    setFilterExperienceLevels,
+    filterDatePosted,
+    setFilterDatePosted,
+    hasActiveFilters,
+    clearAllFilters,
     selectedJob,
     sheetOpen,
     applyModalOpen,
@@ -51,11 +54,29 @@ export default function JobBrowseModule() {
   const userProfile = useUserProfile();
   const isGuest = !userProfile || userProfile.email === "guest@example.com";
   const [registerModalOpen, setRegisterModalOpen] = useState(false);
+  const [referralClaimsMap, setReferralClaimsMap] = useState<Record<number, { referrer_name: string; expires_at: string | null }>>({});
 
   useEffect(() => {
     if (!isGuest) {
       fetchBookmarks();
       fetchApplications();
+
+      // Fetch active referral claims for recipient
+      fetch("/api/freelancer/referrals/check-claim")
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.claims && Array.isArray(data.claims)) {
+            const map: Record<number, { referrer_name: string; expires_at: string | null }> = {};
+            for (const c of data.claims) {
+              map[c.job_id] = {
+                referrer_name: c.referrer_name,
+                expires_at: c.expires_at,
+              };
+            }
+            setReferralClaimsMap(map);
+          }
+        })
+        .catch((err) => console.error("Error loading referral claims:", err));
     }
   }, [fetchBookmarks, fetchApplications, isGuest]);
 
@@ -117,24 +138,22 @@ export default function JobBrowseModule() {
           </div>
         </div>
 
-        {/* Error */}
-        {error && (
-          <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            {error}
-          </div>
-        )}
+
 
         {/* Filters */}
         <JobBrowseFilters
           search={search}
           onSearchChange={setSearch}
-          filterJobType={filterJobType}
-          onJobTypeChange={setFilterJobType}
-          filterArrangement={filterArrangement}
-          onArrangementChange={setFilterArrangement}
-          filterExperience={filterExperience}
-          onExperienceChange={setFilterExperience}
+          filterJobTypes={filterJobTypes}
+          onJobTypesChange={setFilterJobTypes}
+          filterArrangements={filterArrangements}
+          onArrangementsChange={setFilterArrangements}
+          filterExperienceLevels={filterExperienceLevels}
+          onExperienceLevelsChange={setFilterExperienceLevels}
+          filterDatePosted={filterDatePosted}
+          onDatePostedChange={setFilterDatePosted}
+          hasActiveFilters={hasActiveFilters}
+          onClearAll={clearAllFilters}
           totalCount={totalCount}
           filteredCount={filteredCount}
         />
@@ -176,7 +195,7 @@ export default function JobBrowseModule() {
           ) : (
             <div className="space-y-6">
               <motion.div
-                key={`freelancer-jobs-grid-${page}-${filterJobType}-${filterArrangement}-${filterExperience}`}
+                key={`freelancer-jobs-grid-${page}-${filterJobTypes.join(",")}-${filterArrangements.join(",")}-${filterExperienceLevels.join(",")}-${filterDatePosted}`}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -197,6 +216,7 @@ export default function JobBrowseModule() {
                       onViewDetail={openDetail}
                       isBookmarked={bookmarkedJobIds.includes(job.job_id)}
                       onToggleBookmark={handleToggleBookmark}
+                      referralInfo={referralClaimsMap[job.job_id] ?? null}
                     />
                   </motion.div>
                 ))}
@@ -293,6 +313,7 @@ export default function JobBrowseModule() {
         appliedJobIds={appliedJobIds}
         bookmarkedJobIds={bookmarkedJobIds}
         onToggleBookmark={handleToggleBookmark}
+        referralInfo={selectedJob ? (referralClaimsMap[selectedJob.job_id] ?? null) : null}
       />
 
       {/* Apply Modal */}

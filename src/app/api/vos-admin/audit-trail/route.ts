@@ -1,52 +1,50 @@
 // src/app/api/vos-admin/audit-trail/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
-import { cookies } from "next/headers";
-import { fetchAuditLogsRepo, fetchAuditKPIsRepo, createAuditRecordRepo, AuditFilters } from "@/modules/vos-admin/audit-trail";
+import { fetchAuditLogsRepo, fetchAuditKPIsRepo, createAuditRecordStrictRepo, AuditFilters } from "@/modules/vos-admin/audit-trail";
+import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const JWT_SECRET = new TextEncoder().encode(
-  process.env.JWT_SECRET 
-);
+const MAX_PAGE_LIMIT = 200;
+const EXPORT_MAX_ROWS = 5000;
 
-async function verifyAdminRole(req: NextRequest): Promise<{ adminId: number; roleId: number } | null> {
-  if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-    return { adminId: 1, roleId: 3 };
-  }
-  const cookieStore = await cookies();
-  const token = req.headers.get("authorization")?.replace("Bearer ", "") || cookieStore.get("vos_sync_access_token")?.value;
-  if (!token) return null;
+/** SEC-029: neutralize CSV injection / record splitting for every exported cell. */
+function csvCell(value: unknown): string {
+  let cell = value === null || value === undefined ? "" : String(value);
+  cell = cell.replace(/[\r\n]+/g, " ");
+  if (/^[=+\-@\t\f]/.test(cell)) cell = `'${cell}`;
+  if (cell.includes('"') || cell.includes(",")) cell = `"${cell.replace(/"/g, '""')}"`;
+  return cell;
+}
 
-  try {
-    const { payload } = await jwtVerify(token, JWT_SECRET);
-    const adminId = Number(payload.sub || payload.user_id || payload.id);
-    const roleId = Number(payload.role_id ?? payload.role ?? 0);
-    return { adminId, roleId };
-  } catch {
-    return null;
-  }
+function toBoundedInt(value: string | null, fallback: number, max: number): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, max);
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await verifyAdminRole(req);
-    if (!auth) {
-      return NextResponse.json({ error: "Unauthorized: Invalid or missing token" }, { status: 401 });
+    const session = await authenticateRequest(req);
+    if (!session || !isAdministratorSession(session)) {
+      return NextResponse.json(
+        { error: session ? "Forbidden: Access restricted to administrators" : "Unauthorized: Invalid or missing token" },
+        { status: session ? 403 : 401 }
+      );
     }
 
-    // Role restriction: Admin only
-    if (auth.roleId !== 3 && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Forbidden: Access restricted to administrators" }, { status: 403 });
-    }
+    const adminId = Number(session.userId);
 
     const { searchParams } = new URL(req.url);
     const isExport = searchParams.get("export") === "csv";
 
     const filters: AuditFilters = {
-      page: Number(searchParams.get("page") || 1),
-      limit: isExport ? -1 : Number(searchParams.get("limit") || 10),
+      page: toBoundedInt(searchParams.get("page"), 1, 100000),
+      limit: isExport
+        ? toBoundedInt(searchParams.get("limit"), EXPORT_MAX_ROWS, EXPORT_MAX_ROWS)
+        : toBoundedInt(searchParams.get("limit"), 10, MAX_PAGE_LIMIT),
       search: searchParams.get("search") || undefined,
       event_category: searchParams.get("event_category") || undefined,
       action: searchParams.get("action") || undefined,
@@ -54,7 +52,7 @@ export async function GET(req: NextRequest) {
       actor_type: searchParams.get("actor_type") || undefined,
       organization_type: searchParams.get("organization_type") || undefined,
       resource_type: searchParams.get("resource_type") || undefined,
-      actor_user_id: searchParams.get("actor_user_id") ? Number(searchParams.get("actor_user_id")) : undefined,
+      actor_user_id: toBoundedInt(searchParams.get("actor_user_id"), 0, Number.MAX_SAFE_INTEGER) || undefined,
       date_from: searchParams.get("date_from") || undefined,
       date_to: searchParams.get("date_to") || undefined,
     };
@@ -63,15 +61,25 @@ export async function GET(req: NextRequest) {
 
     // CSV export mode
     if (isExport) {
-      createAuditRecordRepo({
-        event_type: "AUDIT_EXPORT",
-        event_category: "ADMIN",
-        action: "EXPORT",
-        status: "SUCCESS",
-        actor_type: "ADMIN",
-        actor_user_id: auth.adminId,
-        reason: `Exported ${records.length} audit records to CSV`,
-      });
+      // An export of the audit trail that is not itself logged is unauditable, so
+      // the download waits for the record instead of firing it and forgetting.
+      try {
+        await createAuditRecordStrictRepo({
+          event_type: "AUDIT_EXPORT",
+          event_category: "ADMIN",
+          action: "EXPORT",
+          status: "SUCCESS",
+          actor_type: "ADMIN",
+          actor_user_id: adminId,
+          reason: `Exported ${records.length} of ${total} audit records to CSV`,
+        });
+      } catch (auditErr) {
+        console.error("Audit export could not be logged:", auditErr);
+        return NextResponse.json(
+          { error: "The export could not be recorded in the audit trail, so it was not released." },
+          { status: 502 }
+        );
+      }
 
       const headers = [
         "Audit ID",
@@ -95,21 +103,21 @@ export async function GET(req: NextRequest) {
 
       records.forEach((r) => {
         const row = [
-          r.audit_id,
-          `"${r.created_at || ''}"`,
-          `"${r.event_category || ''}"`,
-          `"${r.event_type || ''}"`,
-          `"${r.action || ''}"`,
-          `"${r.status || ''}"`,
-          `"${r.actor_type || ''}"`,
-          r.actor_user_id ?? "",
-          `"${(r.actor_name || '').replace(/"/g, '""')}"`,
-          `"${r.resource_type || ''}"`,
-          `"${r.resource_id || ''}"`,
-          `"${r.organization_type || ''}"`,
-          `"${(r.reason || '').replace(/"/g, '""')}"`,
-          `"${r.ip_address || ''}"`,
-          `"${r.correlation_id || ''}"`,
+          csvCell(r.audit_id),
+          csvCell(r.created_at),
+          csvCell(r.event_category),
+          csvCell(r.event_type),
+          csvCell(r.action),
+          csvCell(r.status),
+          csvCell(r.actor_type),
+          csvCell(r.actor_user_id ?? ""),
+          csvCell(r.actor_name),
+          csvCell(r.resource_type),
+          csvCell(r.resource_id),
+          csvCell(r.organization_type),
+          csvCell(r.reason),
+          csvCell(r.ip_address),
+          csvCell(r.correlation_id),
         ];
         csvRows.push(row.join(","));
       });
@@ -122,12 +130,14 @@ export async function GET(req: NextRequest) {
         headers: {
           "Content-Type": "text/csv; charset=utf-8",
           "Content-Disposition": `attachment; filename="${fileName}"`,
+          "X-Total-Records": String(total),
+          "X-Export-Truncated": total > records.length ? "true" : "false",
         },
       });
     }
 
     // Normal JSON response with KPIs
-    const kpis = await fetchAuditKPIsRepo();
+    const kpis = await fetchAuditKPIsRepo(filters);
 
     return NextResponse.json({
       records,
@@ -137,7 +147,7 @@ export async function GET(req: NextRequest) {
   } catch (error: unknown) {
     console.error("API Route Error (audit-trail):", error);
     return NextResponse.json(
-      { error: (error as Error).message || "Internal server error" },
+      { error: safeErrorMessage(error, "Internal server error") },
       { status: 500 }
     );
   }

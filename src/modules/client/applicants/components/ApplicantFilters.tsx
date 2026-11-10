@@ -11,6 +11,8 @@ import {
 } from "@/components/ui/tooltip";
 import { Search, X } from "lucide-react";
 import { ApplicantFilterStatus } from "../types";
+import { ApplicantFiltersState } from "../utils/applicantFilters";
+import ApplicantFilterPanel from "./ApplicantFilterPanel";
 import { JobPipelineStage, STAGE_COLOR_CLASSES } from "@/modules/client/pipeline/types";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +21,8 @@ interface ApplicantFiltersProps {
   onSearchChange: (v: string) => void;
   status: ApplicantFilterStatus;
   onStatusChange: (v: ApplicantFilterStatus) => void;
+  filters: ApplicantFiltersState;
+  onFiltersChange: (v: ApplicantFiltersState) => void;
   counts?: Record<string, number>;
   pipelineStages?: JobPipelineStage[];
   /** Number of candidates currently shown; announced to screen readers. */
@@ -98,6 +102,8 @@ export default function ApplicantFilters({
   onSearchChange,
   status,
   onStatusChange,
+  filters,
+  onFiltersChange,
   counts,
   pipelineStages,
   resultCount,
@@ -225,48 +231,53 @@ export default function ApplicantFilters({
         })}
       </div>
 
-      {/* ── Search Bar Below ──────────────────────────────────────────────── */}
-      <div className="relative w-full">
-        <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
-          aria-hidden="true"
-        />
-        <Input
-          ref={searchRef}
-          id="applicant-search"
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") {
-              if (search) onSearchChange("");
-              else e.currentTarget.blur();
-            }
-          }}
-          aria-label="Search candidates"
-          autoComplete="off"
-          placeholder="Search by candidate name, email, job title, or skill..."
-          className="h-10 pl-9 pr-9 text-xs sm:text-sm bg-background/70 border-border/80 focus-visible:ring-primary/20 rounded-xl"
-        />
-        {search ? (
-          <button
-            type="button"
-            onClick={() => {
-              onSearchChange("");
-              searchRef.current?.focus();
-            }}
-            aria-label="Clear search"
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
-          >
-            <X className="h-3.5 w-3.5" aria-hidden="true" />
-          </button>
-        ) : (
-          <kbd
+      {/* ── Search Bar + Multi-select Filters ─────────────────────────────── */}
+      <div className="flex items-center gap-2 w-full">
+        <div className="relative flex-1 min-w-0">
+          <Search
+            className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none"
             aria-hidden="true"
-            className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-border/80 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground md:inline-block"
-          >
-            /
-          </kbd>
-        )}
+          />
+          <Input
+            ref={searchRef}
+            id="applicant-search"
+            value={search}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                if (search) onSearchChange("");
+                else e.currentTarget.blur();
+              }
+            }}
+            aria-label="Search candidates"
+            autoComplete="off"
+            placeholder="Search by candidate name, email, job title, or skill..."
+            className="h-10 pl-9 pr-9 text-xs sm:text-sm bg-background/70 border-border/80 focus-visible:ring-primary/20 rounded-xl"
+          />
+          {search ? (
+            <button
+              type="button"
+              onClick={() => {
+                onSearchChange("");
+                searchRef.current?.focus();
+              }}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          ) : (
+            <kbd
+              aria-hidden="true"
+              className="pointer-events-none absolute right-3 top-1/2 hidden -translate-y-1/2 rounded border border-border/80 bg-muted/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground md:inline-block"
+            >
+              /
+            </kbd>
+          )}
+        </div>
+
+        <ApplicantFilterPanel filters={filters} onChange={onFiltersChange} />
+
         {typeof resultCount === "number" && (
           <p role="status" aria-live="polite" className="sr-only">
             {resultCount} {resultCount === 1 ? "candidate" : "candidates"} shown

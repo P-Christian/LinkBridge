@@ -26,7 +26,6 @@ export const StudentRosterPage: React.FC = () => {
     students,
     courses,
     isLoading,
-    error,
     selectedSchoolYear,
     setSelectedSchoolYear,
     selectedCourseId,
@@ -101,12 +100,6 @@ export const StudentRosterPage: React.FC = () => {
       />
 
       {/* Error Alert */}
-      {error && (
-        <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-xl text-sm font-medium">
-          {error}
-        </div>
-      )}
-
       {/* Filters Bar */}
       <RosterFilters
         selectedSchoolYear={selectedSchoolYear}
@@ -191,6 +184,7 @@ export const StudentRosterPage: React.FC = () => {
         student={editingStudent}
         onClose={() => setEditingStudent(null)}
         onSuccess={editStudent}
+        courses={courses}
       />
 
       <BulkUploadModal

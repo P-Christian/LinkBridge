@@ -107,7 +107,7 @@ export function SocialAuthButtons({
               window.location.assign(response.redirectUrl);
             } else {
               window.location.assign(
-                mode === "signup" ? "/signup" : "/vos-sync/freelancer/dashboard"
+                mode === "signup" ? "/signup" : "/linkbridge/freelancer/dashboard"
               );
             }
           },

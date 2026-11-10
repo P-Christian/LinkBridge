@@ -9,7 +9,7 @@ export type TargetedRole = "employee" | "employer" | "school";
 
 const INITIAL_MISMATCH: MismatchState = {
   isOpen: false,
-  currentRole: "",
+  currentRoleLabel: "",
   targetRoleLabel: "",
   targetRoute: "",
 };
@@ -51,7 +51,7 @@ export function useSmartRoleNavigation() {
             if (userRole === "employer" || userRole === "client") currentRoleDisplay = "an Employer";
             else if (userRole === "employee" || userRole === "freelancer") currentRoleDisplay = "an Employee";
             else if (userRole === "school" || userRole === "school_admin") currentRoleDisplay = "a School Admin";
-            else if (userRole === "admin") currentRoleDisplay = "a VOS Admin";
+            else if (userRole === "admin") currentRoleDisplay = "a Admin Portal";
 
             let targetDisplay = "School";
             if (role === "employer") targetDisplay = "Employer";
@@ -60,7 +60,7 @@ export function useSmartRoleNavigation() {
 
             setMismatchState({
               isOpen: true,
-              currentRole: currentRoleDisplay,
+              currentRoleLabel: currentRoleDisplay,
               targetRoleLabel: targetDisplay,
               targetRoute,
             });
@@ -87,8 +87,8 @@ export function useSmartRoleNavigation() {
     setLoading(true);
     try {
       await fetch("/api/auth/logout", { method: "POST" });
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+      // PRIV-017: no client-side cookie expire - /api/auth/logout already
+      // cleared the HttpOnly auth cookie and JS cannot overwrite it.
     } catch {
       // Ignore logout errors
     } finally {

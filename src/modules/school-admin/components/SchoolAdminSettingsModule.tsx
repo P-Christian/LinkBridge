@@ -4,9 +4,9 @@ import React, { useEffect, useState } from "react";
 import { useSettings } from "@/modules/client/settings/hooks/useSettings";
 import AccountSettings from "@/modules/freelancer/settings/components/AccountSettings";
 import SecuritySettings from "@/modules/freelancer/settings/components/SecuritySettings";
-import { SettingsAppearance } from "@/app/(vos-sync)/vos-sync/settings/settings-appearance";
+import { SettingsAppearance } from "@/app/(linkbridge)/linkbridge/settings/settings-appearance";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Settings2, User, Shield, Palette, AlertCircle, CheckCircle } from "lucide-react";
+import { Settings2, User, Shield, Palette } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SchoolAdminModuleHeader } from "./SchoolAdminModuleHeader";
 
@@ -23,12 +23,9 @@ export function SchoolAdminSettingsModule() {
     user,
     loading,
     saving,
-    error,
-    successMessage,
     loadProfile,
     saveProfile,
     changePassword,
-    clearMessages,
   } = useSettings();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("account");
@@ -38,7 +35,6 @@ export function SchoolAdminSettingsModule() {
   }, [loadProfile]);
 
   const handleTabChange = (tab: SettingsTab) => {
-    clearMessages();
     setActiveTab(tab);
   };
 
@@ -60,20 +56,6 @@ export function SchoolAdminSettingsModule() {
         description="Manage your personal administrator account details, security credentials, and workspace theme."
         icon={Settings2}
       />
-
-      {/* Feedback Messages */}
-      {error && (
-        <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-      {successMessage && (
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          {successMessage}
-        </div>
-      )}
 
       {/* Tabs Card */}
       <Card className="shadow-sm border bg-card rounded-xl py-0 gap-0 overflow-hidden">

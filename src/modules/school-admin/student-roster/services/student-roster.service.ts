@@ -14,7 +14,7 @@ export async function getStudentRoster(filter: StudentRosterFilter) {
 
 export async function addSingleStudent(schoolId: number, createdByUserId: number, input: CreateStudentInput): Promise<VsSchoolStudent> {
   const validated = createStudentSchema.parse(input);
-  
+
   const payload: Partial<VsSchoolStudent> = {
     school_id: schoolId,
     student_number: validated.student_number || null,
@@ -36,27 +36,89 @@ export async function addSingleStudent(schoolId: number, createdByUserId: number
   return await repo.createStudentRepo(payload);
 }
 
+import { getMyCourses, createMyCourse } from '@/modules/school-admin/services/school-admin.service';
+
 export async function addBulkStudents(schoolId: number, createdByUserId: number, inputList: BulkStudentInput): Promise<VsSchoolStudent[]> {
   const validatedList = bulkStudentSchema.parse(inputList);
-  
-  const payloadList: Partial<VsSchoolStudent>[] = validatedList.map((item) => ({
-    school_id: schoolId,
-    student_number: item.student_number || null,
-    first_name: item.first_name,
-    middle_name: (item.middle_name ?? '').trim(),
-    last_name: item.last_name,
-    email: item.email.toLowerCase(),
-    school_course_id: item.school_course_id || null,
-    school_year: item.school_year,
-    gpa: item.gpa ?? null,
-    is_alumni: false,
-    employee_education_id: null,
-    registered_user_id: null,
-    invitation_status: 'Not Sent',
-    created_by: createdByUserId,
-  }));
 
-  return await repo.bulkCreateStudentsRepo(payloadList);
+  // Fetch current courses for the school to resolve/auto-create
+  let existingCourses = await getMyCourses(schoolId);
+
+  // Map to cache course resolution: normalized key -> school_course_id
+  const courseCache = new Map<string, number>();
+  existingCourses.forEach((c) => {
+    if (c.course_code) {
+      courseCache.set(c.course_code.trim().toUpperCase(), c.school_course_id);
+    }
+    if (c.course_name) {
+      courseCache.set(c.course_name.trim().toLowerCase(), c.school_course_id);
+    }
+  });
+
+  const resolvedList: Partial<VsSchoolStudent>[] = [];
+
+  for (const item of validatedList) {
+    let resolvedCourseId = item.school_course_id || null;
+
+    const codeKey = item.course_code ? item.course_code.trim().toUpperCase() : null;
+    const nameKey = item.course_name ? item.course_name.trim().toLowerCase() : null;
+
+    if (!resolvedCourseId) {
+      if (codeKey && courseCache.has(codeKey)) {
+        resolvedCourseId = courseCache.get(codeKey)!;
+      } else if (nameKey && courseCache.has(nameKey)) {
+        resolvedCourseId = courseCache.get(nameKey)!;
+      } else if (codeKey || nameKey) {
+        // Auto-create course in the school courses
+        const courseName = item.course_name?.trim() || item.course_code?.trim() || 'General Course';
+        const courseCode = item.course_code?.trim() || null;
+        try {
+          const newCourse = await createMyCourse(
+            schoolId,
+            {
+              course_name: courseName,
+              course_code: courseCode,
+              degree: 'Bachelor',
+              course_status: 'Active',
+            },
+            createdByUserId
+          );
+          resolvedCourseId = newCourse.school_course_id;
+          if (courseCode) courseCache.set(courseCode.toUpperCase(), newCourse.school_course_id);
+          courseCache.set(courseName.toLowerCase(), newCourse.school_course_id);
+        } catch {
+          // If auto-creation fails (e.g. duplicate constraint or DB issue), attempt refetching courses
+          existingCourses = await getMyCourses(schoolId);
+          const found = existingCourses.find((c) =>
+            (courseCode && c.course_code?.toUpperCase() === courseCode.toUpperCase()) ||
+            c.course_name?.toLowerCase() === courseName.toLowerCase()
+          );
+          if (found) {
+            resolvedCourseId = found.school_course_id;
+          }
+        }
+      }
+    }
+
+    resolvedList.push({
+      school_id: schoolId,
+      student_number: item.student_number || null,
+      first_name: item.first_name,
+      middle_name: (item.middle_name ?? '').trim(),
+      last_name: item.last_name,
+      email: item.email.toLowerCase(),
+      school_course_id: resolvedCourseId,
+      school_year: item.school_year,
+      gpa: item.gpa ?? null,
+      is_alumni: false,
+      employee_education_id: null,
+      registered_user_id: null,
+      invitation_status: 'Not Sent',
+      created_by: createdByUserId,
+    });
+  }
+
+  return await repo.bulkCreateStudentsRepo(resolvedList);
 }
 
 export async function updateStudentAcademics(
@@ -82,6 +144,11 @@ export async function updateStudentAcademics(
   }
 
   const patch: Partial<VsSchoolStudent> = {};
+  if (academics.first_name !== undefined) patch.first_name = academics.first_name;
+  if (academics.middle_name !== undefined) patch.middle_name = (academics.middle_name ?? '').trim();
+  if (academics.last_name !== undefined) patch.last_name = academics.last_name;
+  if (academics.email !== undefined) patch.email = academics.email.toLowerCase();
+  if (academics.school_course_id !== undefined) patch.school_course_id = academics.school_course_id;
   if (academics.student_number !== undefined) patch.student_number = academics.student_number;
   if (academics.gpa !== undefined) patch.gpa = academics.gpa;
   if (academics.school_year !== undefined) patch.school_year = academics.school_year;
@@ -141,7 +208,21 @@ export async function inviteStudentService(
     });
   }
 
-  const cleanOrigin = originUrl.replace(/\/$/, '');
+  let effectiveOrigin = originUrl?.trim() || '';
+  if (!effectiveOrigin || effectiveOrigin.includes('localhost') || effectiveOrigin.includes('127.0.0.1')) {
+    const allowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+      .split(',')
+      .map((o) => o.trim())
+      .filter((o) => o && !o.includes('localhost') && !o.includes('127.0.0.1'));
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.NEXT_PUBLIC_SITE_URL;
+    if (appUrl?.trim()) {
+      effectiveOrigin = appUrl.trim();
+    } else if (allowedOrigins.length > 0) {
+      effectiveOrigin = allowedOrigins[0];
+    }
+  }
+
+  const cleanOrigin = (effectiveOrigin || originUrl).replace(/\/$/, '');
   const invitationUrl = `${cleanOrigin}/student-register?token=${tokenRecord.token}`;
 
   // Dispatch Invitation Email
@@ -150,18 +231,18 @@ export async function inviteStudentService(
       const { sendMail } = await import('@/lib/mail');
       await sendMail({
         to: student.email,
-        subject: `🎓 You're invited to join VOS Sync Freelancer Network!`,
+        subject: `🎓 You're invited to join LinkBridge Freelancer Network!`,
         html: `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
             <div style="text-align: center; margin-bottom: 24px;">
-              <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">VOS Sync</h1>
+              <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">LinkBridge</h1>
               <p style="color: #64748b; margin: 4px 0 0; font-size: 13px;">Student Career & Freelance Network</p>
             </div>
 
             <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
               <h2 style="color: #0f172a; margin: 0 0 10px; font-size: 18px;">Hello ${student.first_name}!</h2>
               <p style="color: #334155; margin: 0; font-size: 14px; line-height: 1.5;">
-                Your institution has registered you on VOS Sync. Activate your student freelancer account to showcase your skills, build your professional portfolio, and receive verified job recommendations and referrals from your school administrators.
+                Your institution has registered you on LinkBridge. Activate your student freelancer account to showcase your skills, build your professional portfolio, and receive verified job recommendations and referrals from your school administrators.
               </p>
             </div>
 

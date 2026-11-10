@@ -23,7 +23,7 @@ interface Props {
 
 export function GuestAuthModal({ job, isOpen, onClose }: Props) {
   const openJobQuery = job?.job_id ? `?open_job=${job.job_id}` : "";
-  const targetPath = `/vos-sync/freelancer/jobs${openJobQuery}`;
+  const targetPath = `/linkbridge/freelancer/jobs${openJobQuery}`;
   const loginHref = `/login?next=${encodeURIComponent(targetPath)}`;
   const signupHref = `/signup?next=${encodeURIComponent(targetPath)}`;
 
@@ -73,7 +73,7 @@ export function GuestAuthModal({ job, isOpen, onClose }: Props) {
         <DialogFooter className="pt-2 sm:justify-center border-t text-center">
           <p className="text-[11px] text-muted-foreground w-full">
             Looking for employer registration?{" "}
-            <Link href="/signup" className="text-primary font-semibold hover:underline">
+            <Link href="/signup?role=employer" className="text-primary font-semibold hover:underline">
               Employer Sign Up
             </Link>
           </p>

@@ -14,27 +14,31 @@ import React, {
   useState,
 } from "react";
 import {
-  RefreshCw,
+ 
   Briefcase,
-  AlertCircle,
   ArrowLeft,
   ArrowDown,
   ChevronUp,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Search,
   X,
-  MoreVertical,
-  Archive,
-  ArchiveRestore,
+  PanelRight,
+  Pin,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import { Conversation, Message } from "../types";
 import MessageBubble from "./MessageBubble";
 import MessageInput from "./MessageInput";
 import Avatar from "./Avatar";
 import { cn } from "@/lib/utils";
-import { formatDayLabel, isSameDay, minutesBetween } from "../utils";
+import { formatSeparatorLabel, isSameDay, minutesBetween } from "../utils";
+import ConversationDetailsSidebar from "@/modules/shared/messaging/components/ConversationDetailsSidebar";
+import ReportMessageModal from "@/modules/shared/messaging/components/ReportMessageModal";
+import PinnedMessagesModal from "@/modules/shared/messaging/components/PinnedMessagesModal";
 
 interface Props {
   conversation: Conversation;
@@ -43,18 +47,20 @@ interface Props {
   loading: boolean;
   loadingOlder?: boolean;
   hasMore?: boolean;
-  sending: boolean;
   uploading: boolean;
   error: string;
   /** How many unread messages this conversation had when it was opened */
   unreadAtOpen?: number;
   isArchived?: boolean;
-  onSend: (content: string, files: File[]) => Promise<boolean>;
+  onSend: (content: string, files: File[], replyToMessageId?: number) => Promise<boolean>;
   onRefresh: () => void;
-  onLoadOlder?: () => void;
+  onLoadOlder?: () => Promise<"loaded" | "exhausted" | "failed">;
   onArchive?: () => void;
   onBack?: () => void; // mobile
   onToggleReaction?: (messageId: number, reaction: string) => void;
+  onRetry?: (messageId: number) => void;
+  onDeleteMessage?: (messageId: number) => Promise<boolean>;
+  onTogglePin?: (messageId: number) => Promise<boolean>;
 }
 
 // Only keep the most recent "interview rescheduled" card
@@ -72,7 +78,7 @@ function filterLatestInterviewCards(msgs: Message[]): Message[] {
   );
 }
 
-const GROUP_WINDOW_MIN = 5;
+const GROUP_WINDOW_MIN = 30;
 
 function sameGroup(a?: Message, b?: Message): boolean {
   return (
@@ -130,7 +136,6 @@ export default function ChatPanel({
   loading,
   loadingOlder,
   hasMore,
-  sending,
   uploading,
   error,
   unreadAtOpen = 0,
@@ -141,6 +146,9 @@ export default function ChatPanel({
   onArchive,
   onBack,
   onToggleReaction,
+  onRetry,
+  onDeleteMessage,
+  onTogglePin,
 }: Props) {
   const {
     other_party_avatar,
@@ -163,9 +171,12 @@ export default function ChatPanel({
   const [newBelow, setNewBelow] = useState(0);
   const [unreadMarkerId, setUnreadMarkerId] = useState<number | null>(null);
 
-  // header menu
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  // sidebar & action state
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [showPinnedModal, setShowPinnedModal] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null);
+  const [reportingMessageId, setReportingMessageId] = useState<number | null>(null);
+  const [showReportModal, setShowReportModal] = useState(false);
 
   // in-chat search
   const [searchOpen, setSearchOpen] = useState(false);
@@ -173,7 +184,141 @@ export default function ChatPanel({
   const [matchIndex, setMatchIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  const displayMessages = useMemo(() => filterLatestInterviewCards(messages), [messages]);
+  const displayMessages = useMemo(() => {
+    return filterLatestInterviewCards(messages).filter((m) => !m.is_deleted);
+  }, [messages]);
+
+  const [activePinIndex, setActivePinIndex] = useState(0);
+
+  const pinnedMessages = useMemo(() => {
+    return messages.filter((m) => Boolean(m.is_pinned) && !m.is_deleted);
+  }, [messages]);
+
+  const safePinIndex =
+    pinnedMessages.length > 0 ? activePinIndex % pinnedMessages.length : 0;
+  const currentPinned = pinnedMessages[safePinIndex];
+
+  const handleReply = useCallback((m: Message) => {
+    setReplyingTo(m);
+  }, []);
+
+  const handleCancelReply = useCallback(() => {
+    setReplyingTo(null);
+  }, []);
+
+  const handleJumpToMessage = useCallback(
+    async (messageId: number) => {
+      if (messages.some((m) => m.message_id === messageId && m.is_deleted)) {
+        toast.info("This message was removed.", { id: "jump-older", duration: 3000 });
+        return;
+      }
+
+      let el = document.querySelector(`[data-message-id="${messageId}"]`);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        return;
+      }
+
+      if (onLoadOlder) {
+        const toastId = toast.loading("Loading message history…");
+        for (let i = 0; i < 5; i++) {
+          const outcome = await onLoadOlder();
+          await new Promise((r) => setTimeout(r, 250));
+          el = document.querySelector(`[data-message-id="${messageId}"]`);
+          if (el) {
+            toast.dismiss(toastId);
+            el.scrollIntoView({ behavior: "smooth", block: "center" });
+            return;
+          }
+          if (outcome === "failed") {
+            // Without this the loop burned all five attempts on a failing
+            // endpoint and then declared the message missing.
+            toast.dismiss(toastId);
+            toast.error("Older messages could not be loaded. Please try again.", {
+              id: "jump-older",
+              duration: 4000,
+            });
+            return;
+          }
+          if (outcome === "exhausted") break;
+        }
+        toast.dismiss(toastId);
+      }
+
+      toast.info("Message could not be found in the history loaded so far.", {
+        id: "jump-older",
+        duration: 3000,
+      });
+    },
+    [onLoadOlder, messages]
+  );
+
+  const pinningRef = useRef<Set<number>>(new Set());
+
+  const handleTogglePin = useCallback(
+    async (messageId: number) => {
+      // The route reads the current pin before writing it, so two overlapping
+      // toggles both see "not pinned" and insert two vs_message_pin rows for one
+      // message — and the menu item is still clickable while it animates out.
+      if (pinningRef.current.has(messageId)) return;
+      pinningRef.current.add(messageId);
+      try {
+        if (onTogglePin) {
+          await onTogglePin(messageId);
+        } else {
+          const res = await fetch(`/api/shared/messaging/messages/${messageId}/pin`, {
+            method: "POST",
+          });
+          if (!res.ok) throw new Error("Failed to update pin status");
+          const data = await res.json();
+          toast.success(data.is_pinned ? "Message pinned." : "Message unpinned.", {
+            id: "pin-toggle",
+            duration: 2500,
+          });
+          onRefresh();
+        }
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : "Failed to pin/unpin message.");
+      } finally {
+        pinningRef.current.delete(messageId);
+      }
+    },
+    [onTogglePin, onRefresh]
+  );
+
+  const handleDelete = useCallback(
+    async (messageId: number) => {
+      if (onDeleteMessage) {
+        await onDeleteMessage(messageId);
+        return;
+      }
+      try {
+        const res = await fetch(`/api/shared/messaging/messages/${messageId}`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error("Failed to remove message");
+        toast.success("Message removed.", { id: "delete-msg", duration: 2500 });
+        onRefresh();
+      } catch {
+        toast.error("Failed to remove message.");
+      }
+    },
+    [onDeleteMessage, onRefresh]
+  );
+
+  const handleOpenReport = useCallback((messageId?: number | null) => {
+    setReportingMessageId(messageId ?? null);
+    setShowReportModal(true);
+  }, []);
+
+  const handleSendWrapped = useCallback(
+    async (content: string, files: File[]) => {
+      const res = await onSend(content, files, replyingTo?.message_id);
+      if (res) setReplyingTo(null);
+      return res;
+    },
+    [onSend, replyingTo]
+  );
 
   // ─── Scrolling ────────────────────────────────────────────────────────────
 
@@ -232,7 +377,7 @@ export default function ChatPanel({
     const el = scrollRef.current;
     if (el) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
     stickRef.current = false;
-    onLoadOlder?.();
+    void onLoadOlder?.();
   };
 
   useLayoutEffect(() => {
@@ -272,7 +417,13 @@ export default function ChatPanel({
     () =>
       trimmedQuery
         ? displayMessages
-            .filter((m) => m.message_content?.toLowerCase().includes(trimmedQuery))
+            .filter(
+              (m) =>
+                m.message_content?.toLowerCase().includes(trimmedQuery) ||
+                m.attachments?.some((a) =>
+                  a.file_name?.toLowerCase().includes(trimmedQuery)
+                )
+            )
             .map((m) => m.message_id)
         : [],
     [displayMessages, trimmedQuery]
@@ -302,35 +453,7 @@ export default function ChatPanel({
     setMatchIndex((activeIdx + dir + matchIds.length) % matchIds.length);
   };
 
-  // ─── Header menu: outside click / Escape ──────────────────────────────────
-
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (!menuRef.current?.contains(e.target as Node)) setMenuOpen(false);
-    };
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault(); // tells the module-level Esc handler we've used it
-        setMenuOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [menuOpen]);
-
   // ─── Render ───────────────────────────────────────────────────────────────
-
-  const typeLabel =
-    conversation_type === "JOB_APPLICATION"
-      ? "Applicant"
-      : conversation_type === "DIRECT_MESSAGE"
-      ? "Direct"
-      : "Support";
 
   const iconButton =
     "flex items-center justify-center rounded-lg p-1.5 text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:size-10 max-md:p-0 dark:hover:bg-zinc-800 dark:hover:text-zinc-300";
@@ -340,115 +463,144 @@ export default function ChatPanel({
       initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.22, ease: "easeOut" }}
-      className="relative flex h-full min-h-0 flex-col"
+      className="relative flex h-full min-h-0 w-full min-w-0 flex-row overflow-hidden"
     >
-      {/* Header */}
-      <div className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
-        {onBack && (
+      <div className="relative flex h-full min-h-0 flex-1 min-w-0 flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-4 py-3 dark:border-zinc-800 dark:bg-zinc-900">
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to conversations"
+              className={cn(iconButton, "text-zinc-500")}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
+
+          <Avatar name={otherName} src={other_party_avatar} size={36} />
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <h2 className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
+                {otherName}
+              </h2>
+            </div>
+            {(job_title || other_party_email) && (
+              <div className="mt-0.5 flex items-center gap-1">
+                {job_title ? (
+                  <>
+                    <Briefcase className="h-3 w-3 shrink-0 text-indigo-400" />
+                    <span className="truncate text-xs font-medium text-indigo-600 dark:text-indigo-400">
+                      {job_title}
+                    </span>
+                  </>
+                ) : (
+                  <span className="truncate text-xs text-zinc-500">{other_party_email}</span>
+                )}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
-            onClick={onBack}
-            aria-label="Back to conversations"
-            className={cn(iconButton, "text-zinc-500")}
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+            title="Search in conversation"
+            aria-label="Search in conversation"
+            aria-pressed={searchOpen}
+            className={cn(
+              iconButton,
+              searchOpen && "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
+            )}
           >
-            <ArrowLeft className="h-4 w-4" />
+            <Search className="h-4 w-4" />
           </button>
-        )}
 
-        <Avatar name={otherName} src={other_party_avatar} size={36} />
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <h2 className="truncate text-sm font-semibold text-zinc-800 dark:text-zinc-100">
-              {otherName}
-            </h2>
-            <span className="inline-flex shrink-0 items-center rounded-full bg-indigo-100 px-2 py-0.5 text-[11px] font-semibold text-indigo-600 dark:bg-indigo-950/50 dark:text-indigo-400">
-              {typeLabel}
-            </span>
-          </div>
-          {(job_title || other_party_email) && (
-            <div className="mt-0.5 flex items-center gap-1">
-              {job_title ? (
-                <>
-                  <Briefcase className="h-3 w-3 shrink-0 text-indigo-400" />
-                  <span className="truncate text-xs font-medium text-indigo-600 dark:text-indigo-400">
-                    {job_title}
-                  </span>
-                </>
-              ) : (
-                <span className="truncate text-xs text-zinc-500">{other_party_email}</span>
-              )}
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((v) => !v)}
+            title="Conversation details"
+            aria-label="Conversation details"
+            aria-pressed={sidebarOpen}
+            className={cn(
+              iconButton,
+              sidebarOpen && "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
+            )}
+          >
+            <PanelRight className="h-4 w-4" />
+          </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-          title="Search in conversation"
-          aria-label="Search in conversation"
-          aria-pressed={searchOpen}
-          className={cn(
-            iconButton,
-            searchOpen && "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/40 dark:text-indigo-400"
-          )}
-        >
-          <Search className="h-4 w-4" />
-        </button>
-
-        <div ref={menuRef} className="relative">
-          <button
-            type="button"
-            onClick={() => setMenuOpen((v) => !v)}
-            title="More"
-            aria-label="More actions"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            className={iconButton}
-          >
-            <MoreVertical className="h-4 w-4" />
-          </button>
-
-          {menuOpen && (
-            <div
-              role="menu"
-              className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+        {/* Sticky Pinned Messages Banner */}
+        {pinnedMessages.length > 0 && currentPinned && (
+          <div className="flex shrink-0 items-center justify-between border-b border-amber-200/60 bg-amber-50/80 px-4 py-2 text-xs text-amber-900 backdrop-blur-xs dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+            <button
+              type="button"
+              onClick={() => handleJumpToMessage(currentPinned.message_id)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left hover:underline cursor-pointer"
             >
+              <Pin className="h-3.5 w-3.5 shrink-0 fill-amber-500 text-amber-600 dark:text-amber-400" />
+              <span className="font-semibold text-[11px] text-amber-800 dark:text-amber-300 shrink-0">
+                {pinnedMessages.length === 1
+                  ? "Pinned message:"
+                  : `Pinned (${safePinIndex + 1}/${pinnedMessages.length}):`}
+              </span>
+              <AnimatePresence mode="wait">
+                <motion.span
+                  key={currentPinned.message_id}
+                  initial={{ opacity: 0, y: -3 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 3 }}
+                  transition={{ duration: 0.15 }}
+                  className="truncate text-[11px] opacity-90"
+                >
+                  {currentPinned.message_content ||
+                    (currentPinned.attachments?.[0]?.file_name
+                      ? `${currentPinned.attachments[0].mime_type?.startsWith("image/") ? "📷" : "📎"} ${currentPinned.attachments[0].file_name}`
+                      : "Attachment")}
+                </motion.span>
+              </AnimatePresence>
+            </button>
+            <div className="flex items-center gap-1 shrink-0 ml-2">
+              {pinnedMessages.length > 1 && (
+                <div className="flex items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev - 1 + pinnedMessages.length) % pinnedMessages.length);
+                    }}
+                    title="Previous pinned message"
+                    aria-label="Previous pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setActivePinIndex((prev) => (prev + 1) % pinnedMessages.length);
+                    }}
+                    title="Next pinned message"
+                    aria-label="Next pinned message"
+                    className="p-1 rounded-md text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
+                  >
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               <button
                 type="button"
-                role="menuitem"
-                disabled={loading}
-                onClick={() => {
-                  setMenuOpen(false);
-                  onRefresh();
-                }}
-                className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 disabled:opacity-40 max-md:min-h-11 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={() => setShowPinnedModal(true)}
+                className="rounded-lg px-2 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100/80 dark:text-amber-300 dark:hover:bg-amber-900/50 transition cursor-pointer"
               >
-                <RefreshCw className={cn("h-4 w-4 text-zinc-400", loading && "animate-spin")} />
-                Refresh messages
+                View all
               </button>
-              {onArchive && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onArchive();
-                  }}
-                  className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-sm text-zinc-700 hover:bg-zinc-50 max-md:min-h-11 dark:text-zinc-200 dark:hover:bg-zinc-800"
-                >
-                  {isArchived ? (
-                    <ArchiveRestore className="h-4 w-4 text-zinc-400" />
-                  ) : (
-                    <Archive className="h-4 w-4 text-zinc-400" />
-                  )}
-                  {isArchived ? "Move to inbox" : "Archive conversation"}
-                </button>
-              )}
             </div>
-          )}
-        </div>
-      </div>
+          </div>
+        )}
 
       {/* In-conversation search bar */}
       {searchOpen && (
@@ -508,7 +660,7 @@ export default function ChatPanel({
       )}
 
       {/* Messages */}
-      <div className="relative min-h-0 flex-1">
+      <div className="relative min-h-0 flex-1 w-full min-w-0 overflow-hidden">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
@@ -516,29 +668,47 @@ export default function ChatPanel({
           aria-live="polite"
           aria-label={`Conversation with ${otherName}`}
           aria-busy={loading}
-          className="h-full overflow-y-auto overscroll-contain bg-zinc-50/50 px-4 py-4 dark:bg-zinc-950/20"
+          className="h-full w-full min-w-0 overflow-y-auto overflow-x-hidden overscroll-contain bg-zinc-50/50 px-4 py-4 dark:bg-zinc-950/20"
         >
-          <div ref={contentRef} className="flex min-h-full flex-col justify-end">
+          <div ref={contentRef} className="flex min-h-full w-full min-w-0 flex-col justify-end">
             {loading ? (
               <MessagesSkeleton />
-            ) : messages.length === 0 ? (
-              <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
-                <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
-                  <span className="text-2xl" aria-hidden="true">
-                    💬
-                  </span>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                    Start the conversation with {firstName}
+            ) : displayMessages.length === 0 && !hasMore ? (
+              error ? (
+                // An unread thread must not render as an empty one: the "start
+                // the conversation" copy below invites a first message into a
+                // conversation whose history we simply could not read.
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+                  <p className="mx-auto max-w-xs text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                    This conversation could not be loaded.
                   </p>
-                  <p className="mx-auto mt-1 max-w-xs text-xs text-zinc-500">
-                    {job_title
-                      ? `Ask about availability, rates, or past work for ${job_title}. Quick replies are under the ⚡ button.`
-                      : "Send a message below. Quick replies are under the ⚡ button."}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={onRefresh}
+                    className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                  >
+                    Try again
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
+                  <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
+                    <span className="text-2xl" aria-hidden="true">
+                      💬
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                      Start the conversation with {firstName}
+                    </p>
+                    <p className="mx-auto mt-1 max-w-xs text-xs text-zinc-500">
+                      {job_title
+                        ? `Ask about availability, rates, or past work for ${job_title}.`
+                        : "Send a message below."}
+                    </p>
+                  </div>
+                </div>
+              )
             ) : (
               <>
                 {hasMore && (
@@ -564,30 +734,49 @@ export default function ChatPanel({
                   </div>
                 )}
 
-                {displayMessages.map((msg, index) => {
-                  const prev = displayMessages[index - 1];
-                  const next = displayMessages[index + 1];
-                  const showDateDivider = !prev || !isSameDay(prev.created_at, msg.created_at);
-                  const startsUnread = msg.message_id === unreadMarkerId;
+                <AnimatePresence initial={false}>
+                  {displayMessages.map((msg, index) => {
+                    const prev = displayMessages[index - 1];
+                    const next = displayMessages[index + 1];
+                    const showDateDivider =
+                      !prev ||
+                      !isSameDay(prev.created_at, msg.created_at) ||
+                      minutesBetween(prev.created_at, msg.created_at) >= 30;
+                    const startsUnread = msg.message_id === unreadMarkerId;
 
-                  return (
-                    <React.Fragment key={msg.message_id}>
-                      {startsUnread && <UnreadDivider count={unreadAtOpen} />}
-                      <MessageBubble
-                        message={msg}
-                        isOwn={msg.sender_id === currentUserId}
-                        showDateDivider={showDateDivider}
-                        dateLabel={showDateDivider ? formatDayLabel(msg.created_at) : undefined}
-                        isFirstInGroup={startsUnread || !sameGroup(prev, msg)}
-                        isLastInGroup={!sameGroup(msg, next) || next?.message_id === unreadMarkerId}
-                        otherParty={{ name: otherName, avatar: other_party_avatar }}
-                        searchQuery={searchOpen ? query : ""}
-                        isActiveMatch={msg.message_id === activeMatchId}
-                        onToggleReaction={onToggleReaction}
-                      />
-                    </React.Fragment>
-                  );
-                })}
+                    return (
+                      <motion.div
+                        key={msg.message_id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.96 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9, height: 0, overflow: "hidden" }}
+                        transition={{ duration: 0.22, ease: "easeOut" }}
+                      >
+                        {startsUnread && <UnreadDivider count={unreadAtOpen} />}
+                        <MessageBubble
+                          message={msg}
+                          isOwn={msg.sender_id === currentUserId}
+                          showDateDivider={showDateDivider}
+                          dateLabel={showDateDivider ? formatSeparatorLabel(msg.created_at) : undefined}
+                          isFirstInGroup={startsUnread || !sameGroup(prev, msg)}
+                          isLastInGroup={!sameGroup(msg, next) || next?.message_id === unreadMarkerId}
+                          otherParty={{ name: otherName, avatar: other_party_avatar }}
+                          searchQuery={searchOpen ? query : ""}
+                          isActiveMatch={msg.message_id === activeMatchId}
+                          onToggleReaction={onToggleReaction}
+                          onRetry={onRetry}
+                          onReply={handleReply}
+                          onTogglePin={handleTogglePin}
+                          onDelete={handleDelete}
+                          onReport={handleOpenReport}
+                          onJumpToMessage={handleJumpToMessage}
+                        />
+                      </motion.div>
+                    );
+                  })}
+                </AnimatePresence>
+                <div className="h-6 shrink-0" aria-hidden="true" />
               </>
             )}
           </div>
@@ -619,31 +808,55 @@ export default function ChatPanel({
         </AnimatePresence>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div
-          role="alert"
-          className="flex shrink-0 items-center gap-2 border-t border-rose-100 bg-rose-50 px-4 py-2 text-xs text-rose-600 dark:border-rose-900/30 dark:bg-rose-950/20 dark:text-rose-400"
-        >
-          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="shrink-0 rounded px-2 py-1 font-semibold underline underline-offset-2 hover:bg-rose-100 max-md:min-h-10 dark:hover:bg-rose-900/30"
-          >
-            Try again
-          </button>
-        </div>
-      )}
-
       {/* Input: per-conversation drafts via draftKey */}
       <MessageInput
         disabled={loading}
-        sending={sending}
         uploading={uploading}
         draftKey={conversation_id}
-        onSend={onSend}
+        replyingTo={replyingTo}
+        onCancelReply={handleCancelReply}
+        onSend={handleSendWrapped}
+      />
+      </div>
+
+      {/* Conversation Details Sidebar */}
+      <ConversationDetailsSidebar
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        otherPartyName={otherName}
+        otherPartyAvatar={other_party_avatar}
+        userRole="client"
+        conversationType={conversation_type}
+        conversationId={conversation_id}
+        isArchived={isArchived}
+        messages={messages}
+        currentUserId={currentUserId}
+        onJumpToMessage={handleJumpToMessage}
+        onTogglePin={handleTogglePin}
+        onRefresh={onRefresh}
+        onArchive={onArchive}
+        onOpenReport={handleOpenReport}
+      />
+
+      {/* Pinned Messages Modal */}
+      <PinnedMessagesModal
+        isOpen={showPinnedModal}
+        onClose={() => setShowPinnedModal(false)}
+        pinnedMessages={pinnedMessages}
+        currentUserId={currentUserId}
+        otherPartyName={otherName}
+        onJumpToMessage={handleJumpToMessage}
+        onTogglePin={handleTogglePin}
+      />
+
+      {/* Report Modal */}
+      <ReportMessageModal
+        isOpen={showReportModal}
+        onClose={() => setShowReportModal(false)}
+        messageId={reportingMessageId}
+        conversationId={conversation_id}
+        reportedUserId={conversation.freelancer_id}
+        reportedUserName={otherName}
       />
     </motion.div>
   );

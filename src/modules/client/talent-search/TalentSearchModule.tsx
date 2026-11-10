@@ -2,15 +2,22 @@
 
 // src/modules/client/talent-search/TalentSearchModule.tsx
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
-  Search, Users, Bookmark, AlertCircle, ChevronLeft, ChevronRight,
-  SlidersHorizontal, X,
+  Search, Users, Bookmark, 
+  SlidersHorizontal, X, ArrowUpDown, AlertTriangle, Loader2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+ 
 
 import CompanyVerificationGuard from "../components/CompanyVerificationGuard";
 
@@ -25,26 +32,63 @@ import { useTalentSearch } from "./hooks/useTalentSearch";
 import { useTalentProfile } from "./hooks/useTalentProfile";
 import { useSavedTalent } from "./hooks/useSavedTalent";
 
-import { TalentCard, TalentProfile } from "./types";
+import {
+  TalentCard,
+  TalentProfile,
+  TalentSort,
+  TALENT_SORT_LABELS,
+  TALENT_SORTS,
+} from "./types";
 
-export default function TalentSearchModule() {
+export default function TalentSearchModule({ initialQuery = "" }: { initialQuery?: string }) {
   const {
     talents,
     loading,
+    loadingMore,
     error,
     total,
+    searchContext,
+    // aiReranked,
     page,
-    totalPages,
+    // totalPages,
+    limit,
+    sort,
     hasSearched,
+    hasMore,
     filters,
     jobIdForMatch,
     setJobIdForMatch,
     updateFilter,
+    clearFilters,
     search,
+    loadMore,
+    changeSort,
+    // changeLimit,
     resetFilters,
-    handlePageChange,
+    // handlePageChange,
     toggleSaved,
-  } = useTalentSearch();
+  } = useTalentSearch(initialQuery);
+
+  const observerRef = useRef<HTMLDivElement | null>(null);
+
+  // Dynamic infinite scroll when near bottom
+  useEffect(() => {
+    if (!hasMore || loading || loadingMore) return;
+    const target = observerRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          loadMore();
+        }
+      },
+      { rootMargin: "300px" }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [hasMore, loading, loadingMore, loadMore]);
 
   const {
     profile: drawerProfile,
@@ -107,14 +151,16 @@ export default function TalentSearchModule() {
   const handleDrawerToggleSave = useCallback(
     async (p: TalentProfile) => {
       if (p.is_saved) {
-        await unsaveTalent(p.user_id);
+        const ok = await unsaveTalent(p.user_id);
+        if (ok) toggleSaved(p.user_id, false);
       } else {
-        await saveTalent(p.user_id);
+        const ok = await saveTalent(p.user_id);
+        if (ok) toggleSaved(p.user_id, true);
       }
       // re-fetch profile to update saved state
       fetchProfile(p.user_id);
     },
-    [saveTalent, unsaveTalent, fetchProfile]
+    [saveTalent, unsaveTalent, fetchProfile, toggleSaved]
   );
 
   const handleOpenInvite = useCallback(
@@ -143,7 +189,7 @@ export default function TalentSearchModule() {
   );
 
   const handleSearch = useCallback(() => {
-    search(undefined, 1);
+    search({ page: 1 });
   }, [search]);
 
   return (
@@ -218,6 +264,7 @@ export default function TalentSearchModule() {
                     filters={filters}
                     onFilterChange={updateFilter}
                     onApply={handleSearch}
+                    onClear={clearFilters}
                   />
                 </div>
               </div>
@@ -245,7 +292,7 @@ export default function TalentSearchModule() {
                       className="h-8 max-md:min-h-10 text-xs gap-1.5 rounded-lg"
                     >
                       <SlidersHorizontal className="h-3.5 w-3.5" />
-                      Filters
+                      Preferences
                     </Button>
                   </div>
 
@@ -274,31 +321,51 @@ export default function TalentSearchModule() {
                             handleSearch();
                             setMobileFiltersOpen(false);
                           }}
+                          onClear={() => {
+                            clearFilters();
+                            setMobileFiltersOpen(false);
+                          }}
                         />
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
 
-                {/* Error */}
-                {error && !loading && (
-                  <div className="flex items-center gap-3 p-4 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-sm">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {error}
-                  </div>
-                )}
 
-                {/* Results count */}
+
+                {/* Results count + the two controls that change it */}
                 {hasSearched && !loading && (
-                  <div className="flex items-center justify-between text-sm text-muted-foreground">
+                  <motion.div
+                    // Re-keyed per query so a filter change re-plays the fade.
+                    key={`${page}-${talents.length}-${total}-${limit}-${sort}`}
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+                    className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-sm text-muted-foreground"
+                  >
                     <span>
                       Showing <strong className="text-foreground">{talents.length}</strong> of{" "}
                       <strong className="text-foreground">{total}</strong> profiles
                     </span>
-                    {totalPages > 1 && (
-                      <span>Page {page} of {totalPages}</span>
-                    )}
-                  </div>
+                    <div className="flex items-center gap-2">
+                      <Select value={sort} onValueChange={(v) => changeSort(v as TalentSort)}>
+                        <SelectTrigger
+                          aria-label="Sort results"
+                          className="h-8 w-44 shrink-0 gap-1.5 rounded-lg text-xs"
+                        >
+                          <ArrowUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {TALENT_SORTS.map((value) => (
+                            <SelectItem key={value} value={value} className="text-xs">
+                              {TALENT_SORT_LABELS[value]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </motion.div>
                 )}
 
                 {/* State Transitions: Loading Skeleton, Empty State, Initial State, Results */}
@@ -334,6 +401,32 @@ export default function TalentSearchModule() {
                         </div>
                       ))}
                     </motion.div>
+                  ) : error && talents.length === 0 ? (
+                    // The toast already carried the reason and expires; without
+                    // this branch the region renders nothing at all, because both
+                    // other branches suppress themselves while `error` is set.
+                    <motion.div
+                      key="search-failed"
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex flex-col items-center justify-center py-20 text-center"
+                    >
+                      <AlertTriangle className="h-9 w-9 text-muted-foreground/40 mb-3" />
+                      <h3 className="text-base font-semibold text-foreground">
+                        That search did not finish
+                      </h3>
+                      <p className="text-sm text-muted-foreground mt-1 max-w-sm">
+                        No profiles were loaded. Try again, or change your preferences.
+                      </p>
+                      <Button
+                        onClick={() => search()}
+                        className="mt-4 rounded-xl text-sm max-md:min-h-10 max-md:px-3"
+                      >
+                        Try again
+                      </Button>
+                    </motion.div>
                   ) : hasSearched && talents.length === 0 && !error ? (
                     <motion.div
                       key="empty-state"
@@ -346,14 +439,16 @@ export default function TalentSearchModule() {
                       <Users className="h-12 w-12 text-muted-foreground/40 mb-4" />
                       <h3 className="text-base font-semibold text-foreground">No profiles found</h3>
                       <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-                        Try adjusting your search keywords or filters to find more candidates.
+                        {searchContext && !searchContext.resolved_role
+                          ? `"${searchContext.keyword}" did not match a known job role, so only names, skills and titles were searched.`
+                          : "Try adjusting your search keywords or preferences to find more candidates."}
                       </p>
                       <Button
                         variant="outline"
                         onClick={resetFilters}
                         className="mt-4 rounded-xl text-sm max-md:min-h-10 max-md:px-3 max-md:text-xs"
                       >
-                        Clear All Filters
+                        Clear All Preferences
                       </Button>
                     </motion.div>
                   ) : !hasSearched && !error ? (
@@ -417,49 +512,65 @@ export default function TalentSearchModule() {
                   ) : null}
                 </AnimatePresence>
 
-                {/* Pagination */}
-                {!loading && totalPages > 1 && (
-                  <div className="flex items-center justify-center gap-2 pt-4 max-md:flex-wrap">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePageChange(page - 1)}
-                      disabled={page <= 1}
-                      className="h-9 max-md:min-h-10 px-3 rounded-xl text-sm max-md:text-xs gap-1.5"
-                    >
-                      <ChevronLeft className="h-4 w-4" />
-                      Previous
-                    </Button>
-                    <div className="flex gap-1">
-                      {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                        const pg = Math.max(1, page - 2) + i;
-                        if (pg > totalPages) return null;
-                        return (
-                          <Button
-                            key={pg}
-                            variant={pg === page ? "default" : "outline"}
-                            size="sm"
-                            onClick={() => handlePageChange(pg)}
-                            className={cn(
-                              "h-9 w-9 max-md:size-10 p-0 rounded-xl text-sm max-md:text-xs",
-                              pg === page ? "bg-primary text-primary-foreground border-0" : ""
-                            )}
-                          >
-                            {pg}
-                          </Button>
-                        );
-                      })}
-                    </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handlePageChange(page + 1)}
-                      disabled={page >= totalPages}
-                      className="h-9 max-md:min-h-10 px-3 rounded-xl text-sm max-md:text-xs gap-1.5"
-                    >
-                      Next
-                      <ChevronRight className="h-4 w-4" />
-                    </Button>
+                {/* Infinite Scroll / Load More */}
+                {!loading && talents.length > 0 && (
+                  <div className="pt-6 pb-6">
+                    {hasMore ? (
+                      <div ref={observerRef} className="flex flex-col items-center justify-center gap-3">
+                        <Button
+                          variant="outline"
+                          onClick={loadMore}
+                          disabled={loadingMore}
+                          className="h-10 px-5 rounded-xl text-sm font-medium gap-2 shadow-2xs hover:bg-accent cursor-pointer"
+                        >
+                          {loadingMore ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                              Loading more candidates…
+                            </>
+                          ) : (
+                            <>
+                              Load more candidates
+                              <span className="text-xs text-muted-foreground ml-1">
+                                ({talents.length} of {total})
+                              </span>
+                            </>
+                          )}
+                        </Button>
+                        {loadingMore && (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full mt-2">
+                            {Array.from({ length: 2 }).map((_, i) => (
+                              <div
+                                key={`loading-more-${i}`}
+                                className="rounded-2xl border border-border bg-card p-5 space-y-3 animate-pulse"
+                              >
+                                <div className="flex gap-3">
+                                  <div className="h-12 w-12 rounded-xl bg-muted shrink-0" />
+                                  <div className="flex-1 space-y-2">
+                                    <div className="h-3.5 bg-muted rounded w-3/4" />
+                                    <div className="h-3 bg-muted/60 rounded w-1/2" />
+                                  </div>
+                                </div>
+                                <div className="flex gap-1.5">
+                                  {[1, 2, 3].map((j) => (
+                                    <div key={j} className="h-6 w-14 rounded-full bg-muted/80" />
+                                  ))}
+                                </div>
+                                <div className="h-3 bg-muted/60 rounded w-full" />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      total > 0 && (
+                        <div className="flex items-center justify-center text-xs text-muted-foreground">
+                          <span className="rounded-full bg-muted/50 px-3.5 py-1.5 border border-border/50">
+                            No more candidates to load
+                          </span>
+                        </div>
+                      )
+                    )}
                   </div>
                 )}
               </div>

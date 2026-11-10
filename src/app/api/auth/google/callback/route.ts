@@ -117,7 +117,7 @@ export async function GET(req: NextRequest) {
 
     // ─── Flow A: Account Linking (mode === "link") ───────────────────────────
     if (transaction.mode === "link") {
-      const returnBasePath = transaction.returnTo || "/vos-sync/freelancer/settings";
+      const returnBasePath = transaction.returnTo || "/linkbridge/freelancer/settings";
       const settingsUrl = new URL(returnBasePath, requestOrigin);
       settingsUrl.searchParams.set("tab", "security");
 
@@ -187,17 +187,18 @@ export async function GET(req: NextRequest) {
           userId: activeSession.userId,
           sub: googleProfile.sub,
           email: normalizedEmail,
+          name: googleProfile.name,
         });
 
         settingsUrl.searchParams.set("pending_link", "google");
         settingsUrl.searchParams.set("email", normalizedEmail);
         const redirectTarget = transaction.popup
           ? new URL(
-              `/auth/popup-callback?status=success&provider=google&flow=link&redirectUrl=${encodeURIComponent(
-                settingsUrl.pathname + settingsUrl.search
-              )}`,
-              requestOrigin
-            )
+            `/auth/popup-callback?status=success&provider=google&flow=link&redirectUrl=${encodeURIComponent(
+              settingsUrl.pathname + settingsUrl.search
+            )}`,
+            requestOrigin
+          )
           : settingsUrl;
         const res = NextResponse.redirect(redirectTarget);
         clearTxCookie(res);
@@ -221,6 +222,7 @@ export async function GET(req: NextRequest) {
         provider: "google",
         providerSubject: googleProfile.sub,
         providerEmail: normalizedEmail,
+        providerName: googleProfile.name ?? null,
       });
 
       createAuditRecordRepo({
@@ -325,7 +327,7 @@ export async function GET(req: NextRequest) {
           lock_until: user.lock_until,
         });
 
-        const targetPath = session.destination || "/vos-sync/freelancer/dashboard";
+        const targetPath = session.destination || "/linkbridge/freelancer/dashboard";
         const redirectTarget = transaction.popup
           ? new URL(`/auth/popup-callback?status=success&provider=google&flow=login&redirectUrl=${encodeURIComponent(targetPath)}`, requestOrigin)
           : new URL(targetPath, requestOrigin);
@@ -347,7 +349,7 @@ export async function GET(req: NextRequest) {
 
       // Branch 2: Identity not linked
       if (emailUser) {
-        // Email exists in VOS Sync: reject login and show "Google account not connected"
+        // Email exists in LinkBridge: reject login and show "Google account not connected"
         createAuditRecordRepo({
           event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
@@ -355,7 +357,7 @@ export async function GET(req: NextRequest) {
           status: "DENIED",
           actor_type: "USER",
           actor_user_id: emailUser.user_id,
-          reason: `Google login rejected: Email ${normalizedEmail} exists in VOS Sync but Google identity is not connected`,
+          reason: `Google login rejected: Email ${normalizedEmail} exists in LinkBridge but Google identity is not connected`,
         });
 
         const errorUrl = new URL(`/login?error=google_not_connected&email=${encodeURIComponent(normalizedEmail)}`, requestOrigin);
@@ -366,7 +368,7 @@ export async function GET(req: NextRequest) {
         clearTxCookie(res);
         return res;
       } else {
-        // Email does not exist in VOS Sync: reject login and direct to signup
+        // Email does not exist in LinkBridge: reject login and direct to signup
         createAuditRecordRepo({
           event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
@@ -398,29 +400,29 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 2. Auto-Link: If identity not linked by sub, check if user exists by verified email
+    // 2. A provider email is not proof that the caller owns the LinkBridge
+    // account, so sign-up never links on it (SEC-009). The login flow already
+    // refuses the same thing; linking is done from an authenticated session.
     if (!user) {
       const existingUser = await getUserByEmail(normalizedEmail);
       if (existingUser) {
-        // Auto-link Google identity to this existing account
-        await linkUserIdentity({
-          userId: existingUser.user_id,
-          provider: "google",
-          providerSubject: googleProfile.sub,
-          providerEmail: normalizedEmail,
-        });
-
         createAuditRecordRepo({
-          event_type: "USER_IDENTITY_AUTO_LINKED",
+          event_type: "USER_LOGIN_FAILED",
           event_category: "AUTHENTICATION",
-          action: "AUTO_LINK_IDENTITY",
-          status: "SUCCESS",
+          action: "LOGIN_REJECTED",
+          status: "DENIED",
           actor_type: existingUser.role_id === 3 ? "ADMIN" : "USER",
           actor_user_id: existingUser.user_id,
-          reason: `Automatically linked Google identity for existing user ${normalizedEmail}`,
+          reason: `Google sign-up refused: email ${normalizedEmail} belongs to an account that is not connected to Google`,
         });
 
-        user = existingUser;
+        const errorUrl = new URL(`/login?error=google_not_connected&email=${encodeURIComponent(normalizedEmail)}`, requestOrigin);
+        const redirectTarget = transaction.popup
+          ? new URL(`/auth/popup-callback?status=error&error=google_not_connected&provider=google&flow=signup`, requestOrigin)
+          : errorUrl;
+        const res = NextResponse.redirect(redirectTarget);
+        clearTxCookie(res);
+        return res;
       }
     }
 
@@ -516,7 +518,7 @@ export async function GET(req: NextRequest) {
       lock_until: user.lock_until,
     });
 
-    const targetPath = session.destination || "/vos-sync/freelancer/dashboard";
+    const targetPath = session.destination || "/linkbridge/freelancer/dashboard";
     const redirectTarget = transaction.popup
       ? new URL(`/auth/popup-callback?status=success&provider=google&flow=login&redirectUrl=${encodeURIComponent(targetPath)}`, requestOrigin)
       : new URL(targetPath, requestOrigin);
@@ -537,7 +539,7 @@ export async function GET(req: NextRequest) {
     return res;
   } catch (err: unknown) {
     console.error("[GET /api/auth/google/callback] Callback failure:", err);
-    const fallbackPath = transaction?.mode === "link" ? "/vos-sync/freelancer/settings" : "/login";
+    const fallbackPath = transaction?.mode === "link" ? "/linkbridge/freelancer/settings" : "/login";
     const res = NextResponse.redirect(new URL(`${fallbackPath}?error=oauth_callback_failed`, requestOrigin));
     clearTxCookie(res);
     return res;

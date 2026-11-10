@@ -15,4 +15,8 @@ export interface BookmarkedJob {
   currency?: string;
   salary_negotiable?: boolean;
   bookmarked_at?: string;
+  is_referred?: boolean;
+  referrer_name?: string | null;
+  school_name?: string | null;
+  referral_expires_at?: string | null;
 }

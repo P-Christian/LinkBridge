@@ -1,7 +1,6 @@
 // src/modules/public/how-it-works/components/RoleMismatchModal.tsx
 "use client";
 
-import React from "react";
 import { AlertTriangle, LogOut } from "lucide-react";
 import {
   Dialog,
@@ -15,8 +14,8 @@ import { Button } from "@/components/ui/button";
 
 export interface MismatchState {
   isOpen: boolean;
-  currentRole: string;
-  targetRoleLabel: string;
+  currentRoleLabel: string; // e.g. "an Employer"
+  targetRoleLabel: string; // e.g. "a School Admin"
   targetRoute: string;
 }
 
@@ -27,12 +26,7 @@ interface Props {
   loading?: boolean;
 }
 
-export function RoleMismatchModal({
-  state,
-  onClose,
-  onConfirmSignOut,
-  loading = false,
-}: Props) {
+export function RoleMismatchModal({ state, onClose, onConfirmSignOut, loading = false }: Props) {
   return (
     <Dialog open={state.isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-md">
@@ -41,32 +35,21 @@ export function RoleMismatchModal({
             <AlertTriangle className="h-6 w-6" />
           </div>
           <DialogTitle className="text-xl font-extrabold text-foreground">
-            You&apos;re currently signed in as {state.currentRole}
+            You&apos;re signed in as {state.currentRoleLabel}
           </DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground leading-relaxed pt-1">
-            <strong className="text-foreground">{state.targetRoleLabel}</strong> accounts use a separate registration role and cannot be created under your active account. Please sign out before registering a {state.targetRoleLabel} account.
+          <DialogDescription className="text-sm text-muted-foreground leading-relaxed">
+            Each account has one role, so you can&apos;t register {state.targetRoleLabel} account
+            from this one. Sign out to continue, or cancel to stay signed in.
           </DialogDescription>
         </DialogHeader>
 
         <DialogFooter className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-4 border-t">
-          <Button
-            type="button"
-            variant="outline"
-            onClick={onClose}
-            disabled={loading}
-            className="w-full sm:w-auto font-semibold cursor-pointer"
-          >
-            Cancel
+          <Button type="button" variant="outline" onClick={onClose} disabled={loading} className="w-full sm:w-auto cursor-pointer">
+            Stay signed in
           </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onConfirmSignOut}
-            disabled={loading}
-            className="w-full sm:w-auto font-bold gap-2 cursor-pointer shadow-sm"
-          >
+          <Button type="button" variant="destructive" onClick={onConfirmSignOut} disabled={loading} className="w-full sm:w-auto font-bold gap-2 cursor-pointer">
             <LogOut className="h-4 w-4" />
-            {loading ? "Signing Out..." : `Sign Out & Register ${state.targetRoleLabel}`}
+            {loading ? "Signing out…" : "Sign out and continue"}
           </Button>
         </DialogFooter>
       </DialogContent>

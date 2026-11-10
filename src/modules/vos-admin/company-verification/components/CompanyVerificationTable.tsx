@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { CompanyVerificationRecord } from "../types";
 import { VerificationStatusBadge } from "./VerificationStatusBadge";
-import { formatDate } from "../utils/companyVerification.utils";
+import { formatDate, getCompanyStatusBucket } from "../utils/companyVerification.utils";
 import { motion, AnimatePresence } from "framer-motion";
 
 interface CompanyVerificationTableProps {
@@ -120,6 +120,13 @@ export const CompanyVerificationTable: React.FC<CompanyVerificationTableProps> =
               {currentRecords.map((company) => {
                 const docCount = company.documents?.length || 0;
                 const completionPercent = Number(company.profile_completion_percent || 0);
+                const bucket = getCompanyStatusBucket(company);
+                const needsReview = bucket === "PENDING_VERIFICATION" || bucket === "NEEDS_REVISION";
+
+                // The legal name is only shown when it differs from the display name
+                const legalName = (company.company_legal_name || "").trim();
+                const showLegalName =
+                  Boolean(legalName) && legalName.toLowerCase() !== company.company_name.trim().toLowerCase();
 
                 // Get company initials for fallback avatar
                 const initials = company.company_name
@@ -178,10 +185,14 @@ export const CompanyVerificationTable: React.FC<CompanyVerificationTableProps> =
                             )}
                           </div>
                           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span className="truncate max-w-[160px]" title={company.company_legal_name}>
-                              {company.company_legal_name}
-                            </span>
-                            <span className="text-muted-foreground/40">•</span>
+                            {showLegalName && (
+                              <>
+                                <span className="truncate max-w-[160px]" title={legalName}>
+                                  {legalName}
+                                </span>
+                                <span className="text-muted-foreground/40">•</span>
+                              </>
+                            )}
                             <span className="font-mono text-[11px] text-muted-foreground/80 bg-muted/60 px-1.5 py-0.5 rounded">
                               {company.company_code}
                             </span>
@@ -259,13 +270,22 @@ export const CompanyVerificationTable: React.FC<CompanyVerificationTableProps> =
                     {/* Actions */}
                     <TableCell className="py-4 pr-6 pl-4 text-right">
                       <Button
-                        variant="default"
+                        variant={needsReview ? "default" : "outline"}
                         size="sm"
                         onClick={() => onSelectCompany(company)}
+                        title={
+                          needsReview
+                            ? undefined
+                            : bucket === "VERIFIED"
+                            ? "This company is already verified."
+                            : bucket === "REJECTED"
+                            ? "This submission was already rejected or suspended."
+                            : "This profile has not been submitted for verification yet."
+                        }
                         className="h-8 px-3 gap-1.5 text-xs font-semibold shadow-xs transition-all hover:scale-102 active:scale-98"
                       >
                         <Eye className="h-3.5 w-3.5" />
-                        Review & Verify
+                        {needsReview ? "Review & Verify" : "View Profile"}
                       </Button>
                     </TableCell>
                   </motion.tr>

@@ -2,7 +2,7 @@
 
 // src/modules/shared/messaging/components/InterviewCard.tsx
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback, useSyncExternalStore } from "react";
 import {
   CalendarDays,
   CalendarCheck,
@@ -100,6 +100,12 @@ const STATUS_CONFIGS: Record<string, StatusConfig> = {
     accent: "bg-amber-50/90 dark:bg-amber-950/40 border-amber-200/60 dark:border-amber-800/40",
     badgeColor: "bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300",
   },
+  CONCLUDED: {
+    icon: <Clock className="h-4 w-4 text-zinc-600 dark:text-zinc-400 shrink-0" />,
+    label: "Interview Ended",
+    accent: "bg-zinc-50/90 dark:bg-zinc-900/40 border-zinc-200/60 dark:border-zinc-800/40",
+    badgeColor: "bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
+  },
   COMPLETED: {
     icon: <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />,
     label: "Interview Completed",
@@ -164,6 +170,12 @@ function tzAbbr(tz: string): string {
   return abbrs[tz] ?? tz;
 }
 
+function normalizeMeetingLink(link?: string | null): string {
+  if (!link || !link.trim()) return "";
+  const trimmed = link.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+}
+
 function getInterviewHeadline(
   status: string,
   isCandidate: boolean,
@@ -222,6 +234,16 @@ function getInterviewHeadline(
           Candidate did not attend interview for <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{jobTitle}</strong>
         </span>
       );
+    case "CONCLUDED":
+      return isCandidate ? (
+        <span>
+          Interview session for <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{jobTitle}</strong> has ended
+        </span>
+      ) : (
+        <span>
+          Interview session with <strong className="font-semibold text-zinc-900 dark:text-zinc-100">{candidateName}</strong> • {jobTitle} has ended
+        </span>
+      );
     case "SCHEDULED":
     default:
       return isCandidate ? (
@@ -234,6 +256,30 @@ function getInterviewHeadline(
         </span>
       );
   }
+}
+
+function useIsInterviewPast(scheduledAt: string | null, durationMinutes: number): boolean {
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => {
+      if (!scheduledAt) return () => {};
+      const endTime = new Date(scheduledAt.replace(" ", "T")).getTime() + durationMinutes * 60_000;
+      const delay = endTime - Date.now();
+      if (delay <= 0) return () => {};
+      const timer = setTimeout(onStoreChange, delay);
+      return () => clearTimeout(timer);
+    },
+    [scheduledAt, durationMinutes]
+  );
+
+  const getSnapshot = useCallback(() => {
+    if (!scheduledAt) return false;
+    const endTime = new Date(scheduledAt.replace(" ", "T")).getTime() + durationMinutes * 60_000;
+    return endTime <= Date.now();
+  }, [scheduledAt, durationMinutes]);
+
+  const getServerSnapshot = useCallback(() => false, []);
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 }
 
 export default function InterviewCard({ message }: Props) {
@@ -282,10 +328,13 @@ export default function InterviewCard({ message }: Props) {
   const createdAt = data?.interview?.created_at ?? data?.created_at ?? null;
   const updatedAt = data?.interview?.updated_at ?? data?.updated_at ?? null;
 
+  const isPast = useIsInterviewPast(scheduledAt, durationMinutes);
+
   const candidateName = data?.candidate?.name ?? data?.applicant_name ?? "Candidate";
   const jobTitle = data?.job?.title ?? data?.job_title ?? "Position";
 
-  const statusBadge = interviewStatus ?? (eventType === "INTERVIEW_UPDATED" ? "RESCHEDULED" : "SCHEDULED");
+  const rawStatus = interviewStatus ?? (eventType === "INTERVIEW_UPDATED" ? "RESCHEDULED" : "SCHEDULED");
+  const statusBadge = isPast && ACTIVE_JOIN_STATUSES.has(rawStatus.toUpperCase()) ? "CONCLUDED" : rawStatus;
   const statusCfg = STATUS_CONFIGS[statusBadge] ?? STATUS_CONFIGS["SCHEDULED"];
 
   if (loading) {
@@ -303,7 +352,11 @@ export default function InterviewCard({ message }: Props) {
 
   const isOnline = interviewFormat === "ONLINE";
   const displayDate = updatedAt || createdAt || message.created_at;
-  const canJoinMeeting = isOnline && Boolean(meetingLink) && ACTIVE_JOIN_STATUSES.has(statusBadge);
+  const canJoinMeeting =
+    isOnline &&
+    Boolean(meetingLink) &&
+    ACTIVE_JOIN_STATUSES.has(rawStatus.toUpperCase()) &&
+    !isPast;
 
   return (
     <div className={`w-full sm:w-96 rounded-2xl border shadow-xs overflow-hidden ${statusCfg.accent}`}>
@@ -365,7 +418,7 @@ export default function InterviewCard({ message }: Props) {
         {/* Meeting Link or Physical Location */}
         {canJoinMeeting ? (
           <a
-            href={meetingLink!}
+            href={normalizeMeetingLink(meetingLink)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-semibold shadow-xs transition max-md:min-h-11"

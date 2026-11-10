@@ -5,10 +5,17 @@ import {
     parseDirectusUtcDateTime,
 } from '@/modules/auth/registration';
 import { sendOTP } from '@/modules/auth/services/email.service';
+import { getClientIp, rateLimitRetryAfterMs, tooManyRequestsResponse } from '@/lib/rate-limit';
 import bcrypt from 'bcrypt';
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+// SEC-007: the invite token is the only thing standing between an anonymous
+// caller and a provisioned school-admin account, and the POST sends mail.
+const SCHOOL_REGISTER_WINDOW_MS = 15 * 60_000;
+const SCHOOL_REGISTER_TOKEN_REQUESTS = 5;
+const SCHOOL_REGISTER_IP_REQUESTS = 10;
 
 function getHeaders() {
     const h: Record<string, string> = {
@@ -30,15 +37,23 @@ export async function GET(req: Request) {
             return NextResponse.json({ valid: false, reason: "Missing token" }, { status: 400 });
         }
 
-        const url = `${DIRECTUS_BASE}/items/vs_invite_token?filter[token][_eq]=${token}&fields=*,school_id.*`;
+        const getRetryAfterMs =
+            rateLimitRetryAfterMs("auth:school-register:token", String(token), SCHOOL_REGISTER_TOKEN_REQUESTS, SCHOOL_REGISTER_WINDOW_MS) ||
+            rateLimitRetryAfterMs("auth:school-register:ip", getClientIp(req), SCHOOL_REGISTER_IP_REQUESTS, SCHOOL_REGISTER_WINDOW_MS);
+        if (getRetryAfterMs) return tooManyRequestsResponse(getRetryAfterMs);
+
+        const query = new URLSearchParams({ 'filter[token][_eq]': token, fields: '*,school_id.*' });
+        const url = `${DIRECTUS_BASE}/items/vs_invite_token?${query}`;
         const res = await fetch(url, { headers: getHeaders(), cache: 'no-store' });
         const json = await res.json();
 
-        if (!res.ok || !json.data || json.data.length === 0) {
+        const invite = (json.data || []).find(
+            (row: { token?: string }) => String(row?.token ?? '') === token
+        );
+
+        if (!res.ok || !invite) {
             return NextResponse.json({ valid: false, reason: "not_found" }, { status: 404 });
         }
-
-        const invite = json.data[0];
 
         if (invite.is_used) {
             return NextResponse.json({ valid: false, reason: "used" }, { status: 400 });
@@ -73,16 +88,24 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
+        const retryAfterMs =
+            rateLimitRetryAfterMs("auth:school-register:token", String(token), SCHOOL_REGISTER_TOKEN_REQUESTS, SCHOOL_REGISTER_WINDOW_MS) ||
+            rateLimitRetryAfterMs("auth:school-register:ip", getClientIp(req), SCHOOL_REGISTER_IP_REQUESTS, SCHOOL_REGISTER_WINDOW_MS);
+        if (retryAfterMs) return tooManyRequestsResponse(retryAfterMs);
+
         // 1. Validate Token
-        const tokenUrl = `${DIRECTUS_BASE}/items/vs_invite_token?filter[token][_eq]=${token}`;
+        const tokenQuery = new URLSearchParams({ 'filter[token][_eq]': String(token) });
+        const tokenUrl = `${DIRECTUS_BASE}/items/vs_invite_token?${tokenQuery}`;
         const tokenRes = await fetch(tokenUrl, { headers: getHeaders() });
         const tokenJson = await tokenRes.json();
-        
-        if (!tokenRes.ok || !tokenJson.data || tokenJson.data.length === 0) {
+
+        const invite = (tokenJson.data || []).find(
+            (row: { token?: string }) => String(row?.token ?? '') === String(token)
+        );
+
+        if (!tokenRes.ok || !invite) {
             return NextResponse.json({ error: "Invalid token" }, { status: 400 });
         }
-
-        const invite = tokenJson.data[0];
 
         const expiresAt = parseDirectusUtcDateTime(invite.expires_at);
         if (invite.is_used || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
@@ -93,7 +116,8 @@ export async function POST(req: Request) {
         const invitedEmail = invite.invited_email;
 
         // 2. Check existing user
-        const existingUserRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?filter[user_email][_eq]=${invitedEmail}`, {
+        const existingUserQuery = new URLSearchParams({ 'filter[user_email][_eq]': String(invitedEmail) });
+        const existingUserRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?${existingUserQuery}`, {
             headers: getHeaders()
         });
         const existingUserJson = await existingUserRes.json();
@@ -204,8 +228,9 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
             message: "User created and school linked.",
-            requireOtp: true,
-            userId: userId
+            // SEC-023: no user_id in the response — OTP verification is keyed by
+            // the invited email the GET on this route already returned.
+            requireOtp: true
         });
 
     } catch (error: unknown) {

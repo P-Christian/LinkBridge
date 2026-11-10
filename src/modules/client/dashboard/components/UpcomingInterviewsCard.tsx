@@ -19,11 +19,11 @@ export default function UpcomingInterviewsCard({ interviews }: UpcomingInterview
   const router = useRouter();
 
   const handleNavigateSchedule = useCallback(() => {
-    router.push("/vos-sync/client/interviews");
+    router.push("/linkbridge/client/interviews");
   }, [router]);
 
   const handleNavigateInterview = useCallback((interviewId: number) => {
-    router.push(`/vos-sync/client/interviews?interviewId=${interviewId}`);
+    router.push(`/linkbridge/client/interviews?interviewId=${interviewId}`);
   }, [router]);
 
   const getInitials = (name: string) => {
@@ -217,17 +217,7 @@ export default function UpcomingInterviewsCard({ interviews }: UpcomingInterview
             )}
           </CardContent>
         </div>
-
-        <div className="p-4 bg-muted/20 border-t border-border/60 flex items-center justify-end">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleNavigateSchedule}
-            className="text-sm md:text-xs font-semibold h-8 max-md:min-h-10 rounded-lg"
-          >
-            View Schedule
-          </Button>
-        </div>
+ 
       </Card>
     </motion.div>
   );

@@ -36,6 +36,7 @@ export interface Conversation {
   archived_at: string | null;
   // Enriched server-side
   other_party_name?: string;
+  company_name?: string | null;
   other_party_avatar?: string | null;
   other_party_email?: string | null;
   job_title?: string | null;
@@ -58,6 +59,17 @@ export interface MessageReactionGroup {
   reacted_by_me: boolean;
 }
 
+
+export interface QuotedMessage {
+  message_id: number;
+  sender_id: number;
+  sender_name?: string | null;
+  message_content?: string | null;
+  message_type?: MessageType;
+  attachments?: MessageAttachment[];
+  is_deleted?: boolean;
+}
+
 export interface Message {
   message_id: number;
   conversation_id: number;
@@ -68,9 +80,17 @@ export interface Message {
   edited_at: string | null;
   created_at: string;
   is_deleted: boolean;
+  deleted_at?: string | null;
+  deleted_by?: number | null;
+  reply_to_message_id?: number | null;
+  reply_to?: QuotedMessage | null;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
+  pinned_by?: number | null;
   attachments: MessageAttachment[];
   system_message?: SystemMessageData | null;
   reactions?: MessageReactionGroup[];
+  delivery_status?: "sending" | "sent" | "failed";
 }
 
 export interface MessageAttachment {
@@ -87,6 +107,24 @@ export interface SendMessagePayload {
   message_content?: string;
   message_type?: MessageType;
   attachments?: Omit<MessageAttachment, "attachment_id" | "message_id" | "created_at">[];
+  reply_to_message_id?: number | null;
+}
+
+export type MessageReportReasonCode =
+  | "SPAM"
+  | "HARASSMENT"
+  | "INAPPROPRIATE_CONTENT"
+  | "FRAUD_OR_SCAM"
+  | "OFF_PLATFORM_PAYMENT"
+  | "HATE_SPEECH"
+  | "OTHER";
+
+export interface MessageReportPayload {
+  message_id?: number;
+  conversation_id: number;
+  reported_user_id: number;
+  reason_code: MessageReportReasonCode;
+  report_details?: string;
 }
 
 export const CONVERSATION_TYPE_LABELS: Record<ConversationType, string> = {

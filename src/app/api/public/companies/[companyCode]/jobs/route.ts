@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPublicCompanyByCode, getPublicCompanyJobs } from "@/modules/public/company-profile/services/company-profile.service";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,7 +33,7 @@ export async function GET(
     return NextResponse.json(result);
   } catch (error: unknown) {
     console.error("API Error in company jobs:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
+    const message = safeErrorMessage(error, "Internal server error");
     return NextResponse.json(
       { error: message },
       { status: 500 }

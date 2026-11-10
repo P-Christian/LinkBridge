@@ -9,6 +9,8 @@ import { motion } from "framer-motion"
 
 import { Button } from "@/components/ui/button"
 import { ThemeSelector } from "@/components/theme/ThemeSelector"
+import { cn, formatAssetUrl } from "@/lib/utils"
+import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -26,8 +28,18 @@ type AuthUser = {
 
 const PUBLIC_MOBILE_MENU_ID = "public-mobile-navigation"
 
+const NAV_LINKS = [
+  { href: "/find-jobs", label: "Find Jobs" },
+  { href: "/how-it-works", label: "How It Works" },
+  { href: "/companies", label: "Companies" },
+  { href: "/career-advice", label: "Career Advice" },
+  { href: "/about-us", label: "About Us" },
+  { href: "/contact-us", label: "Contact Us" },
+]
+
 export function Header() {
   const pathname = usePathname()
+  const { company } = usePrimaryPlatformCompany()
   const [isScrolled, setIsScrolled] = React.useState(false)
   const [mobileMenuPath, setMobileMenuPath] = React.useState<string | null>(null)
   const [user, setUser] = React.useState<AuthUser | null>(null)
@@ -160,8 +172,8 @@ export function Header() {
     } catch (err) {
       console.error("Logout error:", err)
     } finally {
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
-      document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;"
+      // PRIV-017: no client-side cookie expire here - /api/auth/logout already
+      // cleared the HttpOnly auth cookie, and JS cannot overwrite it.
       window.location.href = "/login"
     }
   }
@@ -193,20 +205,73 @@ export function Header() {
           href="/"
           className="group flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
         >
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 via-indigo-600 to-violet-600 shadow-md shadow-indigo-600/30 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-105">
-            <Briefcase className="h-5 w-5 text-white" aria-hidden="true" />
+          <div
+            className="flex items-center justify-center overflow-hidden shrink-0"
+            style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+          >
+            {company?.platform_icon &&
+            (company.platform_icon.startsWith("/") ||
+              company.platform_icon.startsWith("http") ||
+              /^[0-9a-f]{8}-[0-9a-f]{4}/i.test(company.platform_icon)) ? (
+              <Image
+                src={formatAssetUrl(company.platform_icon) || company.platform_icon}
+                alt={company?.platform_name || "LinkBridge"}
+                width={32}
+                height={32}
+                className="object-contain shrink-0"
+                style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                unoptimized
+              />
+            ) : (
+              <Image
+                src="/Link-Bridge-logo.png"
+                alt="LinkBridge"
+                width={32}
+                height={32}
+                className="object-contain shrink-0"
+                style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                unoptimized
+                priority
+              />
+            )}
           </div>
-          <span className="text-xl font-bold tracking-tight text-foreground">VOS Sync</span>
+          <span className="text-xl font-bold tracking-tight text-foreground">
+            {company?.platform_name || "LinkBridge"}
+          </span>
         </Link>
 
         {/* Desktop Nav */}
-        <nav className="hidden lg:flex items-center gap-8 font-medium text-sm text-muted-foreground">
-          <Link href="/find-jobs" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">Find Jobs</Link>
-          <Link href="/how-it-works" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">How It Works</Link>
-          <Link href="/companies" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">Companies</Link>
-          <Link href="/career-advice" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">Career Advice</Link>
-          <Link href="/about-us" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">About Us</Link>
-          <Link href="/contact-us" prefetch={true} className="flex min-h-11 items-center hover:text-foreground transition-colors">Contact</Link>
+        <nav className="hidden lg:flex items-center gap-8 font-medium text-sm">
+          {NAV_LINKS.map(({ href, label }) => {
+            const isActive = pathname === href || (href !== "/" && pathname?.startsWith(href));
+            return (
+              <Link
+                key={href}
+                href={href}
+                prefetch={true}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex min-h-11 items-center transition-colors relative",
+                  isActive
+                    ? "text-foreground font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+                {isActive && (
+                  <motion.span
+                    layoutId="active-header-nav-indicator"
+                    className="absolute bottom-1.5 left-0 right-0 h-0.5 rounded-full bg-gradient-to-r from-primary to-info shadow-xs shadow-primary/30"
+                    transition={{
+                      type: "spring",
+                      stiffness: 380,
+                      damping: 30,
+                    }}
+                  />
+                )}
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="hidden lg:flex items-center gap-4">
@@ -245,13 +310,13 @@ export function Header() {
                 {user.role === "client" ? (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/client/jobs" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <Briefcase className="w-4 h-4 text-muted-foreground" />
                         Manage Jobs
                       </Link>
@@ -259,14 +324,14 @@ export function Header() {
                   </>
                 ) : user.role === "admin" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/vos-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       Admin Portal
                     </Link>
                   </DropdownMenuItem>
                 ) : user.role === "school" ? (
                   <DropdownMenuItem asChild>
-                    <Link href="/vos-sync/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                    <Link href="/linkbridge/school-admin" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                       <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                       School Portal
                     </Link>
@@ -274,13 +339,13 @@ export function Header() {
                 ) : (
                   <>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/dashboard" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <LayoutDashboard className="w-4 h-4 text-muted-foreground" />
                         Dashboard
                       </Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                      <Link href="/vos-sync/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
+                      <Link href="/linkbridge/freelancer/applications" className="flex min-h-11 items-center gap-2.5 cursor-pointer rounded-lg py-2 font-medium">
                         <FileText className="w-4 h-4 text-muted-foreground" />
                         My Applications
                       </Link>
@@ -336,12 +401,36 @@ export function Header() {
           onClick={() => setMobileMenuPath(null)}
           className="lg:hidden absolute top-full left-0 flex max-h-[calc(100dvh-6rem)] w-full flex-col gap-4 overflow-y-auto overscroll-contain border-b border-border bg-background px-4 py-4 shadow-lg"
         >
-          <Link href="/find-jobs" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">Find Jobs</Link>
-          <Link href="/how-it-works" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">How It Works</Link>
-          <Link href="/companies" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">Companies</Link>
-          <Link href="/career-advice" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">Career Advice</Link>
-          <Link href="/about-us" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">About Us</Link>
-          <Link href="/contact-us" prefetch={true} className="flex min-h-11 items-center text-muted-foreground hover:text-foreground font-medium">Contact</Link>
+          {NAV_LINKS.map(({ href, label }) => {
+            const isActive = pathname === href || (href !== "/" && pathname?.startsWith(href));
+            return (
+              <Link
+                key={href}
+                href={href}
+                prefetch={true}
+                aria-current={isActive ? "page" : undefined}
+                className={cn(
+                  "flex min-h-11 items-center font-medium transition-colors px-3 rounded-lg relative",
+                  isActive
+                    ? "text-primary font-semibold"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {isActive && (
+                  <motion.span
+                    layoutId="active-mobile-nav-indicator"
+                    className="absolute inset-0 rounded-lg bg-primary/10 -z-10"
+                    transition={{
+                      type: "spring",
+                      stiffness: 380,
+                      damping: 30,
+                    }}
+                  />
+                )}
+                {label}
+              </Link>
+            );
+          })}
           <hr className="border-border" />
           {user ? (
             <>
@@ -368,37 +457,37 @@ export function Header() {
               {user.role === "client" ? (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/dashboard">
+                    <Link href="/linkbridge/client/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/client/jobs">
+                    <Link href="/linkbridge/client/jobs">
                       <Briefcase className="w-4 h-4" /> Manage Jobs
                     </Link>
                   </Button>
                 </>
               ) : user.role === "admin" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/vos-admin">
+                  <Link href="/linkbridge/admin">
                     <LayoutDashboard className="w-4 h-4" /> Admin Portal
                   </Link>
                 </Button>
               ) : user.role === "school" ? (
                 <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                  <Link href="/vos-sync/school-admin">
+                  <Link href="/linkbridge/school-admin">
                     <LayoutDashboard className="w-4 h-4" /> School Portal
                   </Link>
                 </Button>
               ) : (
                 <>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/dashboard">
+                    <Link href="/linkbridge/freelancer/dashboard">
                       <LayoutDashboard className="w-4 h-4" /> Dashboard
                     </Link>
                   </Button>
                   <Button asChild variant="outline" className="min-h-11 w-full justify-start gap-2 cursor-pointer border-border text-foreground hover:bg-muted">
-                    <Link href="/vos-sync/freelancer/applications">
+                    <Link href="/linkbridge/freelancer/applications">
                       <FileText className="w-4 h-4" /> My Applications
                     </Link>
                   </Button>
@@ -410,7 +499,7 @@ export function Header() {
             </>
           ) : (
             <>
-              <Button asChild variant="outline" className="min-h-11 w-full justify-center cursor-pointer border-border text-foreground hover:bg-primary  hover:text-primary">
+              <Button asChild variant="outline" className="min-h-11 w-full justify-center cursor-pointer border-border text-foreground hover:bg-primary/10 hover:text-primary">
                 <Link href="/login">Log in</Link>
               </Button>
               <Button asChild className="min-h-11 w-full justify-center cursor-pointer bg-primary text-primary-foreground ">

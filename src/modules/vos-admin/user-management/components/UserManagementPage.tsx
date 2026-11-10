@@ -11,8 +11,11 @@ import { UserManagementTable } from "./UserManagementTable";
 import { Users, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+// Must stay <= the /api/vos-admin/users server-side page cap.
+const USER_QUEUE_WINDOW = 200;
+
 export function UserManagementPage() {
-  const { users, loading, error, fetchUsers, reviewIdentity } = useUsers();
+  const { users, total, loading, error, fetchUsers, reviewIdentity } = useUsers();
   
   const [roleFilter, setRoleFilter] = useState<string>("ALL");
   const [verificationFilter, setVerificationFilter] = useState<string>("ALL");
@@ -25,7 +28,8 @@ export function UserManagementPage() {
 
   const loadData = useCallback(() => {
     const roleId = roleFilter === "ALL" ? undefined : Number(roleFilter);
-    fetchUsers(roleId, searchQuery, 1, -1); // Load all to handle client-side pagination & global KPI filtering
+    // The API paginates server-side and caps a page at USER_QUEUE_WINDOW accounts.
+    fetchUsers(roleId, searchQuery, 1, USER_QUEUE_WINDOW);
   }, [fetchUsers, roleFilter, searchQuery]);
 
   useEffect(() => {
@@ -82,12 +86,13 @@ export function UserManagementPage() {
 
   // Derive client-side count metrics globally for the KPI section
   const kpiData = useMemo<UserManagementKPIs>(() => {
-    const counts = { totalCount: activeUsers.length, pendingCount: 0, approvedCount: 0, rejectedCount: 0 };
+    const counts = { totalCount: activeUsers.length, pendingCount: 0, approvedCount: 0, rejectedCount: 0, notSubmittedCount: 0 };
     activeUsers.forEach(u => {
       const status = getVerificationStatus(u);
       if (status === 'pending') counts.pendingCount++;
       else if (status === 'approved') counts.approvedCount++;
       else if (status === 'rejected') counts.rejectedCount++;
+      else if (status === 'not_submitted') counts.notSubmittedCount++;
     });
     return counts;
   }, [activeUsers]);
@@ -124,9 +129,18 @@ export function UserManagementPage() {
         </div>
       )}
 
+      {/* Bounded queue window notice */}
+      {total > users.length && (
+        <div className="p-4 mb-4 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-400 text-sm font-medium">
+          Showing the {users.length} newest matching accounts of {total}. Narrow the role filter or search
+          to reach the rest.
+        </div>
+      )}
+
       {/* KPI Stat Cards */}
       <UserManagementKpis
         kpis={kpiData}
+        loading={loading && users.length === 0}
         currentFilter={verificationFilter}
         onFilterSelect={(status) => { setVerificationFilter(status); setPage(1); }}
       />

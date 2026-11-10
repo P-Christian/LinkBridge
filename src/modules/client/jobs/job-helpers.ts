@@ -29,6 +29,7 @@ export interface JobMeta {
   category: string;
   arrangement: string;
   applicantCount: number | null;
+  activeApplicantCount: number | null;
   postedAt: string;
 }
 
@@ -41,11 +42,19 @@ export function getJobMeta(job: object): JobMeta {
   ]);
   const count = rawCount === undefined ? NaN : Number(rawCount);
 
+  const rawActiveCount = pick(job, [
+    "active_applicant_count",
+    "active_applicants_count",
+    "pending_applicants_count",
+  ]);
+  const activeCount = rawActiveCount === undefined ? NaN : Number(rawActiveCount);
+
   return {
     department: asText(pick(job, ["department", "job_department"])),
     category: asText(pick(job, ["category", "job_category", "category_name"])),
     arrangement: asText(pick(job, ["work_arrangement", "work_setup", "job_setup"])),
     applicantCount: Number.isFinite(count) ? count : null,
+    activeApplicantCount: Number.isFinite(activeCount) ? activeCount : null,
     postedAt: asText(pick(job, ["created_at", "posted_at", "date_posted"])),
   };
 }
@@ -130,6 +139,56 @@ export function shortLocation(location: string | null | undefined): string {
     .join(", ");
 }
 
+/**
+ * A single clean line for one of the employer's own address fields. Employers routinely
+ * paste several branches into one field, so only the first entry is kept.
+ */
+function firstAddressEntry(value: string | null | undefined): string {
+  if (!value) return "";
+  return String(value)
+    .split(/[\n\r;]+/)
+    .map((p) => p.trim())
+    .filter(Boolean)[0] ?? "";
+}
+
+const hasToken = (haystack: string, needle: string) =>
+  new RegExp(`\\b${needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(haystack);
+
+/**
+ * Builds one corporate headquarters line from the structured company fields.
+ * A street address that already carries a postal code or country is treated as
+ * complete, because the separate city/province columns are often stale and would
+ * otherwise append a second, conflicting region.
+ */
+export function companyHeadquarters(
+  address: string | null | undefined,
+  city: string | null | undefined,
+  province: string | null | undefined
+): string {
+  const street = firstAddressEntry(address);
+  if (!street) return "";
+
+  const parts = street.split(",").map((p) => p.trim()).filter(Boolean);
+  const country = /^philippines$/i.test(parts[parts.length - 1] ?? "") ? parts.pop()! : "";
+  const written = parts.join(", ");
+
+  const hasPostalCode = parts.some((p) => /\b\d{4}\b/.test(p));
+  const selfContained = hasPostalCode || (!!country && parts.length >= 3);
+  if (selfContained) return [...parts, country].filter(Boolean).join(", ");
+
+  const tail: string[] = [];
+  for (const part of [firstAddressEntry(city), firstAddressEntry(province)]) {
+    if (!part || hasToken(written, part) || tail.some((t) => hasToken(t, part))) continue;
+    tail.push(part);
+  }
+
+  return [...parts, ...tail, country].filter(Boolean).join(", ");
+}
+
+export function pluralizeApplicants(count: number): string {
+  return `${count} ${count === 1 ? "applicant" : "applicants"}`;
+}
+
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 
 export function formatPosted(value: string): string {
@@ -150,4 +209,4 @@ export function formatPosted(value: string): string {
   return `Posted ${label}`;
 }
 
-export const applicantsHref = (jobId: number) => `/vos-sync/client/applicants?job_id=${jobId}`;
+export const applicantsHref = (jobId: number) => `/linkbridge/client/applicants?job_id=${jobId}`;

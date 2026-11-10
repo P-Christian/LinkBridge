@@ -1,5 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { getPHTimeString } from "@/lib/utils";
+import { json, toId } from "@/lib/server/route";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,26 +30,28 @@ export async function PATCH(
 ) {
   try {
     const { conversationId } = await params;
+    const convId = toId(conversationId);
+    if (convId === null) {
+      return json({ error: "Invalid conversation ID." }, 400);
+    }
 
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!session) {
+      return json({ error: "Unauthorized." }, 401);
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Forbidden: freelancer access required." }, { status: 403 });
+    if (session && !isFreelancerSession(session)) {
+      return json({ error: "Forbidden: freelancer access required." }, 403);
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     let body: unknown;
     try {
       body = await req.json();
     } catch {
-      return NextResponse.json(
-        { error: 'Invalid JSON body. Expected { "archive": boolean }.' },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
-      );
+      return json(
+        { error: 'Invalid JSON body. Expected { "archive": boolean }.' }, 400);
     }
 
     const archiveValue: unknown =
@@ -55,43 +60,53 @@ export async function PATCH(
         : undefined;
 
     if (typeof archiveValue !== "boolean") {
-      return NextResponse.json(
+      return json(
         { error: 'Invalid request body. Expected { "archive": boolean }.' },
-        { status: 400, headers: { "Cache-Control": "no-store" } }
+        400
       );
     }
 
     const archive: boolean = archiveValue;
 
     const convRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation/${conversationId}?fields=conversation_id,freelancer_id`,
+      // archived_by_client is read here because the single archived_at column is
+      // shared by both participants.
+      `${DIRECTUS_BASE}/items/vs_conversation/${convId}?fields=conversation_id,freelancer_id,archived_by_client`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
     if (!convRes.ok) {
-      return NextResponse.json(
-        { error: "Conversation not found." },
-        { status: 404 }
-      );
+      // This read decides who may write, so an outage must not be reported as a
+      // conversation that does not exist.
+      return json(
+        {
+          error:
+            convRes.status === 404
+              ? "Conversation not found."
+              : "The conversation could not be verified.",
+        }, convRes.status === 404 ? 404 : 502);
     }
 
     const convJson = await convRes.json();
     const conv = convJson.data;
 
-    if (conv.freelancer_id !== userId) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    if (Number(conv?.freelancer_id) !== userId) {
+      return json({ error: "Forbidden." }, 403);
     }
 
-    const nowISO = new Date().toISOString().slice(0, 19).replace("T", " ");
+    const nowPH = getPHTimeString();
+    // Clearing the shared stamp when only the employer has unarchived would wipe
+    // the date the thread was archived for, which the other side still sees.
+    const clearStamp = !archive && !conv?.archived_by_client;
 
     const patchRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_conversation/${conversationId}`,
+      `${DIRECTUS_BASE}/items/vs_conversation/${convId}`,
       {
         method: "PATCH",
         headers: getHeaders(),
         body: JSON.stringify({
           archived_by_freelancer: archive,
-          archived_at: archive ? nowISO : null,
+          ...(clearStamp ? { archived_at: null } : archive ? { archived_at: nowPH } : {}),
         }),
       }
     );
@@ -99,21 +114,17 @@ export async function PATCH(
     if (!patchRes.ok) {
       const text = await patchRes.text();
       console.error("Archive patch error:", text);
-      return NextResponse.json(
-        { error: "Failed to update conversation." },
-        { status: patchRes.status }
-      );
+      return json(
+        { error: "Failed to update conversation." }, patchRes.status);
     }
 
-    return NextResponse.json({ success: true, archived: archive });
+    return json({ success: true, archived: archive });
   } catch (err: unknown) {
     console.error(
       "PATCH /api/freelancer/messaging/[id]/archive error:",
       err
     );
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
-      { status: 500 }
-    );
+    return json(
+      { error: safeErrorMessage(err, "Internal server error") }, 500);
   }
 }

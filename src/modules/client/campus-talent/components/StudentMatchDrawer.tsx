@@ -28,7 +28,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
+import { cn, copyToClipboard } from "@/lib/utils";
 import {
   CampusMatchResult,
   CampusEvidenceItem,
@@ -130,7 +130,7 @@ function GapBadge({ gap }: { gap: DeterministicGap }) {
       <div className="flex items-start gap-2.5 rounded-lg border border-border/60 bg-muted/40 p-3 text-xs">
         <Info className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
         <span className="text-muted-foreground leading-relaxed">
-          <strong className="text-foreground">{gap.requirementLabel}</strong> — Not evidenced (candidate has not yet registered a full profile on VOS Sync)
+          <strong className="text-foreground">{gap.requirementLabel}</strong> — Not evidenced (candidate has not yet registered a full profile on LinkBridge)
         </span>
       </div>
     );
@@ -238,11 +238,13 @@ function StudentMatchDrawerContent({
     : "ST";
 
   const [copied, setCopied] = useState(false);
-  const handleCopyEmail = useCallback(() => {
+  const handleCopyEmail = useCallback(async () => {
     if (!result.email) return;
-    navigator.clipboard.writeText(result.email);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const success = await copyToClipboard(result.email);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   }, [result.email]);
 
   const isMatchEvaluated =
@@ -304,7 +306,7 @@ function StudentMatchDrawerContent({
           {/* Drawer Container */}
           <motion.div
             key="student-drawer-panel"
-            className="fixed right-0 top-0 h-full w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-[820px] bg-background border-l border-border shadow-2xl flex flex-col overflow-hidden pointer-events-auto"
+            className="fixed right-0 top-0 h-full w-full sm:max-w-xl md:max-w-2xl lg:max-w-3xl xl:max-w-[820px] bg-background border-l border-border shadow-2xl flex flex-col overflow-hidden pointer-events-auto wrap-anywhere"
             role="dialog"
             aria-modal="true"
             aria-label={`Match details for ${result.studentName}`}
@@ -483,7 +485,7 @@ function StudentMatchDrawerContent({
                         </h3>
                         <p className="text-xs text-muted-foreground">
                           {result.isRegistered
-                            ? "Verified university enrollment & active VOS Sync profile credentials"
+                            ? "Verified university enrollment & active LinkBridge profile credentials"
                             : "Verified university enrollment and course registrar credentials"}
                         </p>
                       </div>
@@ -497,7 +499,7 @@ function StudentMatchDrawerContent({
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     {result.isRegistered ? (
                       <>
-                        This student is actively enrolled under the school&apos;s academic roster with verified profile credentials on VOS Sync. Select a job vacancy from the toolbar and click <strong>Run AI Match</strong> to calculate an intelligent match score against their verified skills, experience, and curriculum.
+                        This student is actively enrolled under the school&apos;s academic roster with verified profile credentials on LinkBridge. Select a job vacancy from the toolbar and click <strong>Run AI Match</strong> to calculate an intelligent match score against their verified skills, experience, and curriculum.
                       </>
                     ) : (
                       <>
@@ -1017,10 +1019,10 @@ function StudentMatchDrawerContent({
 
                 <p className="text-xs text-muted-foreground leading-relaxed">
                   {result.invitationStatus === "Invited"
-                    ? "An official onboarding invitation has been delivered to the student's institutional email address. Once the student accepts and registers on VOS Sync, their full profile and portfolio will be linked."
+                    ? "An official onboarding invitation has been delivered to the student's institutional email address. Once the student accepts and registers on LinkBridge, their full profile and portfolio will be linked."
                     : result.invitationStatus === "Registered"
-                    ? "This student has activated their verified VOS Sync account. You can communicate directly and review their verified profile credentials."
-                    : "Invite this academic candidate to register on VOS Sync. They will receive a unique cryptographic verification link to claim their academic record, upload portfolios, and apply for open positions."}
+                    ? "This student has activated their verified LinkBridge account. You can communicate directly and review their verified profile credentials."
+                    : "Invite this academic candidate to register on LinkBridge. They will receive a unique cryptographic verification link to claim their academic record, upload portfolios, and apply for open positions."}
                 </p>
 
                 {canInvite && (

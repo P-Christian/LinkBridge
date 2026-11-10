@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "crypto";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
 import { legacyRegistrationRetiredResponse } from "@/modules/auth/registration";
 import bcrypt from "bcrypt";
 import { sendOtpEmail, sendEmployerSubmissionEmail } from "@/lib/mail";
 import { getPHTimeString } from "@/lib/utils";
 import { validatePasswordStrict } from "@/lib/password-validation";
 import { verifyTurnstileToken } from "@/lib/turnstile";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -95,7 +97,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Internal server error";
+    const msg = safeErrorMessage(error, "Internal server error");
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
@@ -354,7 +356,7 @@ export async function POST(req: NextRequest) {
         otp_sent: true,
         email,
         otp_code:
-          process.env.NEXT_PUBLIC_AUTH_DISABLED === "true"
+          isDevAuthBypassEnabled()
             ? generatedOtp
             : undefined,
       });
@@ -791,7 +793,7 @@ export async function POST(req: NextRequest) {
       email,
       userId,
       otp_code:
-        process.env.NEXT_PUBLIC_AUTH_DISABLED === "true"
+        isDevAuthBypassEnabled()
           ? generatedOtp
           : undefined,
     });
@@ -800,7 +802,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Internal server error",
+          safeErrorMessage(error, "Internal server error"),
       },
       { status: 500 }
     );

@@ -3,8 +3,13 @@
 // Every call passes through here: captures latency, tokens, status, and writes
 // telemetry to Directus fire-and-forget (never blocks the user response).
 
-import { callGeminiRaw } from "./geminiClient";
-import { resolveWorkloadModel } from "@/lib/ai/aiConfigStore";
+import { callGeminiRaw, type GeminiRawResult } from "./geminiClient";
+import {
+  getDecryptedProviderCredentials,
+  isLocalAiOnlyMode,
+  resolveWorkloadModel,
+} from "@/lib/ai/aiConfigStore";
+import { getProviderAdapter } from "@/lib/ai/adapters";
 
 export type GeminiFeature =
   | "AI_RERANKER"
@@ -16,7 +21,8 @@ export type GeminiFeature =
   | "REFINE_JOB_TEXT"
   | "COMPANY_PROFILE_AI"
   | "REFINE_COMPANY_TEXT"
-  | "CAMPUS_MATCH_EXPLAINER";
+  | "CAMPUS_MATCH_EXPLAINER"
+  | "CAREER_ADVICE_AI";
 
 export type GeminiRequestType = "TEXT" | "CHAT" | "EMBEDDING" | "IMAGE";
 export type GeminiProvider = "GEMINI" | "OPENAI" | "ANTHROPIC" | "MISTRAL" | "OLLAMA";
@@ -51,7 +57,7 @@ function generateRequestId(): string {
   return `req_${ts}_${rand}`;
 }
 
-/** Fire-and-forget: write a telemetry record to Directus gemini_requests or vs_gemini_requests.
+/** Fire-and-forget: write a telemetry record to Directus vs_gemini_requests.
  *  Never throws — monitoring failures must never affect the user request. */
 async function saveMonitoringRecord(record: Record<string, unknown>): Promise<void> {
   if (!DIRECTUS_BASE) {
@@ -59,23 +65,12 @@ async function saveMonitoringRecord(record: Record<string, unknown>): Promise<vo
     return;
   }
 
-  // Primary: vs_gemini_requests (VOS Sync Directus naming convention)
-  let url = `${DIRECTUS_BASE}/items/vs_gemini_requests`;
-  let res = await fetch(url, {
+  const url = `${DIRECTUS_BASE}/items/vs_gemini_requests`;
+  const res = await fetch(url, {
     method: "POST",
     headers: getDirectusHeaders(),
     body: JSON.stringify(record),
   });
-
-  if (res.status === 404) {
-    // Secondary fallback to gemini_requests if vs_ prefix table does not exist
-    url = `${DIRECTUS_BASE}/items/gemini_requests`;
-    res = await fetch(url, {
-      method: "POST",
-      headers: getDirectusHeaders(),
-      body: JSON.stringify(record),
-    });
-  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
@@ -89,9 +84,52 @@ async function saveMonitoringRecord(record: Record<string, unknown>): Promise<vo
 }
 
 /**
+ * Under local-only mode a prompt must never reach callGeminiRaw. Ollama is the
+ * one self-hosted provider the telemetry schema can label (GeminiProvider has
+ * no value for local_custom, which is left to fail closed).
+ */
+async function callOllama(
+  modelId: string,
+  prompt: string,
+  timeoutMs?: number
+): Promise<GeminiRawResult> {
+  try {
+    const res = await getProviderAdapter("ollama").generate(
+      { modelId, prompt, timeoutMs, temperature: 0.2, maxOutputTokens: 2048 },
+      getDecryptedProviderCredentials("ollama")
+    );
+    return {
+      text: res.text,
+      model: res.model,
+      usageMetadata: res.usage
+        ? {
+          promptTokenCount: res.usage.promptTokens,
+          candidatesTokenCount: res.usage.completionTokens,
+          totalTokenCount: res.usage.totalTokens,
+        }
+        : null,
+      finishReason: res.finishReason ?? "STOP",
+      httpStatus: 200,
+      timedOut: false,
+      errorMessage: res.text ? null : "Local model returned an empty response.",
+    };
+  } catch (err) {
+    return {
+      text: "",
+      model: modelId,
+      usageMetadata: null,
+      finishReason: "ERROR",
+      httpStatus: 500,
+      timedOut: false,
+      errorMessage: (err as Error)?.message ?? "Local AI call failed.",
+    };
+  }
+}
+
+/**
  * callGeminiMonitored — the unified application entrypoint for all Gemini calls.
  *
- * Every AI feature in VOS Sync calls this wrapper instead of callGeminiSafe().
+ * Every AI feature in LinkBridge calls this wrapper instead of callGeminiSafe().
  * Returns the response text or null on failure — identical behavior to callGeminiSafe().
  * Writes telemetry asynchronously (fire-and-forget) to Directus gemini_requests.
  */
@@ -113,13 +151,22 @@ export async function callGeminiMonitored(params: MonitoringParams): Promise<str
   // Resolve assigned model and fallback for this specific feature
   const { primaryModel, fallbackModel } = resolveWorkloadModel(feature);
 
-  // Call Gemini — always awaited before telemetry write so latency is accurate
-  const result = await callGeminiRaw(
-    prompt,
-    timeoutMs,
-    primaryModel?.id,
-    fallbackModel?.id || undefined
-  );
+  const useOllama = isLocalAiOnlyMode() && primaryModel?.provider === "ollama";
+  let providerName: GeminiProvider = provider;
+  let result: GeminiRawResult;
+
+  if (useOllama) {
+    providerName = "OLLAMA";
+    result = await callOllama(primaryModel.id, prompt, timeoutMs);
+  } else {
+    // Call Gemini — always awaited before telemetry write so latency is accurate
+    result = await callGeminiRaw(
+      prompt,
+      timeoutMs,
+      primaryModel?.id,
+      fallbackModel?.id || undefined
+    );
+  }
 
   const latencyMs = Date.now() - startMs;
 
@@ -144,7 +191,7 @@ export async function callGeminiMonitored(params: MonitoringParams): Promise<str
   // Build telemetry record — raw facts only, no derived cost/billing fields
   const record: Record<string, unknown> = {
     request_id: requestId,
-    provider,
+    provider: providerName,
     feature,
     request_type: requestType,
     endpoint,

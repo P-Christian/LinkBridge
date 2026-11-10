@@ -5,20 +5,16 @@
 import React, { useEffect, useState } from "react";
 import {
   Bell,
-  Settings2,
   CheckCheck,
-  AlertCircle,
   Filter,
+  RefreshCw,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNotifications } from "./hooks/useNotifications";
 import { useRealtime } from "@/modules/shared/providers/RealtimeProvider";
 import FreelancerNotificationList from "./components/FreelancerNotificationList";
-import FreelancerNotificationPreferences from "./components/FreelancerNotificationPreferences";
 import { cn } from "@/lib/utils";
-
-type Tab = "feed" | "preferences";
 
 const FILTER_OPTIONS = [
   { label: "All", value: "ALL" },
@@ -33,32 +29,16 @@ export default function FreelancerNotificationsModule() {
     notifications,
     unreadCount,
     isLoading,
-    error,
     markAsRead,
     toggleStar,
     markAllAsRead,
-
-    // Preferences & Quiet Hours State
-    preferences,
-    quietHours,
-    prefsLoading,
     saving,
-    prefsError,
     fetchNotifications,
-    loadPreferences,
-    savePreferences,
   } = useNotifications();
 
   const { subscribe } = useRealtime();
 
-  const [activeTab, setActiveTab] = useState<Tab>("feed");
   const [filter, setFilter] = useState<FilterValue>("ALL");
-  const [localError, setLocalError] = useState("");
-
-  // Load preferences on mount
-  useEffect(() => {
-    loadPreferences();
-  }, [loadPreferences]);
 
   useEffect(() => {
     const unsubscribe = subscribe("vs_freelancer_notification", ({ data }) => {
@@ -69,19 +49,12 @@ export default function FreelancerNotificationsModule() {
     return () => unsubscribe();
   }, [subscribe, fetchNotifications]);
 
-  const handleTabChange = (tab: Tab) => {
-    setLocalError("");
-    setActiveTab(tab);
-  };
-
   const filteredNotifications =
     filter === "UNREAD"
       ? notifications.filter((n) => !n.is_read)
       : filter === "STARRED"
       ? notifications.filter((n) => n.is_starred)
       : notifications;
-
-  const displayError = error || prefsError || localError;
 
   return (
     <div className="space-y-6 freelancer-page-transition">
@@ -116,125 +89,71 @@ export default function FreelancerNotificationsModule() {
             </p>
           </div>
         </div>
-
-        {activeTab === "feed" && unreadCount > 0 && (
-          <Button
-            onClick={markAllAsRead}
-            disabled={saving}
-            variant="outline"
-            className="relative z-10 h-9 px-4 text-xs font-semibold border-white/20 bg-white/10 hover:bg-white/20 text-white rounded-xl backdrop-blur transition-all max-md:min-h-11"
-          >
-            <CheckCheck className="h-3.5 w-3.5 mr-2" />
-            Mark All Read
-          </Button>
-        )}
       </div>
 
-      {/* Error Message */}
-      {displayError && (
-        <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {displayError}
-        </div>
-      )}
-
-      {/* Tabs and Cards */}
+      {/* Notifications Card */}
       <Card className="shadow-sm border bg-card rounded-xl py-0 gap-0 overflow-hidden">
-        {/* Tab Headers */}
-        <CardHeader className="border-b border-zinc-100 dark:border-zinc-800 px-6 py-0 bg-zinc-50/50 dark:bg-zinc-900/10">
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => handleTabChange("feed")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 transition-colors",
-                activeTab === "feed"
-                  ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
-                  : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-              )}
-            >
-              <Bell className="h-4 w-4" />
-              Notifications
-              {unreadCount > 0 && (
-                <span className="ml-1 h-5 min-w-5 px-1.5 flex items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => handleTabChange("preferences")}
-              className={cn(
-                "flex items-center gap-2 px-4 py-3.5 text-sm font-medium border-b-2 transition-colors",
-                activeTab === "preferences"
-                  ? "border-emerald-500 text-emerald-600 dark:text-emerald-400"
-                  : "border-transparent text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-              )}
-            >
-              <Settings2 className="h-4 w-4" />
-              Preferences
-            </button>
-          </div>
-        </CardHeader>
-
         <CardContent className="p-0">
-          {/* Feed Display */}
-          {activeTab === "feed" && (
-            <>
-              {/* Filters */}
-              <div className="flex items-center gap-2 px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
-                <Filter className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
-                {FILTER_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setFilter(opt.value)}
-                    className={cn(
-                      "px-3 py-1 rounded-lg text-sm md:text-xs font-medium transition-colors max-md:min-h-11",
-                      filter === opt.value
-                        ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
-                        : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    )}
-                  >
-                    {opt.label}
-                    {opt.value === "UNREAD" && unreadCount > 0 && (
-                      <span className="ml-1.5 text-[10px]">({unreadCount})</span>
-                    )}
-                  </button>
-                ))}
-              </div>
-
-              <FreelancerNotificationList
-                notifications={filteredNotifications}
-                loading={isLoading}
-                onMarkRead={markAsRead}
-                onToggleStar={toggleStar}
-              />
-            </>
-          )}
-
-          {/* Preferences Display */}
-          {activeTab === "preferences" && (
-            <div className="p-6">
-              <div className="mb-4">
-                <CardTitle className="text-sm font-semibold text-zinc-800 dark:text-zinc-200 uppercase tracking-wider">
-                  Notification Preferences
-                </CardTitle>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Choose how you want to be notified for each category.
-                </p>
-              </div>
-
-              <FreelancerNotificationPreferences
-                preferences={preferences}
-                quietHours={quietHours}
-                loading={prefsLoading}
-                saving={saving}
-                error={prefsError}
-                onSave={savePreferences}
-              />
+          {/* Filters Toolbar */}
+          <div className="flex items-center justify-between flex-wrap gap-2 px-5 py-3 border-b border-zinc-100 dark:border-zinc-800">
+            <div className="flex items-center gap-2">
+              <Filter className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+              {FILTER_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setFilter(opt.value)}
+                  className={cn(
+                    "px-3 py-1 rounded-lg text-sm md:text-xs font-medium transition-colors max-md:min-h-11",
+                    filter === opt.value
+                      ? "bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300"
+                      : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  )}
+                >
+                  {opt.label}
+                  {opt.value === "UNREAD" && unreadCount > 0 && (
+                    <span className="ml-1.5 text-[10px]">({unreadCount})</span>
+                  )}
+                </button>
+              ))}
             </div>
-          )}
+
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => fetchNotifications()}
+                disabled={isLoading}
+                className="h-8 px-2.5 text-xs text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100"
+                title="Refresh notifications"
+              >
+                <RefreshCw className={cn("h-3.5 w-3.5 mr-1.5", isLoading && "animate-spin")} />
+                Refresh
+              </Button>
+              {unreadCount > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={markAllAsRead}
+                  disabled={saving}
+                  className="h-8 px-2.5 text-xs text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+                >
+                  <CheckCheck className="h-3.5 w-3.5 mr-1.5" />
+                  Mark All Read
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Feed List */}
+          <FreelancerNotificationList
+            notifications={filteredNotifications}
+            loading={isLoading}
+            onMarkRead={markAsRead}
+            onToggleStar={toggleStar}
+          />
         </CardContent>
       </Card>
     </div>
   );
 }
+

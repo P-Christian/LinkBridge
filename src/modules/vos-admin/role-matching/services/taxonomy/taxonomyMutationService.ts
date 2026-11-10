@@ -15,6 +15,20 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+/**
+ * Only a uniqueness conflict means "this row already exists". Answering it for
+ * any failed POST let Directus being briefly down resolve to whichever row the
+ * lookup happened to return first, and the caller recorded that id as the one
+ * it had just created.
+ */
+async function isDuplicateConflict(res: Response): Promise<boolean> {
+  if (res.status !== 422 && res.status !== 409) return false;
+  const json = await res.json().catch(() => null);
+  const detail = json?.errors?.[0];
+  const code = `${detail?.extensions?.code ?? ""} ${detail?.message ?? ""}`;
+  return /NOT_UNIQUE|record_not_unique|unique/i.test(code);
+}
+
 export async function insertAlias(roleId: number, aliasName: string, weight: number = 0.85): Promise<number | null> {
   try {
     const norm = normalizeKeyword(aliasName);
@@ -37,11 +51,18 @@ export async function insertAlias(roleId: number, aliasName: string, weight: num
       return json?.data?.alias_id ?? null;
     }
 
-    // Duplicate conflict fallback — query existing ID
-    const queryRes = await fetch(`${DIRECTUS_BASE}/items/vs_role_title_alias?filter[normalized_alias][_eq]=${encodeURIComponent(norm)}`, {
-      headers: getHeaders(),
-      cache: "no-store",
-    });
+    if (!(await isDuplicateConflict(res))) return null;
+
+    // Duplicate conflict fallback — the alias for THIS role, matched exactly.
+    // Unscoped, this returned another role's alias_id and the caller reported it
+    // as inserted under the role being governed.
+    const queryRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_role_title_alias?filter[role_id][_eq]=${roleId}&filter[normalized_alias][_eq]=${encodeURIComponent(norm)}&fields=alias_id&limit=1`,
+      {
+        headers: getHeaders(),
+        cache: "no-store",
+      }
+    );
     if (queryRes.ok) {
       const queryJson = await queryRes.json();
       const existing = queryJson.data?.[0];
@@ -74,11 +95,18 @@ export async function insertMasterSkill(skillName: string, category: string = "G
       return json?.data?.id ?? null;
     }
 
-    // Duplicate conflict fallback — query existing ID
-    const queryRes = await fetch(`${DIRECTUS_BASE}/items/vs_master_skills?filter[skill_name][_icontains]=${encodeURIComponent(trimmed)}`, {
-      headers: getHeaders(),
-      cache: "no-store",
-    });
+    if (!(await isDuplicateConflict(res))) return null;
+
+    // Duplicate conflict fallback — contains-matching returned the first row
+    // whose name held this one, so "React" resolved to "React Native" and the
+    // wrong skill got mapped to the role.
+    const queryRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_master_skills?filter[skill_name][_ieq]=${encodeURIComponent(trimmed)}&fields=id&limit=1`,
+      {
+        headers: getHeaders(),
+        cache: "no-store",
+      }
+    );
     if (queryRes.ok) {
       const queryJson = await queryRes.json();
       const existing = queryJson.data?.[0];
@@ -112,11 +140,16 @@ export async function insertRoleSkillMapping(roleId: number, skillId: number, we
       return json?.data?.id ?? null;
     }
 
-    // Duplicate conflict fallback — query existing mapping
-    const queryRes = await fetch(`${DIRECTUS_BASE}/items/vs_role_skill_mapping?filter[role_id][_eq]=${roleId}&filter[skill_id][_eq]=${skillId}`, {
-      headers: getHeaders(),
-      cache: "no-store",
-    });
+    if (!(await isDuplicateConflict(res))) return null;
+
+    // Duplicate conflict fallback — this role and skill, one row.
+    const queryRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_role_skill_mapping?filter[role_id][_eq]=${roleId}&filter[skill_id][_eq]=${skillId}&fields=id&limit=1`,
+      {
+        headers: getHeaders(),
+        cache: "no-store",
+      }
+    );
     if (queryRes.ok) {
       const queryJson = await queryRes.json();
       const existing = queryJson.data?.[0];

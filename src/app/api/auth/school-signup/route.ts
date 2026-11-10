@@ -5,10 +5,17 @@ import {
     parseDirectusUtcDateTime,
 } from '@/modules/auth/registration';
 import { sendOTP } from '@/modules/auth/services/email.service';
+import { getClientIp, rateLimitRetryAfterMs, tooManyRequestsResponse } from '@/lib/rate-limit';
 import bcrypt from 'bcrypt';
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+// SEC-007: unauthenticated account creation that also sends mail. The IP budget
+// is wide enough for a school office sharing one egress address.
+const SCHOOL_SIGNUP_WINDOW_MS = 60 * 60_000;
+const SCHOOL_SIGNUP_EMAIL_REQUESTS = 3;
+const SCHOOL_SIGNUP_IP_REQUESTS = 20;
 
 function getHeaders() {
     const h: Record<string, string> = {
@@ -42,19 +49,28 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
+        const retryAfterMs =
+            rateLimitRetryAfterMs("auth:school-signup:email", String(user_email), SCHOOL_SIGNUP_EMAIL_REQUESTS, SCHOOL_SIGNUP_WINDOW_MS) ||
+            rateLimitRetryAfterMs("auth:school-signup:ip", getClientIp(req), SCHOOL_SIGNUP_IP_REQUESTS, SCHOOL_SIGNUP_WINDOW_MS);
+        if (retryAfterMs) return tooManyRequestsResponse(retryAfterMs);
+
         // 2. Validate token if present (Invite flow redirecting to signup)
         let invitedSchoolId: number | null = null;
         let inviteTokenId: string | null = null;
         if (token) {
-            const tokenUrl = `${DIRECTUS_BASE}/items/vs_invite_token?filter[token][_eq]=${token}`;
+            const tokenQuery = new URLSearchParams({ 'filter[token][_eq]': String(token) });
+            const tokenUrl = `${DIRECTUS_BASE}/items/vs_invite_token?${tokenQuery}`;
             const tokenRes = await fetch(tokenUrl, { headers: getHeaders(), cache: 'no-store' });
             const tokenJson = await tokenRes.json();
-            
-            if (!tokenRes.ok || !tokenJson.data || tokenJson.data.length === 0) {
+
+            const invite = (tokenJson.data || []).find(
+                (row: { token?: string }) => String(row?.token ?? '') === String(token)
+            );
+
+            if (!tokenRes.ok || !invite) {
                 return NextResponse.json({ error: "Invalid invitation token" }, { status: 400 });
             }
 
-            const invite = tokenJson.data[0];
             const expiresAt = parseDirectusUtcDateTime(invite.expires_at);
             if (invite.is_used || !Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
                 return NextResponse.json({ error: "Token is expired or already used" }, { status: 400 });
@@ -64,7 +80,8 @@ export async function POST(req: Request) {
         }
 
         // 3. Duplicate User Check
-        const existingUserRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?filter[user_email][_eq]=${user_email}`, {
+        const existingUserQuery = new URLSearchParams({ 'filter[user_email][_eq]': String(user_email) });
+        const existingUserRes = await fetch(`${DIRECTUS_BASE}/items/vs_user?${existingUserQuery}`, {
             headers: getHeaders(),
             cache: 'no-store'
         });
@@ -82,7 +99,7 @@ export async function POST(req: Request) {
             const schoolCheckJson = await schoolCheckRes.json();
             if (schoolCheckJson.data && schoolCheckJson.data.length > 0) {
                 return NextResponse.json({ 
-                    error: `A school named "${school_name}" is already registered in "${city_municipality}". If this is your school, please contact VOS-Sync support.` 
+                    error: `A school named "${school_name}" is already registered in "${city_municipality}". If this is your school, please contact LinkBridge support.` 
                 }, { status: 409 });
             }
         }
@@ -193,8 +210,9 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
             message: "Registration completed. Verification required.",
-            requireOtp: true,
-            userId: userId
+            // SEC-023: no user_id in the response — OTP verification is keyed by
+            // the email this caller just submitted.
+            requireOtp: true
         });
 
     } catch (error: unknown) {

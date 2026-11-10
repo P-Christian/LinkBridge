@@ -2,6 +2,8 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { JobPosting, JobFormData, JobStatus, JobType, ExperienceLevel } from "../types";
 
 const EMPTY_FORM: JobFormData = {
@@ -29,6 +31,7 @@ interface JobsResponse {
 interface JobResponse {
   job?: JobPosting;
   error?: string;
+  warnings?: string[];
 }
 
 export function useJobs() {
@@ -39,13 +42,16 @@ export function useJobs() {
   const [successMessage, setSuccessMessage] = useState("");
   const [filterStatus, setFilterStatus] = useState<JobStatus | "ALL">("ALL");
 
+  const abortRead = useRequestAbort();
+
   const fetchJobs = useCallback(async (status?: JobStatus | "ALL") => {
     setLoading(true);
     setError("");
 
+    const signal = abortRead();
     try {
       const query = status && status !== "ALL" ? `?status=${status}` : "";
-      const res = await fetch(`/api/client/jobs${query}`);
+      const res = await fetch(`/api/client/jobs${query}`, { signal });
       const json: JobsResponse & { error?: string } = await res.json();
 
       if (!res.ok) {
@@ -54,11 +60,16 @@ export function useJobs() {
 
       setJobs(json.jobs ?? []);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred.");
+      if (signal.aborted) return;
+      const msg = err instanceof Error ? err.message : "Failed to load jobs.";
+      setError(msg);
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const normalizeJobPayload = (formData: JobFormData) => ({
     ...formData,
@@ -101,6 +112,7 @@ export function useJobs() {
       screening_questions: formData.screening_questions || [],
       status: (formData.status as JobStatus) || "DRAFT",
       applicants_count: 0,
+      active_applicants_count: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -125,11 +137,18 @@ export function useJobs() {
       }
 
       setSuccessMessage("Job posting created successfully.");
+      if (json.warnings?.length) {
+        toast.warning(json.warnings.join(" "));
+      } else {
+        toast.success("Job posting created successfully.");
+      }
       return true;
     } catch (err: unknown) {
       // Rollback on network failure
       setJobs((prev) => prev.filter((j) => j.job_id !== tempId));
-      setError(err instanceof Error ? err.message : "An error occurred.");
+      const msg = err instanceof Error ? err.message : "Failed to create job.";
+      setError(msg);
+      toast.error(msg);
       return false;
     } finally {
       setSaving(false);
@@ -197,11 +216,18 @@ export function useJobs() {
         }
 
         setSuccessMessage("Job posting updated successfully.");
+        if (json.warnings?.length) {
+          toast.warning(json.warnings.join(" "));
+        } else {
+          toast.success("Job posting updated successfully.");
+        }
         return true;
       } catch (err: unknown) {
         // Rollback on network failure
         setJobs(previousJobs);
-        setError(err instanceof Error ? err.message : "An error occurred.");
+        const msg = err instanceof Error ? err.message : "Failed to update job.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
@@ -243,10 +269,13 @@ export function useJobs() {
             prev.map((job) => (job.job_id === jobId ? { ...job, ...json.job } : job))
           );
         }
+        toast.success(`Job status updated to ${newStatus}.`);
       } catch (err: unknown) {
         // Rollback on network failure
         setJobs(previousJobs);
-        setError(err instanceof Error ? err.message : "Failed to update job status.");
+        const msg = err instanceof Error ? err.message : "Failed to update job status.";
+        setError(msg);
+        toast.error(msg);
         throw err;
       }
     },

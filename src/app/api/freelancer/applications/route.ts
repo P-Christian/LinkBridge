@@ -12,6 +12,7 @@ import type { JobPipelineVersion, JobPipelineStage } from "@/modules/client/pipe
 import type { ApplicationItem } from "@/modules/freelancer/freelancer-applications/types";
 import { getPHTimeString } from "@/lib/utils";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -270,6 +271,28 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Enrich with Profile Snapshot from vs_job_application_profile_snapshot
+    const profileSnapshotMap: Record<number, Record<string, unknown>> = {};
+    if (appIds.length > 0) {
+      try {
+        const snapRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_job_application_profile_snapshot?filter[application_id][_in]=${appIds.join(",")}&fields=application_id,profile_data,captured_at&limit=500`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        if (snapRes.ok) {
+          const snapJson = await snapRes.json();
+          const snapRows: Array<{ application_id: number; profile_data: Record<string, unknown> }> = snapJson.data ?? [];
+          snapRows.forEach((s) => {
+            if (s.application_id && s.profile_data) {
+              profileSnapshotMap[s.application_id] = s.profile_data;
+            }
+          });
+        }
+      } catch (err) {
+        console.warn("Could not load profile snapshots for freelancer applications:", err);
+      }
+    }
+
     // Merge all data
     const enriched = applications.map((app) => {
       const job = jobsMap[app.job_id as number] ?? {};
@@ -318,6 +341,7 @@ export async function GET(req: NextRequest) {
         company_name: company?.company_name ?? null,
         company_details: company ?? null,
         screening_answers: screeningMap[appId] ?? null,
+        profile_snapshot: (profileSnapshotMap[appId] as unknown as ApplicationItem["profile_snapshot"]) ?? null,
         resume: app.resume_id ? (resumeMap[app.resume_id as number] ?? null) : null,
         is_referred: !!refData?.is_referred,
         referral_letter: refData?.referral_letter || null,
@@ -334,7 +358,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -446,6 +470,16 @@ export async function POST(req: NextRequest) {
       if (primaryRes.ok) {
         const primaryData = await primaryRes.json();
         resumeId = primaryData.data?.[0]?.id || null;
+      }
+    }
+
+    if (body.expected_salary !== undefined && body.expected_salary !== null && body.expected_salary !== "") {
+      const salaryNum = Number(body.expected_salary);
+      if (isNaN(salaryNum) || salaryNum < 0 || salaryNum > 99999999.99) {
+        return NextResponse.json(
+          { error: "Expected salary must be between 0 and 99,999,999.99 PHP." },
+          { status: 400 }
+        );
       }
     }
 
@@ -638,17 +672,6 @@ export async function POST(req: NextRequest) {
         console.error("Failed to assign initial pipeline stage:", stageErr);
       }
 
-      // Trigger notification
-      await createNotification({
-        event_type: "application_submitted",
-        recipient_user_id: userId,
-        entity_type: "job_application",
-        entity_id: applicationId,
-        category: "Application Updates",
-        title: "Application Submitted!",
-        message: "Your application has been received. We will notify you of any updates.",
-        action_url: "/vos-sync/freelancer/applications",
-      }).catch((e) => console.error("Error creating candidate notification:", e));
 
       // Referrals
       try {
@@ -745,7 +768,7 @@ export async function POST(req: NextRequest) {
                   category: "APPLICATION_RECEIVED",
                   title: "New Application Received",
                   message: `${candidateName} applied for "${jobTitle}".`,
-                  action_url: `/vos-sync/client/applicants/${applicationId}`,
+                  action_url: `/linkbridge/client/applicants/${applicationId}`,
                 }).catch((err: unknown) => console.error("[Employer in-app] APPLICATION_RECEIVED error:", err));
               }
             }
@@ -760,7 +783,7 @@ export async function POST(req: NextRequest) {
             category: "APPLICATION_SUBMITTED",
             title: "Application Submitted",
             message: `Your application for "${jobTitle}" was submitted successfully.`,
-            action_url: `/vos-sync/freelancer/applications`,
+            action_url: `/linkbridge/freelancer/applications`,
           }).catch((err: unknown) => console.error("[Candidate in-app] APPLICATION_SUBMITTED error:", err));
 
           // Chat System Message
@@ -796,7 +819,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -840,6 +863,13 @@ export async function PATCH(req: NextRequest) {
     if (body.action === "withdraw") {
       const rawStatus = String(appData.application_status || "").toUpperCase();
       const terminalStatuses = ["HIRED", "REJECTED", "WITHDRAWN"];
+      if (body.reason && typeof body.reason === "string" && body.reason.trim().length > 255) {
+        return NextResponse.json(
+          { error: "Reason for withdrawal cannot exceed 255 characters." },
+          { status: 400 }
+        );
+      }
+
       if (terminalStatuses.includes(rawStatus)) {
         return NextResponse.json(
           { error: `Cannot withdraw application when status is already ${rawStatus}.` },
@@ -955,7 +985,7 @@ export async function PATCH(req: NextRequest) {
           category: "Application Updates",
           title: "Application Withdrawn",
           message: `You have successfully withdrawn your application for "${jobTitle}".`,
-          action_url: "/vos-sync/freelancer/applications",
+          action_url: "/linkbridge/freelancer/applications",
         }).catch((e) => console.error("Error creating candidate withdrawal notification:", e));
 
         // 2. In-app notification for Employer/Company recruiter
@@ -973,7 +1003,7 @@ export async function PATCH(req: NextRequest) {
                 category: "APPLICATION_STATUS_UPDATED",
                 title: "Application Withdrawn",
                 message: `${candidateName} has withdrawn their application for "${jobTitle}".`,
-                action_url: `/vos-sync/client/applicants/${body.application_id}`,
+                action_url: `/linkbridge/client/applicants/${body.application_id}`,
               }).catch((e) => console.error("Error creating employer withdrawal notification:", e));
             }
           }
@@ -989,7 +1019,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/freelancer/applications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

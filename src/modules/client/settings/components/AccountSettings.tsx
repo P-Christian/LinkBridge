@@ -2,7 +2,7 @@
 
 // src/modules/client/settings/components/AccountSettings.tsx
 
-import React, { useMemo, useState, useRef } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { UserProfile } from "../types";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+
+import {
+  fetchProvinces,
+  fetchCities,
+  fetchBarangays,
+  PsgcItem,
+} from "@/lib/psgc";
+import {
+  CONTACT_MAX_LENGTH,
+  caretForDigitCount,
+  formatContactInput,
+  validatePhContact,
+} from "@/lib/phone";
 
 import {
   Loader2,
@@ -58,6 +71,26 @@ interface AccountSettingsProps {
   onSave: (data: Partial<UserProfile>) => Promise<boolean>;
 }
 
+// Fields tracked for the dirty state (profile_image_url saves immediately
+// from the photo flow and user_email is read-only, so both are excluded).
+const EDITABLE_FIELDS = [
+  "user_fname",
+  "user_mname",
+  "user_lname",
+  "suffix_name",
+  "nickname",
+  "user_contact",
+  "user_position",
+  "user_province",
+  "user_city",
+  "user_brgy",
+  "gender",
+  "user_bday",
+  "civil_status",
+] as const;
+
+type EditableField = (typeof EDITABLE_FIELDS)[number];
+
 function getImageUrl(val?: string | null): string {
   if (!val) return "";
   if (val.startsWith("http://") || val.startsWith("https://") || val.startsWith("data:")) return val;
@@ -76,13 +109,24 @@ export default function AccountSettings({
   onSave,
 }: AccountSettingsProps) {
   const [overrides, setOverrides] = useState<Partial<UserProfile>>({});
-  
+
   // Image crop & upload state
   const [cropModalOpen, setCropModalOpen] = useState(false);
   const [selectedImageSrc, setSelectedImageSrc] = useState<string | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [confirmRemovePhoto, setConfirmRemovePhoto] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Contact number validation
+  const [contactError, setContactError] = useState<string | null>(null);
+
+  // PSGC address cascade
+  const [provinces, setProvinces] = useState<PsgcItem[]>([]);
+  const [cities, setCities] = useState<PsgcItem[]>([]);
+  const [barangays, setBarangays] = useState<PsgcItem[]>([]);
+  const [loadingProvinces, setLoadingProvinces] = useState(true);
+  const [loadingCities, setLoadingCities] = useState(false);
+  const [loadingBarangays, setLoadingBarangays] = useState(false);
 
   const formData = useMemo(
     () => ({
@@ -105,8 +149,142 @@ export default function AccountSettings({
     [user, overrides]
   );
 
+  const isDirty = useMemo(
+    () =>
+      EDITABLE_FIELDS.some((field: EditableField) => {
+        const baseline = user?.[field] ?? "";
+        const current = overrides[field] ?? baseline;
+        if (field === "user_bday") {
+          // The date input only carries YYYY-MM-DD while the stored value
+          // may include a time component.
+          return current.slice(0, 10) !== baseline.slice(0, 10);
+        }
+        if (field === "user_contact") {
+          // The input auto-formats; only a real digit change counts as dirty.
+          return current.replace(/\D/g, "") !== baseline.replace(/\D/g, "");
+        }
+        return current !== baseline;
+      }),
+    [user, overrides]
+  );
+
+  // Saved address names are matched case-insensitively so legacy free-text
+  // values (e.g. "DAGUPAN") still resolve to their PSGC entry.
+  const selectedProvinceCode = useMemo(
+    () =>
+      provinces.find(
+        (p) => p.name.toLowerCase() === formData.user_province.trim().toLowerCase()
+      )?.code ?? "",
+    [provinces, formData.user_province]
+  );
+  const selectedCityCode = useMemo(
+    () =>
+      cities.find(
+        (c) => c.name.toLowerCase() === formData.user_city.trim().toLowerCase()
+      )?.code ?? "",
+    [cities, formData.user_city]
+  );
+  const selectedBrgyCode = useMemo(
+    () =>
+      barangays.find(
+        (b) => b.name.toLowerCase() === formData.user_brgy.trim().toLowerCase()
+      )?.code ?? "",
+    [barangays, formData.user_brgy]
+  );
+
+  // Load the full province list once.
+  useEffect(() => {
+    let cancelled = false;
+    fetchProvinces()
+      .then((data) => {
+        if (!cancelled) setProvinces(data);
+      })
+      .catch((err) => console.error("Failed to load provinces", err))
+      .finally(() => {
+        if (!cancelled) setLoadingProvinces(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Load cities for the currently selected province.
+  useEffect(() => {
+    if (!selectedProvinceCode) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- spinner must show during the fetch
+    setLoadingCities(true);
+    fetchCities(selectedProvinceCode)
+      .then((data) => {
+        if (!cancelled) setCities(data);
+      })
+      .catch((err) => console.error("Failed to load cities", err))
+      .finally(() => {
+        if (!cancelled) setLoadingCities(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProvinceCode]);
+
+  // Load barangays for the currently selected city.
+  useEffect(() => {
+    if (!selectedCityCode) return;
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- spinner must show during the fetch
+    setLoadingBarangays(true);
+    fetchBarangays(selectedCityCode)
+      .then((data) => {
+        if (!cancelled) setBarangays(data);
+      })
+      .catch((err) => console.error("Failed to load barangays", err))
+      .finally(() => {
+        if (!cancelled) setLoadingBarangays(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCityCode]);
+
   const handleChange = (field: keyof UserProfile, value: string) => {
     setOverrides((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleContactChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const el = e.target;
+    const raw = el.value;
+    const digitsBeforeCaret = raw
+      .slice(0, el.selectionStart ?? raw.length)
+      .replace(/\D/g, "").length;
+    const formatted = formatContactInput(raw);
+    const caret = caretForDigitCount(formatted, digitsBeforeCaret);
+    handleChange("user_contact", formatted);
+    setContactError(validatePhContact(formatted));
+    // React re-commits the controlled value first, then we restore the caret.
+    requestAnimationFrame(() => {
+      if (document.activeElement === el) el.setSelectionRange(caret, caret);
+    });
+  };
+
+  const handleProvinceChange = (code: string) => {
+    const name = provinces.find((p) => p.code === code)?.name ?? "";
+    setBarangays([]);
+    setOverrides((prev) => ({
+      ...prev,
+      user_province: name,
+      user_city: "",
+      user_brgy: "",
+    }));
+  };
+
+  const handleCityChange = (code: string) => {
+    const name = cities.find((c) => c.code === code)?.name ?? "";
+    setOverrides((prev) => ({ ...prev, user_city: name, user_brgy: "" }));
+  };
+
+  const handleBrgyChange = (code: string) => {
+    const name = barangays.find((b) => b.code === code)?.name ?? "";
+    handleChange("user_brgy", name);
   };
 
   // Image Upload Handlers
@@ -163,6 +341,17 @@ export default function AccountSettings({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Only enforce format on values modified in this session so untouched
+    // legacy contact data does not block unrelated saves.
+    const baselineContact = (user?.user_contact ?? "").replace(/\D/g, "");
+    if (formData.user_contact.replace(/\D/g, "") !== baselineContact) {
+      const error = validatePhContact(formData.user_contact);
+      if (error) {
+        setContactError(error);
+        toast.error("Please enter a valid contact number before saving.");
+        return;
+      }
+    }
     const ok = await onSave({
       user_fname: formData.user_fname,
       user_mname: formData.user_mname,
@@ -181,6 +370,7 @@ export default function AccountSettings({
     });
     if (ok) {
       setOverrides({});
+      setContactError(null);
     }
   };
 
@@ -464,11 +654,23 @@ export default function AccountSettings({
               </Label>
               <Input
                 id="contact"
-                value={formData.user_contact}
-                onChange={(e) => handleChange("user_contact", e.target.value)}
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={CONTACT_MAX_LENGTH}
+                value={formatContactInput(formData.user_contact)}
+                onChange={handleContactChange}
                 placeholder="+63 912 345 6789"
+                aria-invalid={!!contactError}
                 className="h-9 text-sm rounded-lg"
               />
+              {contactError ? (
+                <p className="text-[11px] font-medium text-rose-500">{contactError}</p>
+              ) : (
+                <p className="text-[11px] text-zinc-400">
+                  Philippine mobile (+63 9XX XXX XXXX) or landline format.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -496,43 +698,79 @@ export default function AccountSettings({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               <div className="space-y-1.5">
-                <Label htmlFor="province" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                <Label htmlFor="province" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
                   Province
+                  {loadingProvinces && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
                 </Label>
-                <Input
-                  id="province"
-                  value={formData.user_province}
-                  onChange={(e) => handleChange("user_province", e.target.value)}
-                  placeholder="e.g. Metro Manila / Cavite"
-                  className="h-9 text-sm rounded-lg"
+                <SearchableSelect
+                  options={provinces.map((prov) => ({ value: prov.code, label: prov.name }))}
+                  value={selectedProvinceCode}
+                  onValueChange={handleProvinceChange}
+                  disabled={loadingProvinces}
+                  ariaLabel="Province"
+                  placeholder={loadingProvinces ? "Loading provinces..." : "Select Province"}
+                  className="h-9 text-sm rounded-lg border-zinc-200 dark:border-zinc-700"
                 />
+                {formData.user_province && !selectedProvinceCode && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    Saved province &quot;{formData.user_province}&quot; is not in the official list — please select a new one.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="city" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                <Label htmlFor="city" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
                   City / Municipality
+                  {loadingCities && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
                 </Label>
-                <Input
-                  id="city"
-                  value={formData.user_city}
-                  onChange={(e) => handleChange("user_city", e.target.value)}
-                  placeholder="e.g. Makati City"
-                  className="h-9 text-sm rounded-lg"
+                <SearchableSelect
+                  options={cities.map((city) => ({ value: city.code, label: city.name }))}
+                  value={selectedCityCode}
+                  onValueChange={handleCityChange}
+                  disabled={!selectedProvinceCode || loadingCities}
+                  ariaLabel="City / Municipality"
+                  placeholder={
+                    loadingCities
+                      ? "Loading cities..."
+                      : selectedProvinceCode
+                      ? "Select City / Municipality"
+                      : "Select province first"
+                  }
+                  className="h-9 text-sm rounded-lg border-zinc-200 dark:border-zinc-700"
                 />
+                {formData.user_city && !selectedCityCode && (
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                    Saved city &quot;{formData.user_city}&quot; is not in the official list — please select a new one.
+                  </p>
+                )}
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="brgy" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+              <Label htmlFor="brgy" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
                 Barangay
+                {loadingBarangays && <Loader2 className="h-3 w-3 animate-spin text-zinc-400" />}
               </Label>
-              <Input
-                id="brgy"
-                value={formData.user_brgy}
-                onChange={(e) => handleChange("user_brgy", e.target.value)}
-                placeholder="e.g. Brgy. Bel-Air"
-                className="h-9 text-sm rounded-lg"
+              <SearchableSelect
+                options={barangays.map((bgy) => ({ value: bgy.code, label: bgy.name }))}
+                value={selectedBrgyCode}
+                onValueChange={handleBrgyChange}
+                disabled={!selectedCityCode || loadingBarangays}
+                ariaLabel="Barangay"
+                placeholder={
+                  loadingBarangays
+                    ? "Loading barangays..."
+                    : selectedCityCode
+                    ? "Select Barangay"
+                    : "Select city first"
+                }
+                className="h-9 text-sm rounded-lg border-zinc-200 dark:border-zinc-700"
               />
+              {formData.user_brgy && !selectedBrgyCode && (
+                <p className="text-[11px] text-amber-600 dark:text-amber-400">
+                  Saved barangay &quot;{formData.user_brgy}&quot; is not in the official list — please select a new one.
+                </p>
+              )}
             </div>
           </div>
         </div>
@@ -545,7 +783,7 @@ export default function AccountSettings({
         </p>
         <Button
           type="submit"
-          disabled={saving}
+          disabled={saving || !isDirty}
           className="h-10 px-6 text-sm rounded-xl bg-[#14a800] hover:bg-[#118f00] text-white border-0 font-medium shadow-xs flex items-center gap-2"
         >
           {saving ? (
@@ -556,7 +794,7 @@ export default function AccountSettings({
           ) : (
             <>
               <CheckCircle className="h-4 w-4" />
-              Save Account Profile
+              {isDirty ? "Save Account Profile" : "No changes to save"}
             </>
           )}
         </Button>

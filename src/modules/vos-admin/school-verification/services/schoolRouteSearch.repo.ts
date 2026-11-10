@@ -171,16 +171,18 @@ async function fetchJson(operation: string, path: string): Promise<unknown> {
  * length-checked by the caller.
  */
 export async function searchClassifiedSchools(
-  term: string,
+  term?: string,
 ): Promise<readonly ClassifiedSchool[]> {
   const query = new URLSearchParams({
-    "filter[_or][0][school_name][_icontains]": term,
-    "filter[_or][1][city_municipality][_icontains]": term,
-    "filter[_or][2][province][_icontains]": term,
     fields: SEARCH_FIELDS,
     sort: "school_name,school_id",
     limit: String(SEARCH_PAGE_SIZE),
   });
+  if (term && term.trim()) {
+    query.set("filter[_or][0][school_name][_icontains]", term.trim());
+    query.set("filter[_or][1][city_municipality][_icontains]", term.trim());
+    query.set("filter[_or][2][province][_icontains]", term.trim());
+  }
   const body = await fetchJson(
     "searchClassifiedSchools",
     `/items/vs_school?${query.toString()}`,

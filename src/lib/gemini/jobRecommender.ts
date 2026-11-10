@@ -54,16 +54,26 @@ export async function generateJobRecommendations(
         return [];
     }
 
+    const hasSkills = Array.isArray(userProfile.skills) && userProfile.skills.length > 0;
+    const hasSummary = Boolean(userProfile.professional_summary && userProfile.professional_summary.trim().length > 0);
+
+    // If there is no user profile data to match against, strictly return empty array
+    if (!hasSkills && !hasSummary) {
+        return [];
+    }
+
     const prompt = `
 You are an expert AI recruiter matching freelancers with job postings.
 I will provide you with a Freelancer Profile JSON and an array of Available Jobs JSON.
 
 Your task:
-1. Evaluate the overlap between the freelancer's skills/preferences and each job's requirements.
+1. Evaluate genuine overlap between the freelancer's specific skills/summary and each job's requirements.
 2. Consider skills match, work setup match (e.g. remote), and salary alignment.
-3. Calculate a match_percentage score (an integer between 0 and 100) indicating how strongly the job matches the freelancer.
-4. Select up to 3 jobs that are the best fit for the user based on the available data.
-5. Output ONLY a valid JSON array of objects. Do not wrap it in markdown code blocks like \`\`\`json. Just output the raw JSON array.
+3. Calculate an honest match_percentage score (an integer between 0 and 100) based strictly on real evidence from the profile.
+4. CRITICAL RULE: DO NOT hallucinate, guess, or assign high fit scores without evidence. Only recommend jobs that have a genuine match with the freelancer's actual skills or summary.
+5. If no jobs match the freelancer's skills or if profile data is insufficient to establish a fit, return an empty array [].
+6. Select at most 3 jobs that have a genuine match.
+7. Output ONLY a valid JSON array of objects. Do not wrap it in markdown code blocks like \`\`\`json. Just output the raw JSON array.
 
 Return format exactly like this:
 [

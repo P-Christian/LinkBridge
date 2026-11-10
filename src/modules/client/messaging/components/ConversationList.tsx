@@ -6,7 +6,10 @@ import React from "react";
 import { Search, MessageSquare, RefreshCw, Archive, X } from "lucide-react";
 import { Conversation } from "../types";
 import ConversationItem from "./ConversationItem";
+import ConversationGroupItem, { ClientConversationGroup } from "./ConversationGroupItem";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
+import { LayoutGroup, motion, AnimatePresence } from "framer-motion";
 
 type Filter = "all" | "unread";
 
@@ -14,6 +17,7 @@ interface Props {
   conversations: Conversation[];
   activeConversationId: number | null;
   loading: boolean;
+  loadFailed: boolean;
   searchQuery: string;
   showArchived: boolean;
   searchInputRef?: React.Ref<HTMLInputElement>;
@@ -28,6 +32,7 @@ export default function ConversationList({
   conversations,
   activeConversationId,
   loading,
+  loadFailed,
   searchQuery,
   showArchived,
   searchInputRef,
@@ -63,7 +68,45 @@ export default function ConversationList({
     [conversations, filter, q, activeConversationId]
   );
 
-  const unreadConversations = conversations.filter((c) => (c.unread_count ?? 0) > 0).length;
+  const grouped = React.useMemo(() => {
+    const map = new Map<number, ClientConversationGroup>();
+
+    for (const conv of filtered) {
+      const gid = conv.freelancer_id;
+      let group = map.get(gid);
+      if (!group) {
+        group = {
+          groupId: gid,
+          otherPartyName: conv.other_party_name || "Unknown Candidate",
+          otherPartyAvatar: conv.other_party_avatar,
+          latestTimestamp: conv.last_message_at,
+          totalUnread: 0,
+          items: [],
+        };
+        map.set(gid, group);
+      }
+      group.items.push(conv);
+      group.totalUnread += conv.unread_count ?? 0;
+      if (
+        conv.last_message_at &&
+        (!group.latestTimestamp ||
+          new Date(conv.last_message_at.replace(" ", "T")).getTime() >
+            new Date(group.latestTimestamp.replace(" ", "T")).getTime())
+      ) {
+        group.latestTimestamp = conv.last_message_at;
+      }
+    }
+
+    return Array.from(map.values()).sort((a, b) => {
+      const timeA = a.latestTimestamp ? new Date(a.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      const timeB = b.latestTimestamp ? new Date(b.latestTimestamp.replace(" ", "T")).getTime() : 0;
+      return timeB - timeA;
+    });
+  }, [filtered]);
+
+  const unreadConversations = conversations.filter(
+    (c) => (c.unread_count ?? 0) > 0 && c.conversation_id !== activeConversationId
+  ).length;
 
   const emptyTitle = searchQuery
     ? "No matches"
@@ -86,19 +129,9 @@ export default function ConversationList({
       {/* Header */}
       <div className="border-b border-zinc-100 px-4 pb-3 pt-4 dark:border-zinc-800">
         <div className="mb-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-              {showArchived ? "Archived" : "Messages"}
-            </h2>
-            {unreadConversations > 0 && !showArchived && (
-              <span
-                aria-label={`${unreadConversations} unread conversations`}
-                className="flex h-5 min-w-5 items-center justify-center rounded-full bg-indigo-100 px-1.5 text-xs font-semibold text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
-              >
-                {unreadConversations}
-              </span>
-            )}
-          </div>
+          <h2 className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+            {showArchived ? "Archived" : "Messages"}
+          </h2>
 
           <div className="flex items-center gap-1">
             <button
@@ -169,13 +202,22 @@ export default function ConversationList({
                 aria-selected={selected}
                 onClick={() => setFilter(value)}
                 className={cn(
-                  "rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:min-h-9",
+                  "relative rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 max-md:min-h-9",
                   selected
-                    ? "bg-zinc-900 text-white dark:bg-zinc-100 dark:text-zinc-900"
-                    : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                    ? "text-white dark:text-zinc-900"
+                    : "text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
                 )}
               >
-                {value === "all" ? "All" : `Unread${unreadConversations > 0 ? ` (${unreadConversations})` : ""}`}
+                {selected && (
+                  <motion.span
+                    layoutId="activeFilterTabClient"
+                    className="absolute inset-0 rounded-full bg-zinc-900 dark:bg-zinc-100"
+                    transition={{ type: "spring", stiffness: 500, damping: 35 }}
+                  />
+                )}
+                <span className="relative z-10">
+                  {value === "all" ? "All" : `Unread${unreadConversations > 0 ? ` (${unreadConversations})` : ""}`}
+                </span>
               </button>
             );
           })}
@@ -183,51 +225,109 @@ export default function ConversationList({
       </div>
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto overscroll-contain">
-        {loading ? (
-          <div className="flex flex-col gap-4 p-4" aria-busy="true">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex animate-pulse items-center gap-3">
-                <div className="h-10 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-3 w-3/4 rounded bg-zinc-200 dark:bg-zinc-700" />
-                  <div className="h-2 w-full rounded bg-zinc-100 dark:bg-zinc-800" />
+      <ScrollArea className="flex-1 min-h-0">
+        <AnimatePresence mode="wait" initial={false}>
+          {loading ? (
+            <motion.div
+              key="loading"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="flex flex-col gap-4 p-4"
+              aria-busy="true"
+            >
+              {[1, 2, 3, 4, 5].map((i) => (
+                <div key={i} className="flex animate-pulse items-center gap-3">
+                  <div className="h-10 w-10 shrink-0 rounded-full bg-zinc-200 dark:bg-zinc-700" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-3/4 rounded bg-zinc-200 dark:bg-zinc-700" />
+                    <div className="h-2 w-full rounded bg-zinc-100 dark:bg-zinc-800" />
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-            <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
-              <MessageSquare className="h-7 w-7 text-zinc-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">{emptyTitle}</p>
-              <p className="mt-1 text-xs text-zinc-500">{emptyBody}</p>
-            </div>
-            {searchQuery && (
+              ))}
+            </motion.div>
+          ) : loadFailed && conversations.length === 0 ? (
+            <motion.div
+              key="load-failed"
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">
+                Your conversations could not be loaded.
+              </p>
               <button
                 type="button"
-                onClick={() => onSearch("")}
+                onClick={onRefresh}
                 className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
               >
-                Clear search
+                Try again
               </button>
-            )}
-          </div>
-        ) : (
-          filtered.map((conv) => (
-            <ConversationItem
-              key={conv.conversation_id}
-              conversation={conv}
-              isActive={conv.conversation_id === activeConversationId}
-              searchQuery={searchQuery}
-              onSelect={onSelect}
-              onArchive={onArchive}
-            />
-          ))
-        )}
-      </div>
+            </motion.div>
+          ) : filtered.length === 0 ? (
+            <motion.div
+              key={`empty-${filter}-${searchQuery ? "search" : "idle"}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+              className="flex h-full flex-col items-center justify-center gap-3 px-6 py-16 text-center"
+            >
+              <div className="rounded-2xl bg-zinc-100 p-4 dark:bg-zinc-800">
+                <MessageSquare className="h-7 w-7 text-zinc-400" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-zinc-600 dark:text-zinc-300">{emptyTitle}</p>
+                <p className="mt-1 text-xs text-zinc-500">{emptyBody}</p>
+              </div>
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => onSearch("")}
+                  className="rounded-lg px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-950/40"
+                >
+                  Clear search
+                </button>
+              )}
+            </motion.div>
+          ) : (
+            <motion.div
+              key={`list-${filter}`}
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <LayoutGroup id="client-conversations">
+                {grouped.map((group) =>
+                  group.items.length === 1 ? (
+                    <ConversationItem
+                      key={group.items[0].conversation_id}
+                      conversation={group.items[0]}
+                      isActive={group.items[0].conversation_id === activeConversationId}
+                      searchQuery={searchQuery}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  ) : (
+                    <ConversationGroupItem
+                      key={`group-${group.groupId}`}
+                      group={group}
+                      activeConversationId={activeConversationId}
+                      searchQuery={searchQuery}
+                      onSelect={onSelect}
+                      onArchive={onArchive}
+                    />
+                  )
+                )}
+              </LayoutGroup>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </ScrollArea>
     </div>
   );
 }

@@ -64,7 +64,14 @@ export async function checkUserReferralLimit(userId: number, jobId: number): Pro
   return true;
 }
 
-export async function createReferralRecord(userId: number, jobId: number, recipientEmail?: string) {
+export async function createReferralRecord(
+  userId: number,
+  jobId: number,
+  recipientEmail?: string,
+  referralType: "CLOSED" | "OPEN" = "CLOSED",
+  customExpiryDays?: number,
+  customExpiresAt?: string
+) {
   const { plain, hash } = generateToken();
   const policy = await getReferralPolicy(jobId);
   
@@ -78,7 +85,13 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
   }
 
   const now = new Date();
-  const expiresAt = new Date(now.getTime() + policy.expiry_days * 24 * 60 * 60 * 1000);
+  let expiresAt: Date;
+  if (customExpiresAt && !isNaN(Date.parse(customExpiresAt))) {
+    expiresAt = new Date(customExpiresAt);
+  } else {
+    const days = customExpiryDays && customExpiryDays > 0 ? customExpiryDays : policy.expiry_days;
+    expiresAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000);
+  }
 
   const payload: Record<string, unknown> = {
     job_id: jobId,
@@ -88,7 +101,10 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
     expires_at: expiresAt.toISOString(),
   };
 
-  if (recipientEmail) {
+  if (referralType === "OPEN") {
+    payload.display_hint = "Public share link";
+    // Also include referral_type note if permitted by backend
+  } else if (recipientEmail) {
     payload.recipient_email_hash = crypto.createHash("sha256").update(recipientEmail.trim().toLowerCase()).digest("hex");
     payload.display_hint = recipientEmail.trim().split("@")[0];
   }
@@ -117,8 +133,12 @@ export async function createReferralRecord(userId: number, jobId: number, recipi
 
 export async function getReferralByToken(token: string) {
   const hash = crypto.createHash("sha256").update(token).digest("hex");
+  // Support both plain token (sha256 match) and direct token_hash copied from dashboard
+  const filter = token.length === 64
+    ? `filter[_or][0][token_hash][_eq]=${hash}&filter[_or][1][token_hash][_eq]=${token}`
+    : `filter[token_hash][_eq]=${hash}`;
   const res = await fetch(
-    `${DIRECTUS_BASE}/items/vs_job_referral?filter[token_hash][_eq]=${hash}&fields=*,job_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
+    `${DIRECTUS_BASE}/items/vs_job_referral?${filter}&fields=*,job_id.*,referrer_user_id.user_id,referrer_user_id.user_fname,referrer_user_id.user_lname&limit=1`,
     { headers: getHeaders(), cache: "no-store" }
   );
   if (!res.ok) return null;
@@ -150,19 +170,72 @@ export async function getReferralByToken(token: string) {
   return referral;
 }
 
-export async function claimReferralRecord(referralId: number, candidateUserId: number, jobId: number, consentVersion: string) {
-  // Check self referral
-  const refRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id.job_title`, {
-    headers: getHeaders(),
-    cache: "no-store"
-  });
-  let refData: { referrer_user_id?: number; job_id?: { job_title?: string } } | null = null;
-  if (refRes.ok) {
-    refData = (await refRes.json()).data;
-    if (refData && refData.referrer_user_id === candidateUserId) {
-      throw new Error("Self-referral is not allowed.");
+const CLAIMABLE_REFERRAL_STATUSES = ["CREATED", "SENT", "OPENED"];
+
+/**
+ * Claims the referral behind an opaque token. SEC-036: the invitation row is
+ * re-read server-side and every assertion (self-referral, status, expiry,
+ * invitee binding) is made against that row, and the job is taken from it too,
+ * so a caller can no longer claim a sequential referral id for any job.
+ */
+export async function claimReferralRecord(
+  referralId: number,
+  candidateUserId: number,
+  consentVersion: string,
+  candidateEmail?: string | null
+) {
+  const refRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,job_id,job_id.job_id,job_id.job_title,status,expires_at,recipient_email_hash,display_hint`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!refRes.ok) {
+    throw new Error("Referral invitation not found or no longer valid.");
+  }
+  const refData: {
+    referrer_user_id?: number | null;
+    job_id?: number | { job_id?: number; job_title?: string } | null;
+    status?: string | null;
+    expires_at?: string | null;
+    recipient_email_hash?: string | null;
+    display_hint?: string | null;
+  } | null = (await refRes.json()).data;
+  if (!refData) {
+    throw new Error("Referral invitation not found or no longer valid.");
+  }
+
+  if (Number(refData.referrer_user_id) === candidateUserId) {
+    throw new Error("Self-referral is not allowed.");
+  }
+
+  const referralStatus = String(refData.status ?? "").toUpperCase();
+  if (!CLAIMABLE_REFERRAL_STATUSES.includes(referralStatus)) {
+    throw new Error("This referral invitation is no longer open for claiming.");
+  }
+
+  const expiresAtMs = refData.expires_at ? Date.parse(refData.expires_at) : NaN;
+  if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new Error("This referral invitation has expired.");
+  }
+
+  if (refData.recipient_email_hash) {
+    const normalizedEmail = String(candidateEmail ?? "").trim().toLowerCase();
+    const candidateHash = normalizedEmail
+      ? crypto.createHash("sha256").update(normalizedEmail).digest("hex")
+      : "";
+    if (candidateHash !== refData.recipient_email_hash) {
+      throw new Error("This referral invitation was addressed to a different email address.");
     }
   }
+
+  const relatedJob = refData.job_id;
+  const jobId = Number(
+    relatedJob && typeof relatedJob === "object" ? relatedJob.job_id : relatedJob
+  );
+  if (!Number.isSafeInteger(jobId) || jobId <= 0) {
+    throw new Error("This referral invitation is not linked to a job posting.");
+  }
+  const referralJobTitle =
+    relatedJob && typeof relatedJob === "object" ? relatedJob.job_title ?? "" : "";
 
   // Create claim
   const claimPayload = {
@@ -187,12 +260,38 @@ export async function claimReferralRecord(referralId: number, candidateUserId: n
 
   const claim = (await res.json()).data;
 
-  // Update main status
-  await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
-    method: "PATCH",
-    headers: getHeaders(),
-    body: JSON.stringify({ status: "CLAIMED", claimed_at: new Date().toISOString() })
-  });
+  // Auto-bookmark this job for the candidate so the opportunity is saved to their account permanently
+  try {
+    const existingBookmarkRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_job_bookmark?filter[job_id][_eq]=${jobId}&filter[user_id][_eq]=${candidateUserId}&fields=bookmark_id&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    const existingJson = await existingBookmarkRes.json().catch(() => ({}));
+    const hasBookmark = existingJson?.data && existingJson.data.length > 0;
+    if (!hasBookmark) {
+      await fetch(`${DIRECTUS_BASE}/items/vs_job_bookmark`, {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({
+          job_id: jobId,
+          user_id: candidateUserId,
+          bookmarked_at: new Date().toISOString(),
+        }),
+      });
+    }
+  } catch (bmErr) {
+    console.error("Auto-bookmark on referral claim error:", bmErr);
+  }
+
+  // Update main status for closed referrals (or track open referrals)
+  const isPublicOpen = refData.display_hint === "Public share link" || !refData.recipient_email_hash;
+  if (!isPublicOpen) {
+    await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify({ status: "CLAIMED", claimed_at: new Date().toISOString() })
+    });
+  }
 
   await logReferralHistory(referralId, "SENT", "CLAIMED", `user:${candidateUserId}`, "Consent Bound");
 
@@ -216,8 +315,8 @@ export async function claimReferralRecord(referralId: number, candidateUserId: n
         entity_id: referralId,
         category: "Referral Updates",
         title: "Referral Invitation Accepted!",
-        message: `${candidateName} has accepted your referral invite for the position ${refData.job_id?.job_title || "Opportunity"}.`,
-        action_url: "/vos-sync/freelancer/referrals",
+        message: `${candidateName} has accepted your referral invite for the position ${referralJobTitle || "Opportunity"}.`,
+        action_url: "/linkbridge/freelancer/referrals",
       });
     } catch (err) {
       console.error("Failed to send claim in-app notification to referrer:", err);
@@ -294,12 +393,15 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
       return;
     }
 
-    // 4. Update the referral status to APPLIED and close the claim
-    await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify({ status: "APPLIED" })
-    });
+    // 4. Update the referral status to APPLIED and close the claim (if not open public link)
+    const isPublicOpen = referral.display_hint === "Public share link" || !referral.recipient_email_hash;
+    if (!isPublicOpen) {
+      await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+        method: "PATCH",
+        headers: getHeaders(),
+        body: JSON.stringify({ status: "APPLIED" })
+      });
+    }
 
     await fetch(`${DIRECTUS_BASE}/items/vs_job_referral_claim/${claim.claim_id}`, {
       method: "PATCH",
@@ -324,14 +426,14 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
       await sendMail({
         to: referrer.user_email,
         subject: `Your referral applied: ${referral.job_id?.job_title || "Vacancy"}`,
-        text: `Hello ${referrer.user_fname}!\n\nGood news! ${candidateName}, whom you referred, has successfully submitted their application for the ${referral.job_id?.job_title || "Vacancy"} position.\n\nKeep track of your referrals here: ${process.env.NEXT_PUBLIC_APP_URL || ""}/vos-sync/freelancer/referrals\n\nBest regards,\nVOS Sync Team`,
+        text: `Hello ${referrer.user_fname}!\n\nGood news! ${candidateName}, whom you referred, has successfully submitted their application for the ${referral.job_id?.job_title || "Vacancy"} position.\n\nKeep track of your referrals here: ${process.env.NEXT_PUBLIC_APP_URL || ""}/linkbridge/freelancer/referrals\n\nBest regards,\nLinkBridge Team`,
         html: `
           <div style="font-family: sans-serif; padding: 20px; color: #333;">
             <h2>Good news! Your referral applied</h2>
             <p>Hello ${referrer.user_fname},</p>
             <p><strong>${candidateName}</strong>, whom you referred, has successfully submitted their application for the <strong>${referral.job_id?.job_title || "Vacancy"}</strong> position.</p>
             <p>You can track the status of your referrals in your dashboard.</p>
-            <p style="font-size: 12px; color: #777; margin-top: 40px;">Thank you for sharing opportunities on VOS Sync!</p>
+            <p style="font-size: 12px; color: #777; margin-top: 40px;">Thank you for sharing opportunities on LinkBridge!</p>
           </div>
         `,
       }).catch((err) => console.error("Referral application SMTP notification error:", err));
@@ -346,7 +448,7 @@ export async function handleApplicationSubmissionReferral(applicationId: number,
           category: "Referral Updates",
           title: "Referral Candidate Applied!",
           message: `${candidateName} has submitted their application for the position ${referral.job_id?.job_title || "Vacancy"}.`,
-          action_url: "/vos-sync/freelancer/referrals",
+          action_url: "/linkbridge/freelancer/referrals",
         });
       } catch (err) {
         console.error("Failed to send application in-app notification to referrer:", err);

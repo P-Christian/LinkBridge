@@ -92,6 +92,24 @@ export function formatDayLabel(dateStr: string | null | undefined): string {
   });
 }
 
+/** Separator label: "Today, 9:20 AM", "Yesterday, 9:20 AM", "Aug 14, 2026, 9:20 AM" */
+export function formatSeparatorLabel(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const date = parseDate(dateStr);
+  if (isNaN(date.getTime())) return "";
+
+  const diff = daysAgo(date);
+  const time = formatClock(date);
+  if (diff === 0) return `Today, ${time}`;
+  if (diff === 1) return `Yesterday, ${time}`;
+
+  const currentYear = new Date().getFullYear();
+  const base = `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+  return date.getFullYear() === currentYear
+    ? `${base}, ${time}`
+    : `${base}, ${date.getFullYear()}, ${time}`;
+}
+
 export function isSameDay(a: string, b: string): boolean {
   if (!a || !b) return false;
   const dateA = parseDate(a);

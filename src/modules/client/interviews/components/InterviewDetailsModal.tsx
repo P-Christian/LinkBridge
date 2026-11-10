@@ -119,7 +119,11 @@ export default function InterviewDetailsModal({
             <DialogTitle className="text-base font-bold text-zinc-900 dark:text-zinc-100">
               Interview Details
             </DialogTitle>
-            <InterviewStatusBadge status={interview.interview_status} />
+            <InterviewStatusBadge
+              status={interview.interview_status}
+              scheduledAt={interview.scheduled_at}
+              durationMinutes={interview.duration_minutes}
+            />
           </div>
           <DialogDescription className="text-sm md:text-xs">
             {formatInterviewDate(interview.scheduled_at, true)} · {formatInterviewTime(interview.scheduled_at)}

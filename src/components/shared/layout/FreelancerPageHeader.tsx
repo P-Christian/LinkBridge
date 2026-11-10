@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/tooltip";
 import { NotificationBell } from "@/modules/freelancer/freelancer-notifications/components/NotificationBellWrapper";
 import { UserSearchBar } from "@/modules/shared/search/components/UserSearchBar";
-import { NavUser } from "@/app/(vos-sync)/vos-sync/_components/nav-user";
+import { NavUser } from "@/app/(linkbridge)/linkbridge/_components/nav-user";
 
 type FreelancerPageHeaderUser = {
     name: string;
@@ -62,7 +62,7 @@ export function FreelancerPageHeader({
                     <Breadcrumb>
             <BreadcrumbList className="min-w-0 overflow-hidden flex-nowrap">
               <BreadcrumbItem className="hidden xl:block shrink-0">
-                <BreadcrumbLink href="#">Freelancer</BreadcrumbLink>
+                <BreadcrumbLink href="/linkbridge/freelancer/dashboard">Freelancer</BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator className="hidden xl:block shrink-0" />
                             <BreadcrumbItem className="min-w-0 overflow-hidden">
@@ -90,7 +90,7 @@ export function FreelancerPageHeader({
                                 size="icon"
                                 className="text-muted-foreground hover:text-foreground flex relative cursor-pointer max-md:size-11"
                             >
-                                <Link href="/vos-sync/freelancer/how-it-works">
+                                <Link href="/linkbridge/freelancer/how-it-works">
                                     <HelpCircle className="h-5 w-5" />
                                     {showNewBadge && (
                                         <span className="absolute -top-0.5 -right-0.5 flex h-3 w-3">

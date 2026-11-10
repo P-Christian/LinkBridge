@@ -28,6 +28,7 @@ import {
 import { PublicJobPosting } from "../types";
 import { useAuthSession } from "@/hooks/useAuthSession";
 import { sanitizeHtml } from "@/lib/sanitize-html";
+import { formatJobType } from "@/lib/utils";
 
 function renderFormattedContent(text: string | null | undefined) {
   if (!text) {
@@ -94,7 +95,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
   );
 
   const openJobQuery = job.job_id ? `?open_job=${job.job_id}` : "";
-  const targetPath = `/vos-sync/freelancer/jobs${openJobQuery}`;
+  const targetPath = `/linkbridge/freelancer/jobs${openJobQuery}`;
   const loginHref = `/login?next=${encodeURIComponent(targetPath)}`;
   const signupHref = `/signup?next=${encodeURIComponent(targetPath)}`;
   const companyUrl = job.company_code
@@ -167,7 +168,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
                   <span className="order-2 sm:order-none">•</span>
                   <span className="flex items-center gap-1 order-1 sm:order-none">
                     <Briefcase className="h-3.5 w-3.5 text-muted-foreground" />
-                    {job.job_type} • {job.work_setup}
+                    {formatJobType(job.job_type)} • {job.work_setup}
                   </span>
                 </DialogDescription>
               </div>
@@ -187,7 +188,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Employment Type</span>
-              <span className="font-bold text-foreground text-sm block mt-0.5">{job.job_type} • {job.work_setup}</span>
+              <span className="font-bold text-foreground text-sm block mt-0.5">{formatJobType(job.job_type)} • {job.work_setup}</span>
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground block">Experience Level</span>
@@ -254,7 +255,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
               <div className="flex flex-wrap items-center gap-3">
                 {isOwnJob ? (
                   <Button asChild size="sm" className="font-bold text-xs gap-1.5 shadow-xs cursor-pointer">
-                    <Link href="/vos-sync/client/jobs" className="flex items-center gap-2">
+                    <Link href="/linkbridge/client/jobs" className="flex items-center gap-2">
                       <Building2 className="h-4 w-4" />
                       Manage Jobs
                     </Link>
@@ -262,7 +263,7 @@ export function PublicJobDetailModal({ job, isOpen, onClose }: Props) {
                 ) : (
                   <>
                     <Button asChild size="sm" className="font-bold text-xs gap-1.5 shadow-xs cursor-pointer">
-                      <Link href="/vos-sync/client/jobs" className="flex items-center gap-2">
+                      <Link href="/linkbridge/client/jobs" className="flex items-center gap-2">
                         <Building2 className="h-4 w-4" />
                         Go to Client Portal
                       </Link>

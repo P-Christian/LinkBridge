@@ -1,32 +1,29 @@
 // src/middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import * as jose from "jose";
-import { canAuthenticate } from "@/lib/status-validator";
+import { canAuthenticate, isSessionEpochStale, isSessionRevoked } from "@/lib/status-validator";
 import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
+import { isDevAuthBypassEnabled } from "@/lib/dev-auth-bypass";
 
 const COOKIE_NAME = "vos_sync_access_token";
-const PROTECTED_PREFIXES = ["/dashboard", "/scm", "/fm", "/hrm", "/bia", "/arf", "/cafeteria", "/vos-sync", "/main-dashboard"];
+const PROTECTED_PREFIXES = ["/dashboard", "/scm", "/fm", "/hrm", "/bia", "/arf", "/cafeteria", "/linkbridge", "/linkbridge", "/main-dashboard"];
 const PUBLIC_FILE = /\.(.*)$/;
 
 function isProtectedPath(pathname: string) {
     const pathLower = pathname.toLowerCase();
-    if (pathLower === "/vos-sync/freelancer/jobs" || pathLower.startsWith("/vos-sync/freelancer/jobs/")) {
+    if (
+        pathLower === "/linkbridge/freelancer/jobs" ||
+        pathLower.startsWith("/linkbridge/freelancer/jobs/") ||
+        pathLower === "/linkbridge/freelancer/jobs" ||
+        pathLower.startsWith("/linkbridge/freelancer/jobs/")
+    ) {
         return false;
     }
     return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 }
 
-function parseDbTimestamp(ts: string | null | undefined): number {
-    if (!ts) return 0;
-    if (ts.includes("Z") || ts.includes("+")) return new Date(ts).getTime();
-    const normalized = ts.replace(" ", "T");
-    const withTz = normalized.includes("T") ? `${normalized}+08:00` : normalized;
-    const parsed = new Date(withTz).getTime();
-    return Number.isFinite(parsed) ? parsed : 0;
-}
-
 export async function middleware(req: NextRequest) {
-    if (process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
+    if (isDevAuthBypassEnabled()) {
         return NextResponse.next();
     }
 
@@ -54,13 +51,13 @@ export async function middleware(req: NextRequest) {
                 const userRoleName = typeof payload.role_name === "string" ? payload.role_name : (typeof payload.role === "string" ? payload.role : "");
                 const roleUpper = userRoleName.toUpperCase();
 
-                let roleDashboard = "/vos-sync/freelancer/dashboard";
+                let roleDashboard = "/linkbridge/freelancer/dashboard";
                 if (userRoleId === 2 || roleUpper === "CLIENT" || roleUpper === "EMPLOYER") {
-                    roleDashboard = "/vos-sync/client/dashboard";
+                    roleDashboard = "/linkbridge/client/dashboard";
                 } else if (userRoleId === 3 || roleUpper === "ADMIN" || roleUpper === "ADMINISTRATOR") {
-                    roleDashboard = "/vos-sync/vos-admin";
+                    roleDashboard = "/linkbridge/admin";
                 } else if (userRoleId === 4 || roleUpper === "SCHOOL_ADMIN" || roleUpper === "SCH_ADMIN" || roleUpper === "SCHOOL") {
-                    roleDashboard = "/vos-sync/school-admin";
+                    roleDashboard = "/linkbridge/school-admin";
                 }
 
                 // Break redirect loop if user is already on /login?next=<dashboard>
@@ -132,9 +129,11 @@ export async function middleware(req: NextRequest) {
         const userRoleName = typeof payload.role_name === 'string' ? payload.role_name.toUpperCase() : "";
         const pathLower = pathname.toLowerCase();
 
-        // Exclude suspended page and logout routes from redirection checks
+        // Exclude suspended page, appeal API, and logout routes from redirection checks
         if (
-            pathLower !== "/vos-sync/suspended" &&
+            pathLower !== "/linkbridge/suspended" &&
+            pathLower !== "/linkbridge/suspended" &&
+            !pathLower.startsWith("/api/account/appeal") &&
             !pathLower.startsWith("/api/auth/logout") &&
             pathLower !== "/logout"
         ) {
@@ -159,68 +158,54 @@ export async function middleware(req: NextRequest) {
                     if (dbUser) {
                         if (!canAuthenticate(dbUser)) {
                             const url = req.nextUrl.clone();
-                            url.pathname = "/vos-sync/suspended";
+                            url.pathname = "/linkbridge/suspended";
                             return NextResponse.redirect(url);
                         }
 
                         const sid = typeof payload.sid === "string" ? payload.sid : null;
                         if (sid) {
-                            const sessionRes = await fetch(`${DIRECTUS_BASE}/items/vs_user_sessions/${sid}?fields=session_id,revoked_at,expires_at`, {
-                                headers,
-                                cache: "no-store",
-                            });
-                            if (sessionRes.ok) {
-                                const sessionJson = await sessionRes.json();
-                                const sessionData = sessionJson?.data;
-                                if (!sessionData || sessionData.revoked_at) {
-                                    return redirectToLogin(req);
-                                }
-                                const expiresAtMs = sessionData.expires_at ? parseDbTimestamp(sessionData.expires_at) : 0;
-                                if (expiresAtMs > 0 && Date.now() > expiresAtMs) {
-                                    return redirectToLogin(req);
-                                }
-                            } else if (sessionRes.status === 404) {
+                            if (await isSessionRevoked(sid)) {
                                 return redirectToLogin(req);
                             }
-                        } else {
-                            const sessionEpoch = parseDbTimestamp(dbUser.session_epoch);
-                            const tokenIat = payload.iat ? payload.iat * 1000 : 0;
-                            if (sessionEpoch > 0 && tokenIat > 0 && sessionEpoch > tokenIat) {
-                                return redirectToLogin(req);
-                            }
+                        } else if (isSessionEpochStale(dbUser.session_epoch, payload.iat)) {
+                            return redirectToLogin(req);
                         }
+                    } else {
+                        return redirectToLogin(req);
                     }
                 } else if (statusRes.status === 404) {
                     return redirectToLogin(req);
                 } else {
-                    console.warn(`[Middleware] Directus returned status ${statusRes.status} for user #${userId}`);
+                    console.error(`[Middleware] Directus returned status ${statusRes.status} for user #${userId}; failing closed.`);
+                    return redirectToLogin(req);
                 }
             } catch (err) {
-                console.error("[Middleware] Account status check failed:", err);
+                console.error("[Middleware] Account status check failed; failing closed:", err);
+                return redirectToLogin(req);
             }
         }
 
         let isAuthorized = true;
         const userRoleId = Number(payload.role_id);
 
-        if (pathLower.startsWith("/vos-sync/freelancer") && userRoleName !== "FREELANCER" && userRoleId !== 1) {
+        if ((pathLower.startsWith("/linkbridge/freelancer") || pathLower.startsWith("/linkbridge/freelancer")) && userRoleName !== "FREELANCER" && userRoleId !== 1) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/vos-admin") && userRoleName !== "ADMIN" && userRoleName !== "ADMINISTRATOR" && userRoleId !== 3) {
+        } else if ((pathLower.startsWith("/linkbridge/admin") || pathLower.startsWith("/linkbridge/admin")) && userRoleName !== "ADMIN" && userRoleName !== "ADMINISTRATOR" && userRoleId !== 3) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/client") && userRoleName !== "CLIENT" && userRoleName !== "EMPLOYER" && userRoleId !== 2) {
+        } else if ((pathLower.startsWith("/linkbridge/client") || pathLower.startsWith("/linkbridge/client")) && userRoleName !== "CLIENT" && userRoleName !== "EMPLOYER" && userRoleId !== 2) {
             isAuthorized = false;
-        } else if (pathLower.startsWith("/vos-sync/school-admin") && userRoleName !== "SCHOOL_ADMIN" && userRoleName !== "SCH_ADMIN" && userRoleName !== "SCHOOL" && userRoleId !== 4) {
+        } else if ((pathLower.startsWith("/linkbridge/school-admin") || pathLower.startsWith("/linkbridge/school-admin")) && userRoleName !== "SCHOOL_ADMIN" && userRoleName !== "SCH_ADMIN" && userRoleName !== "SCHOOL" && userRoleId !== 4) {
             isAuthorized = false;
         }
 
         if (!isAuthorized) {
-            let roleDashboard = "/vos-sync/freelancer/dashboard";
+            let roleDashboard = "/linkbridge/freelancer/dashboard";
             if (userRoleId === 2 || userRoleName === "CLIENT" || userRoleName === "EMPLOYER") {
-                roleDashboard = "/vos-sync/client/dashboard";
+                roleDashboard = "/linkbridge/client/dashboard";
             } else if (userRoleId === 3 || userRoleName === "ADMIN" || userRoleName === "ADMINISTRATOR") {
-                roleDashboard = "/vos-sync/vos-admin";
+                roleDashboard = "/linkbridge/admin";
             } else if (userRoleId === 4 || userRoleName === "SCHOOL_ADMIN" || userRoleName === "SCH_ADMIN" || userRoleName === "SCHOOL") {
-                roleDashboard = "/vos-sync/school-admin";
+                roleDashboard = "/linkbridge/school-admin";
             }
             const url = req.nextUrl.clone();
             url.pathname = roleDashboard;

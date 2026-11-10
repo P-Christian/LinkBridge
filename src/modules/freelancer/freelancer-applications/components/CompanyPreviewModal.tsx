@@ -16,14 +16,18 @@ import {
   Mail,
   Phone,
   Globe,
-  Facebook,
-  Linkedin,
-  Instagram,
-  Youtube,
   Users,
   Briefcase,
   CalendarDays,
 } from "lucide-react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import {
+  faFacebook,
+  faLinkedin,
+  faInstagram,
+  faYoutube,
+  faXTwitter,
+} from "@fortawesome/free-brands-svg-icons";
 import { CompanyProfile } from "../types";
 
 interface CompanyPreviewModalProps {
@@ -261,9 +265,10 @@ export default function CompanyPreviewModal({
                     href={formatUrl(company.company_facebook)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors max-md:size-11 max-md:grid max-md:place-items-center"
+                    title="Facebook"
+                    className="h-8 w-8 rounded-lg bg-[#1877F2]/10 hover:bg-[#1877F2]/20 text-[#1877F2] border border-[#1877F2]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
                   >
-                    <Facebook className="h-4 w-4" />
+                    <FontAwesomeIcon icon={faFacebook} className="h-4 w-4" />
                   </a>
                 )}
                 {company.company_linkedin && (
@@ -271,9 +276,10 @@ export default function CompanyPreviewModal({
                     href={formatUrl(company.company_linkedin)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors max-md:size-11 max-md:grid max-md:place-items-center"
+                    title="LinkedIn"
+                    className="h-8 w-8 rounded-lg bg-[#0A66C2]/10 hover:bg-[#0A66C2]/20 text-[#0A66C2] border border-[#0A66C2]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
                   >
-                    <Linkedin className="h-4 w-4" />
+                    <FontAwesomeIcon icon={faLinkedin} className="h-4 w-4" />
                   </a>
                 )}
                 {company.company_instagram && (
@@ -281,9 +287,21 @@ export default function CompanyPreviewModal({
                     href={formatUrl(company.company_instagram)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors max-md:size-11 max-md:grid max-md:place-items-center"
+                    title="Instagram"
+                    className="h-8 w-8 rounded-lg bg-[#E4405F]/10 hover:bg-[#E4405F]/20 text-[#E4405F] border border-[#E4405F]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
                   >
-                    <Instagram className="h-4 w-4" />
+                    <FontAwesomeIcon icon={faInstagram} className="h-4 w-4" />
+                  </a>
+                )}
+                {company.company_x && (
+                  <a
+                    href={formatUrl(company.company_x)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="X (Twitter)"
+                    className="h-8 w-8 rounded-lg bg-foreground/10 hover:bg-foreground/20 text-foreground border border-foreground/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
+                  >
+                    <FontAwesomeIcon icon={faXTwitter} className="h-3.5 w-3.5" />
                   </a>
                 )}
                 {company.company_youtube && (
@@ -291,9 +309,10 @@ export default function CompanyPreviewModal({
                     href={formatUrl(company.company_youtube)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-2 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded-lg text-zinc-600 dark:text-zinc-400 transition-colors max-md:size-11 max-md:grid max-md:place-items-center"
+                    title="YouTube"
+                    className="h-8 w-8 rounded-lg bg-[#FF0000]/10 hover:bg-[#FF0000]/20 text-[#FF0000] border border-[#FF0000]/20 transition-all hover:scale-105 flex items-center justify-center max-md:size-11"
                   >
-                    <Youtube className="h-4 w-4" />
+                    <FontAwesomeIcon icon={faYoutube} className="h-4 w-4" />
                   </a>
                 )}
               </div>

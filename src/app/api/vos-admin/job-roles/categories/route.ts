@@ -1,7 +1,8 @@
 // src/app/api/vos-admin/job-roles/categories/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { requireAdministrator } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ function getHeaders(): Record<string, string> {
 }
 
 async function authorizeAdmin(req: NextRequest) {
-  const session = await authenticateRequest(req);
+  const session = await requireAdministrator(req);
   if (!session) {
     return {
       authorized: false,
@@ -24,26 +25,28 @@ async function authorizeAdmin(req: NextRequest) {
     };
   }
 
-  const roleName = (session.roleName || "").toUpperCase();
-  if (session.roleId !== 3 && roleName !== "ADMIN") {
-    return {
-      authorized: false,
-      response: NextResponse.json(
-        { error: "Forbidden: Restricted to administrators." },
-        { status: 403 }
-      ),
-    };
-  }
-
   return { authorized: true, session };
+}
+
+function toPositiveId(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
+const CATEGORY_COLUMNS = ["category_code", "category_name", "description", "is_active"] as const;
+
+function pickCategoryColumns(body: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const col of CATEGORY_COLUMNS) {
+    if (body[col] !== undefined) out[col] = body[col];
+  }
+  return out;
 }
 
 export async function GET(req: NextRequest) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
+    const auth = await authorizeAdmin(req);
+    if (!auth.authorized) return auth.response;
 
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category?limit=-1`, {
       headers: getHeaders(),
@@ -53,7 +56,7 @@ export async function GET(req: NextRequest) {
     const json = await res.json();
     return NextResponse.json({ categories: json.data ?? [] });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -62,16 +65,20 @@ export async function POST(req: NextRequest) {
     const auth = await authorizeAdmin(req);
     if (!auth.authorized) return auth.response;
     const body = await req.json();
+    const payload = pickCategoryColumns(body);
+    if (Object.keys(payload).length === 0) {
+      return NextResponse.json({ error: "No writable fields provided." }, { status: 400 });
+    }
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category`, {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error("Failed to create job category.");
     const json = await res.json();
     return NextResponse.json(json.data);
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -81,10 +88,15 @@ export async function PATCH(req: NextRequest) {
     if (!auth.authorized) return auth.response;
 
     const body = await req.json();
-    const { category_id, ...updates } = body;
-    if (!category_id) return NextResponse.json({ error: "Category ID required." }, { status: 400 });
+    const categoryId = toPositiveId(body?.category_id);
+    if (!categoryId) return NextResponse.json({ error: "Category ID required." }, { status: 400 });
 
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category/${category_id}`, {
+    const updates = pickCategoryColumns(body);
+    if (Object.keys(updates).length === 0) {
+      return NextResponse.json({ error: "No updatable fields provided." }, { status: 400 });
+    }
+
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category/${categoryId}`, {
       method: "PATCH",
       headers: getHeaders(),
       body: JSON.stringify(updates),
@@ -93,7 +105,7 @@ export async function PATCH(req: NextRequest) {
     const json = await res.json();
     return NextResponse.json(json.data);
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -103,16 +115,40 @@ export async function DELETE(req: NextRequest) {
     if (!auth.authorized) return auth.response;
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
-    if (!id) return NextResponse.json({ error: "Category ID required." }, { status: 400 });
+    const categoryId = toPositiveId(searchParams.get("id"));
+    if (!categoryId) return NextResponse.json({ error: "Category ID required." }, { status: 400 });
 
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category/${id}`, {
+    // Safeguard dependency checks before hard deletion
+    const [rolesCheckRes, jobsCheckRes] = await Promise.all([
+      fetch(`${DIRECTUS_BASE}/items/vs_role_title?filter[category_id][_eq]=${categoryId}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_job_posting?filter[category_id][_eq]=${categoryId}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+    ]);
+
+    const rolesCount = (await rolesCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const jobsCount = (await jobsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+
+    if (rolesCount > 0 || jobsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete: This category is referenced by ${rolesCount > 0 ? "active standard roles" : "job postings"}. Deactivate (set to Inactive) instead to preserve data integrity.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_category/${categoryId}`, {
       method: "DELETE",
       headers: getHeaders(),
     });
     if (!res.ok) throw new Error("Failed to delete job category.");
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }

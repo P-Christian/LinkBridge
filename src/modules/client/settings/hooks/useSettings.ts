@@ -3,6 +3,8 @@
 // src/modules/client/settings/hooks/useSettings.ts
 
 import { useCallback, useState } from "react";
+import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { UserProfile, SecurityPayload, TeamMember } from "../types";
 import {
   fetchUserProfile,
@@ -20,33 +22,39 @@ export function useSettings() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const [error, setError] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  // Two independent reads, so two independent tokens: one shared controller
+  // would cancel the profile read whenever the team read starts.
+  const abortProfile = useRequestAbort();
+  const abortTeam = useRequestAbort();
 
   const loadProfile = useCallback(async () => {
     setLoading(true);
-    setError("");
+    const signal = abortProfile();
     try {
-      const data = await fetchUserProfile();
+      const data = await fetchUserProfile(signal);
+      if (signal.aborted) return;
       setUser(data);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "An error occurred.");
+      if (signal.aborted) return;
+      toast.error(
+        err instanceof Error ? err.message : "An error occurred."
+      );
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [abortProfile]);
 
   const saveProfile = useCallback(async (data: Partial<UserProfile>) => {
     setSaving(true);
-    setError("");
-    setSuccessMessage("");
     try {
       const updated = await updateUserProfile(data);
       setUser(updated);
-      setSuccessMessage("Profile updated successfully.");
+      toast.success("Profile updated successfully.");
       return true;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to save profile.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save profile."
+      );
       return false;
     } finally {
       setSaving(false);
@@ -55,14 +63,18 @@ export function useSettings() {
 
   const changePassword = useCallback(async (payload: SecurityPayload) => {
     setSaving(true);
-    setError("");
-    setSuccessMessage("");
     try {
       await updateUserPassword(payload);
-      setSuccessMessage("Password changed successfully.");
+      toast.success(
+        payload.revoke_other_sessions
+          ? "Password changed. All other device sessions were signed out."
+          : "Password changed successfully."
+      );
       return true;
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to change password.");
+      toast.error(
+        err instanceof Error ? err.message : "Failed to change password."
+      );
       return false;
     } finally {
       setSaving(false);
@@ -71,16 +83,22 @@ export function useSettings() {
 
   const loadTeam = useCallback(async () => {
     setTeamLoading(true);
-    setError("");
+    // Role changes patch this list locally, so a read that started before one
+    // of them lands must not restore the pre-change roster.
+    const signal = abortTeam();
     try {
-      const members = await fetchTeamMembers();
+      const members = await fetchTeamMembers(signal);
+      if (signal.aborted) return;
       setTeam(members);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load team members.");
+      if (signal.aborted) return;
+      toast.error(
+        err instanceof Error ? err.message : "Failed to load team members."
+      );
     } finally {
-      setTeamLoading(false);
+      if (!signal.aborted) setTeamLoading(false);
     }
-  }, []);
+  }, [abortTeam]);
 
   const modifyTeamRole = useCallback(
     async (
@@ -89,8 +107,6 @@ export function useSettings() {
       status?: "ACTIVE" | "INACTIVE"
     ) => {
       setSaving(true);
-      setError("");
-      setSuccessMessage("");
       try {
         await updateTeamMemberRole(companyUserId, role, status);
         setTeam((prev) =>
@@ -100,10 +116,12 @@ export function useSettings() {
               : m
           )
         );
-        setSuccessMessage("Team member role updated successfully.");
+        toast.success("Team member role updated successfully.");
         return true;
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : "Failed to update team role.");
+        toast.error(
+          err instanceof Error ? err.message : "Failed to update team role."
+        );
         return false;
       } finally {
         setSaving(false);
@@ -120,18 +138,10 @@ export function useSettings() {
     teamLoading,
     saving,
 
-    error,
-    successMessage,
-
     loadProfile,
     saveProfile,
     changePassword,
     loadTeam,
     modifyTeamRole,
-
-    clearMessages: () => {
-      setError("");
-      setSuccessMessage("");
-    },
   };
 }

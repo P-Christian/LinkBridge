@@ -150,14 +150,42 @@ export async function deleteEducationService(id: number, userId: number) {
     await deleteOwnedEducationWithLinks(id, userId);
 }
 
+function validateCertificationIssueDate(rawDate?: string | null): string | null {
+    if (!rawDate) return null;
+    const trimmed = String(rawDate).trim();
+    if (!trimmed) return null;
+
+    // Validate standard YYYY-MM-DD pattern
+    const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) {
+        throw new Error("Invalid issue date format. Expected YYYY-MM-DD.");
+    }
+
+    const year = parseInt(match[1], 10);
+    const todayStr = new Date().toISOString().split("T")[0];
+    const currentYear = new Date().getFullYear();
+
+    if (year < 1900 || year > currentYear) {
+        throw new Error(`Issue year must be between 1900 and ${currentYear}.`);
+    }
+
+    if (trimmed > todayStr) {
+        throw new Error("Issue date cannot be in the future.");
+    }
+
+    return trimmed;
+}
+
 export async function addCertificationService(userId: number, payload: any) {
     const { addCertificationToDirectus } = await import("./freelancer-profile.repo");
+
+    const validatedDate = validateCertificationIssueDate(payload.issue_date);
 
     const data = {
         user_id: userId,
         certificate_name: payload.certificate_name,
         issuing_organization: payload.issuing_organization,
-        issue_date: payload.issue_date || null,
+        issue_date: validatedDate,
         credential_url: payload.credential_url || null,
         image_uuid: payload.image_uuid || null,
     };
@@ -168,10 +196,12 @@ export async function addCertificationService(userId: number, payload: any) {
 export async function updateCertificationService(id: number, userId: number, payload: any) {
     const { updateCertificationInDirectus } = await import("./freelancer-profile.repo");
 
+    const validatedDate = validateCertificationIssueDate(payload.issue_date);
+
     const data = {
         certificate_name: payload.certificate_name,
         issuing_organization: payload.issuing_organization,
-        issue_date: payload.issue_date || null,
+        issue_date: validatedDate,
         credential_url: payload.credential_url || null,
         image_uuid: payload.image_uuid || null,
     };
@@ -193,6 +223,7 @@ export async function updatePersonalInfoService(userId: number, payload: any) {
         user_lname: payload.user_lname,
         suffix_name: payload.suffix_name,
         nickname: payload.nickname,
+        user_position: payload.user_position !== undefined ? (String(payload.user_position).trim() || null) : undefined,
         user_contact: payload.user_contact,
         user_bday: payload.user_bday ? formatToPHDate(payload.user_bday) : null,
         gender: payload.gender,
@@ -219,6 +250,20 @@ export async function updatePersonalInfoService(userId: number, payload: any) {
 export async function saveJobPreferencesService(userId: number, payload: any) {
     const { upsertJobPreferencesInDirectus } = await import("./freelancer-profile.repo");
 
+    // Format current timestamp in PH local time (Asia/Manila, UTC+8) formatted as YYYY-MM-DD HH:mm:ss for MySQL timestamp
+    const now = new Date();
+    const dtf = new Intl.DateTimeFormat("sv-SE", {
+        timeZone: "Asia/Manila",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+    });
+    const phTimestamp = dtf.format(now);
+
     const data = {
         job_type: payload.job_type,
         work_setup: payload.work_setup,
@@ -228,6 +273,7 @@ export async function saveJobPreferencesService(userId: number, payload: any) {
         currency: payload.currency,
         availability: payload.availability,
         preferred_industry: payload.preferred_industry,
+        updated_at: phTimestamp,
     };
 
     return await upsertJobPreferencesInDirectus(userId, data);

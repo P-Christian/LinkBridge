@@ -65,7 +65,7 @@ export interface PublicFreelancerProfile {
   user_id: number;
   user_fname: string;
   user_lname: string;
-  user_email: string;
+  user_email?: string;
   avatar_url?: string;
   headline?: string;
   bio?: string;
@@ -82,7 +82,7 @@ export interface PublicClientProfile {
   user_id: number;
   user_fname: string;
   user_lname: string;
-  user_email: string;
+  user_email?: string;
   avatar_url?: string;
   headline: string;
   company?: {
@@ -125,7 +125,7 @@ export interface PublicSchoolAdminProfile {
   user_id: number;
   user_fname: string;
   user_lname: string;
-  user_email: string;
+  user_email?: string;
   avatar_url?: string;
   headline: string;
   school_id?: number;
@@ -149,7 +149,20 @@ export interface PublicSchoolAdminProfile {
   };
 }
 
-export async function getPublicFreelancerProfile(id: number, callerRole: number = 0): Promise<PublicFreelancerProfile | null> {
+/**
+ * These pages are reachable without a session and by integer id, so a personal
+ * contact address is only ever returned to the owner's own session. Organisational
+ * contacts (company/school published email) are unaffected.
+ */
+function isSelf(callerUserId: number | undefined, id: number): boolean {
+  return Number(callerUserId) === Number(id);
+}
+
+export async function getPublicFreelancerProfile(
+  id: number,
+  callerRole: number = 0,
+  callerUserId?: number
+): Promise<PublicFreelancerProfile | null> {
   try {
     const url = new URL(`${DIRECTUS_BASE}/items/vs_user/${id}`);
     url.searchParams.append(
@@ -179,7 +192,7 @@ export async function getPublicFreelancerProfile(id: number, callerRole: number 
         user_id: user.user_id,
         user_fname: user.user_fname,
         user_lname: user.user_lname,
-        user_email: user.user_email,
+        user_email: isSelf(callerUserId, id) ? user.user_email : undefined,
         avatar_url: user.user_image || undefined,
         headline: "Client",
       };
@@ -346,7 +359,7 @@ export async function getPublicFreelancerProfile(id: number, callerRole: number 
       user_id: user.user_id,
       user_fname: user.user_fname,
       user_lname: user.user_lname,
-      user_email: user.user_email, // Depending on privacy rules, email might be hidden, but we include it for MVP
+      user_email: isSelf(callerUserId, id) ? user.user_email : undefined,
       avatar_url: user.profile_image_url ? (formatAssetUrl(user.profile_image_url) ?? undefined) : undefined,
       headline: user.user_position || publicProfile.professional_headline || "Freelancer",
       bio: publicProfile.professional_summary || publicProfile.about_me || "",
@@ -364,7 +377,10 @@ export async function getPublicFreelancerProfile(id: number, callerRole: number 
   }
 }
 
-export async function getPublicClientProfile(id: number): Promise<PublicClientProfile | null> {
+export async function getPublicClientProfile(
+  id: number,
+  callerUserId?: number
+): Promise<PublicClientProfile | null> {
   try {
     const url = new URL(`${DIRECTUS_BASE}/items/vs_user/${id}`);
     url.searchParams.append("fields", "user_id,user_fname,user_lname,user_email,role_id,profile_image_url");
@@ -467,7 +483,7 @@ export async function getPublicClientProfile(id: number): Promise<PublicClientPr
       user_id: user.user_id,
       user_fname: user.user_fname,
       user_lname: user.user_lname,
-      user_email: user.user_email,
+      user_email: isSelf(callerUserId, id) ? user.user_email : undefined,
       avatar_url: user.profile_image_url ? (formatAssetUrl(user.profile_image_url) ?? undefined) : undefined,
       headline: "Client",
       company: companyDetails,
@@ -478,7 +494,10 @@ export async function getPublicClientProfile(id: number): Promise<PublicClientPr
   }
 }
 
-export async function getPublicSchoolAdminProfile(id: number): Promise<PublicSchoolAdminProfile | null> {
+export async function getPublicSchoolAdminProfile(
+  id: number,
+  callerUserId?: number
+): Promise<PublicSchoolAdminProfile | null> {
   try {
     let user: any = null;
     try {
@@ -713,7 +732,9 @@ export async function getPublicSchoolAdminProfile(id: number): Promise<PublicSch
       user_id: user?.user_id || id,
       user_fname: user?.user_fname || "",
       user_lname: user?.user_lname || "",
-      user_email: school_email || user?.user_email || "",
+      // school_email is the institution's published contact; the admin's own
+      // address is only returned to their own session.
+      user_email: school_email || (isSelf(callerUserId, id) ? user?.user_email : undefined),
       avatar_url: school_logo_url
         ? school_logo_url
         : (user?.profile_image_url ? (formatAssetUrl(user.profile_image_url) ?? undefined) : undefined),

@@ -68,3 +68,5 @@ profile.md
 .vos-ai-config.json
 /src/components/temp-ui
 implementation_plan.md
+*.md
+scripts/decode-messaging-protobuf.mjs

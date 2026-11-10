@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,15 +21,15 @@ function getHeaders(): Record<string, string> {
 export async function GET(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     // Fetch bookmarks for this user
     const bkRes = await fetch(
@@ -93,11 +94,44 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Check for active referral claims for these bookmarked jobs
+    const referralMap: Record<number, { is_referred: boolean; referrer_name: string | null; school_name: string | null; referral_expires_at: string | null }> = {};
+    if (jobIds.length > 0) {
+      try {
+        const claimsRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_job_referral_claim?filter[candidate_user_id][_eq]=${userId}&filter[job_id][_in]=${jobIds.join(",")}&filter[claim_status][_eq]=ACTIVE&fields=job_id,referral_id.expires_at,referral_id.referrer_user_id.user_fname,referral_id.referrer_user_id.user_lname,referral_id.referrer_user_id.user_id&limit=100`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        if (claimsRes.ok) {
+          const claimsJson = await claimsRes.json();
+          const claims = claimsJson.data || [];
+          for (const c of claims) {
+            const jId = Number(c.job_id);
+            const refUser = c.referral_id?.referrer_user_id;
+            const expAt = c.referral_id?.expires_at || null;
+            let refName = "A friend";
+            if (refUser) {
+              refName = `${refUser.user_fname ?? ""} ${refUser.user_lname ?? ""}`.trim() || refName;
+            }
+            referralMap[jId] = {
+              is_referred: true,
+              referrer_name: refName,
+              school_name: null,
+              referral_expires_at: expAt,
+            };
+          }
+        }
+      } catch (err) {
+        console.error("Error checking referral claims for bookmarks:", err);
+      }
+    }
+
     // Merge all data
     const enriched = bookmarks.map((bk) => {
       const job = jobsMap[bk.job_id as number] ?? {};
       const companyId = job.company_id as number;
       const company = companyId ? companyMap[companyId] : null;
+      const refInfo = referralMap[bk.job_id as number];
       return {
         ...bk,
         job_title: job.job_title ?? null,
@@ -110,6 +144,10 @@ export async function GET(req: NextRequest) {
         salary_negotiable: job.salary_negotiable ?? false,
         company_name: company?.name ?? null,
         company_logo: company?.logo ?? null,
+        is_referred: refInfo?.is_referred ?? false,
+        referrer_name: refInfo?.referrer_name ?? null,
+        school_name: refInfo?.school_name ?? null,
+        referral_expires_at: refInfo?.referral_expires_at ?? null,
       };
     });
 
@@ -117,7 +155,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/bookmarks error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -127,15 +165,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => null);
     if (!body?.job_id) {
@@ -185,7 +223,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error("POST /api/freelancer/bookmarks error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -195,15 +233,15 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isFreelancerSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isFreelancerSession(session)) {
       return NextResponse.json({ error: "Forbidden: freelancer role required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => null);
     if (!body?.job_id) {
@@ -251,7 +289,7 @@ export async function DELETE(req: NextRequest) {
   } catch (err: unknown) {
     console.error("DELETE /api/freelancer/bookmarks error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

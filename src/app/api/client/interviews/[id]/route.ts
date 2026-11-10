@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sendHiringEmail, sendRejectionEmail, isEmailEnabledForUser } from "@/lib/mail";
 import { createSystemMessage } from "@/lib/messaging/system-message";
-import { getPHTimeString } from "@/lib/utils";
+import { getPHTimeString, toPHWallClock } from "@/lib/utils";
 import { transitionApplicationStage } from "@/modules/client/pipeline/services/job-pipeline.service";
 import {
   authenticateRequest,
@@ -9,6 +9,7 @@ import {
   isClientSession,
 } from "@/lib/authenticated-session";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -24,17 +25,30 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+/**
+ * A session that has already been called off, attended, missed or finished is a
+ * done fact: the status field used to take any value the browser sent, so a
+ * COMPLETED interview could be cancelled (telling a candidate who sat the
+ * interview that it was called off) or a CANCELLED one silently re-opened.
+ */
+const CLOSED_INTERVIEW_STATUSES = new Set([
+  "CANCELLED",
+  "COMPLETED",
+  "NO_SHOW",
+  "CONCLUDED",
+  "ENDED",
+]);
+
 async function getCompanyId(userId: number): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const json = await res.json();
-    return json.data?.[0]?.company_id ?? null;
-  } catch {
-    return null;
-  }
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  // An unreadable link is not "no link": falling through to the null branch
+  // answered 403/404 and a recruiter read that as having no company at all.
+  if (!res.ok) throw new Error(`Company link lookup failed (${res.status}).`);
+  const json = await res.json();
+  return json.data?.[0]?.company_id ?? null;
 }
 
 export function formatInterviewDateTime(dateTimeStr: string): string {
@@ -108,11 +122,19 @@ export async function PATCH(
 
       // Check current interview existence and verify company ownership
       const currIvRes = await fetch(
-        `${DIRECTUS_BASE}/items/vs_interview/${interviewId}?fields=company_id,duration_minutes`,
+        `${DIRECTUS_BASE}/items/vs_interview/${interviewId}?fields=company_id,duration_minutes,interview_status`,
         { headers: getHeaders(), cache: "no-store" }
       );
       if (!currIvRes.ok) {
-        return NextResponse.json({ error: "Interview not found." }, { status: 404 });
+        return NextResponse.json(
+          {
+            error:
+              currIvRes.status === 404
+                ? "Interview not found."
+                : "The interview could not be read.",
+          },
+          { status: currIvRes.status === 404 ? 404 : 502 }
+        );
       }
       const currIv = (await currIvRes.json()).data;
       if (!currIv) {
@@ -126,6 +148,21 @@ export async function PATCH(
         );
       }
 
+      const closingStatus = payload?.interview_status
+        ? String(payload.interview_status).toUpperCase()
+        : null;
+      const wasClosed = CLOSED_INTERVIEW_STATUSES.has(
+        String(currIv.interview_status ?? "").toUpperCase()
+      );
+      if (closingStatus && wasClosed && closingStatus !== String(currIv.interview_status).toUpperCase()) {
+        return NextResponse.json(
+          {
+            error: `This interview is already ${currIv.interview_status} and cannot be moved to ${closingStatus}.`,
+          },
+          { status: 409 }
+        );
+      }
+
       const updateData: Record<string, unknown> = {
         updated_by_user_id: userId,
         updated_at: nowPH,
@@ -135,49 +172,64 @@ export async function PATCH(
       if (payload?.scheduled_at) updateData.scheduled_at = payload.scheduled_at;
       if (payload?.duration_minutes) updateData.duration_minutes = payload.duration_minutes;
       if (payload?.timezone) updateData.timezone = payload.timezone;
-      if (payload?.interview_format) updateData.interview_format = payload.interview_format;
-      if (payload?.meeting_link !== undefined) updateData.meeting_link = payload.meeting_link;
+      if (payload?.meeting_link !== undefined) {
+        const raw = payload.meeting_link ? String(payload.meeting_link).trim() : null;
+        updateData.meeting_link = raw ? (/^https?:\/\//i.test(raw) ? raw : `https://${raw}`) : null;
+      }
       if (payload?.meeting_location !== undefined) updateData.meeting_location = payload.meeting_location;
       if (payload?.interview_notes !== undefined) updateData.interview_notes = payload.interview_notes;
       if (payload?.cancel_reason !== undefined) updateData.cancel_reason = payload.cancel_reason;
 
-      if (payload?.scheduled_at) {
-        const targetCompanyId = currIv?.company_id;
+      if (payload?.scheduled_at && currIv?.company_id) {
+        const targetCompanyId = currIv.company_id;
 
-        if (targetCompanyId) {
-          const newStart = new Date(payload.scheduled_at.replace(" ", "T")).getTime();
-          if (!isNaN(newStart)) {
-            const durMinutes = Number(payload.duration_minutes || currIv?.duration_minutes) || 60;
-            const durationMs = durMinutes * 60 * 1000;
-            const includeBuffer = payload.include_buffer !== false;
-            const bufferMs = includeBuffer ? 15 * 60 * 1000 : 0;
+        const newStart = new Date(payload.scheduled_at.replace(" ", "T")).getTime();
+        if (isNaN(newStart)) {
+          // An unreadable time also skips the conflict check below entirely.
+          return NextResponse.json({ error: "Invalid scheduled date." }, { status: 400 });
+        }
 
-            const overlapRes = await fetch(
-              `${DIRECTUS_BASE}/items/vs_interview?filter[company_id][_eq]=${targetCompanyId}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&filter[interview_id][_neq]=${interviewId}&fields=interview_id,scheduled_at,duration_minutes&limit=100`,
-              { headers: getHeaders(), cache: "no-store" }
+        const durMinutes = Number(payload.duration_minutes || currIv?.duration_minutes) || 60;
+        const durationMs = durMinutes * 60 * 1000;
+        const includeBuffer = payload.include_buffer !== false;
+        const bufferMs = includeBuffer ? 15 * 60 * 1000 : 0;
+        const newEnd = newStart + durationMs;
+
+        const windowFrom = toPHWallClock(newStart - 24 * 60 * 60 * 1000);
+        const windowTo = toPHWallClock(newEnd + 24 * 60 * 60 * 1000);
+        const windowFilter =
+          windowFrom && windowTo
+            ? `&filter[scheduled_at][_between]=${encodeURIComponent(windowFrom)},${encodeURIComponent(windowTo)}`
+            : "";
+
+        const overlapRes = await fetch(
+          `${DIRECTUS_BASE}/items/vs_interview?filter[company_id][_eq]=${targetCompanyId}&filter[interview_status][_in]=SCHEDULED,CONFIRMED,RESCHEDULED&filter[interview_id][_neq]=${interviewId}${windowFilter}&fields=interview_id,scheduled_at,duration_minutes&limit=-1`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+
+        if (!overlapRes.ok) {
+          return NextResponse.json(
+            { error: "The company schedule could not be checked. Nothing was changed." },
+            { status: 502 }
+          );
+        }
+
+        const existingActive = (await overlapRes.json()).data ?? [];
+        for (const existing of existingActive) {
+          const exStart = new Date(existing.scheduled_at.replace(" ", "T")).getTime();
+          if (isNaN(exStart)) continue;
+          const exEnd = exStart + (existing.duration_minutes || 60) * 60 * 1000;
+
+          const isDirectOverlap = (newStart >= exStart && newStart < exEnd) || (newStart < exStart && newEnd > exStart);
+          const isBufferOverlap = bufferMs > 0 && (newStart >= exEnd && newStart < (exEnd + bufferMs));
+
+          if (isDirectOverlap || isBufferOverlap) {
+            return NextResponse.json(
+              {
+                error: `Schedule Conflict: An active interview is already scheduled for this company at ${formatInterviewDateTime(existing.scheduled_at)}${includeBuffer ? " (including 15m buffer)" : ""}.`,
+              },
+              { status: 409 }
             );
-
-            if (overlapRes.ok) {
-              const existingActive = (await overlapRes.json()).data ?? [];
-              const newEnd = newStart + durationMs;
-              for (const existing of existingActive) {
-                const exStart = new Date(existing.scheduled_at.replace(" ", "T")).getTime();
-                if (isNaN(exStart)) continue;
-                const exEnd = exStart + (existing.duration_minutes || 60) * 60 * 1000;
-
-                const isDirectOverlap = (newStart >= exStart && newStart < exEnd) || (newStart < exStart && newEnd > exStart);
-                const isBufferOverlap = bufferMs > 0 && (newStart >= exEnd && newStart < (exEnd + bufferMs));
-
-                if (isDirectOverlap || isBufferOverlap) {
-                  return NextResponse.json(
-                    {
-                      error: `Schedule Conflict: An active interview is already scheduled for this company at ${formatInterviewDateTime(existing.scheduled_at)}${includeBuffer ? " (including 15m buffer)" : ""}.`,
-                    },
-                    { status: 409 }
-                  );
-                }
-              }
-            }
           }
         }
       }
@@ -210,6 +262,11 @@ export async function PATCH(
       const attendanceStatus = payload?.attendance_status || "ATTENDED";
       const toStageId = payload?.to_stage_id ? Number(payload.to_stage_id) : null;
       const decision = payload?.decision; // fallback: "HIRED", "REJECTED", "NO_ACTION"
+      // The feedback row commits first; everything after it (stage move, legacy
+      // status, interview completion) is a separate write that can fail on its
+      // own. Each one reports into this list instead of the route claiming a
+      // clean success.
+      const warnings: string[] = [];
 
       // 1. Fetch junction row first to verify existence and check ownership
       const fetchJunctionRes = await fetch(
@@ -218,9 +275,15 @@ export async function PATCH(
       );
 
       if (!fetchJunctionRes.ok) {
+        // An outage is not "this row was deleted".
         return NextResponse.json(
-          { error: "Interview application record not found." },
-          { status: 404 }
+          {
+            error:
+              fetchJunctionRes.status === 404
+                ? "Interview application record not found."
+                : "The interview record could not be read.",
+          },
+          { status: fetchJunctionRes.status === 404 ? 404 : 502 }
         );
       }
 
@@ -241,7 +304,15 @@ export async function PATCH(
           { headers: getHeaders(), cache: "no-store" }
         );
         if (!parentIvRes.ok) {
-          return NextResponse.json({ error: "Parent interview not found." }, { status: 404 });
+          return NextResponse.json(
+            {
+              error:
+                parentIvRes.status === 404
+                  ? "Parent interview not found."
+                  : "The parent interview could not be read.",
+            },
+            { status: parentIvRes.status === 404 ? 404 : 502 }
+          );
         }
         const parentIv = (await parentIvRes.json()).data;
         if (Number(parentIv?.company_id) !== Number(callerCompanyId)) {
@@ -275,6 +346,8 @@ export async function PATCH(
         );
       }
 
+      let decisionWriteFailed = false;
+
       if (jaData?.application_id) {
         // If a valid ATS pipeline stage is selected, transition the candidate via canonical engine
         if (toStageId && !isNaN(toStageId)) {
@@ -287,13 +360,18 @@ export async function PATCH(
           });
           if (!moveResult.success) {
             console.error("transitionApplicationStage error in evaluation:", moveResult.error);
+            warnings.push(
+              `The feedback was saved, but the candidate was not moved to the selected stage${
+                moveResult.error ? `: ${moveResult.error}` : "."
+              }`
+            );
           }
         } else if (decision === "HIRED" || decision === "REJECTED") {
           // Fallback legacy status transition
           const targetStatus = decision;
 
-          await fetch(
-            `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}?fields=application_id,application_status,client_notes`,
+          const statusRes = await fetch(
+            `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}`,
             {
               method: "PATCH",
               headers: getHeaders(),
@@ -303,10 +381,18 @@ export async function PATCH(
               }),
             }
           );
+          if (!statusRes.ok) {
+            const text = await statusRes.text().catch(() => "");
+            console.error("Directus patch application status error:", text);
+            decisionWriteFailed = true;
+            warnings.push(
+              `The feedback was saved, but the application was not marked ${targetStatus}.`
+            );
+          }
           } else if (feedbackText) {
             // NO_ACTION: only update feedback notes, not the status
-            await fetch(
-              `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}?fields=application_id,client_notes`,
+            const notesRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}`,
               {
                 method: "PATCH",
                 headers: getHeaders(),
@@ -315,12 +401,15 @@ export async function PATCH(
                 }),
               }
             );
+            if (!notesRes.ok) {
+              warnings.push("The feedback was saved, but the application notes were not updated.");
+            }
           }
 
           // Check if all candidates for the interview have been evaluated, update vs_interview status to COMPLETED
           if (jaData.interview_id) {
             const allCandidatesRes = await fetch(
-              `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${jaData.interview_id}&fields=attendance_status`,
+              `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_eq]=${jaData.interview_id}&fields=attendance_status&limit=-1`,
               { headers: getHeaders(), cache: "no-store" }
             );
 
@@ -330,15 +419,23 @@ export async function PATCH(
                 (c: { attendance_status: string }) => c.attendance_status !== "PENDING"
               );
               if (allEvaluated) {
-                await fetch(`${DIRECTUS_BASE}/items/vs_interview/${jaData.interview_id}`, {
-                  method: "PATCH",
-                  headers: getHeaders(),
-                  body: JSON.stringify({
-                    interview_status: "COMPLETED",
-                    updated_by_user_id: userId,
-                    updated_at: nowPH,
-                  }),
-                });
+                const completeRes = await fetch(
+                  `${DIRECTUS_BASE}/items/vs_interview/${jaData.interview_id}`,
+                  {
+                    method: "PATCH",
+                    headers: getHeaders(),
+                    body: JSON.stringify({
+                      interview_status: "COMPLETED",
+                      updated_by_user_id: userId,
+                      updated_at: nowPH,
+                    }),
+                  }
+                );
+                if (!completeRes.ok) {
+                  warnings.push(
+                    "Every candidate is evaluated, but the interview session was not marked completed."
+                  );
+                }
               }
             }
           }
@@ -383,12 +480,19 @@ export async function PATCH(
                     }
 
                     const candidateName = `${candidate.user_fname} ${candidate.user_lname}`.trim();
-                    const statusEmailEnabled = await isEmailEnabledForUser(
+                    const statusEmailPreference = await isEmailEnabledForUser(
                       applicationObj.user_id,
                       "APPLICATION_STATUS_UPDATED"
                     );
 
-                    if (statusEmailEnabled) {
+                    // A hiring or rejection mail must not go out over an
+                    // application row that still says INTERVIEWING.
+                    if (statusEmailPreference === null) {
+                      warnings.push(
+                        "The candidate's email settings could not be read, so no decision email was sent."
+                      );
+                    }
+                    if (statusEmailPreference === true && !decisionWriteFailed) {
                       if (decision === "HIRED") {
                         await sendHiringEmail(candidate.user_email, {
                           candidateName,
@@ -407,7 +511,10 @@ export async function PATCH(
                     }
 
                     // Create System Message in conversation for HIRED / REJECTED
-                    if (decision === "HIRED" || decision === "REJECTED") {
+                    if (
+                      !decisionWriteFailed &&
+                      (decision === "HIRED" || decision === "REJECTED")
+                    ) {
                       const systemText =
                         decision === "HIRED"
                           ? "Client hired you."
@@ -438,14 +545,19 @@ export async function PATCH(
           }
         }
 
-      return NextResponse.json({ success: true });
+      // The evaluation itself is committed; report what else did not land
+      // instead of either failing the request or claiming a clean save.
+      return NextResponse.json({
+        success: true,
+        ...(warnings.length > 0 ? { warnings } : {}),
+      });
     }
 
     return NextResponse.json({ error: "Invalid action type." }, { status: 400 });
   } catch (err: unknown) {
     console.error("PATCH /api/client/interviews/[id] error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   Applicant,
   ApplicantFilterStatus,
@@ -9,6 +11,12 @@ import {
   CandidateDetail,
 } from "../types";
 import { JobPipelineVersion } from "@/modules/client/pipeline/types";
+import {
+  ApplicantFiltersState,
+  EMPTY_APPLICANT_FILTERS,
+  matchesAdvancedFilters,
+  matchesStageFilter,
+} from "../utils/applicantFilters";
 
 export interface UpdateStatusResult {
   ok: boolean;
@@ -23,6 +31,7 @@ export interface UpdateStatusResult {
 export function useApplicants() {
   const [applicants, setApplicants] = useState<Applicant[]>([]);
   const [jobPipeline, setJobPipeline] = useState<JobPipelineVersion | null>(null);
+  const [fetchedAt, setFetchedAt] = useState(0);
 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -32,6 +41,10 @@ export function useApplicants() {
   const [filterStatus, setFilterStatus] = useState<ApplicantFilterStatus>("ACTIVE_PIPELINE");
 
   const [search, setSearch] = useState("");
+
+  const [filters, setFilters] = useState<ApplicantFiltersState>(
+    EMPTY_APPLICANT_FILTERS
+  );
 
   const [detail, setDetail] =
     useState<CandidateDetail | null>(null);
@@ -46,6 +59,11 @@ export function useApplicants() {
   // Fetch applicant list
   // --------------------------------
 
+  const abortRead = useRequestAbort();
+  // Separate controller: the list read and a candidate-detail read must not
+  // cancel each other.
+  const abortDetail = useRequestAbort();
+
   const fetchApplicants = useCallback(
     async (
       status?: ApplicantFilterStatus,
@@ -54,6 +72,7 @@ export function useApplicants() {
       setLoading(true);
       setError("");
 
+      const signal = abortRead();
       try {
         const params = new URLSearchParams();
 
@@ -70,7 +89,8 @@ export function useApplicants() {
         const res = await fetch(
           `/api/client/applicants${
             query ? `?${query}` : ""
-          }`
+          }`,
+          { signal }
         );
 
         const json = await res.json();
@@ -84,17 +104,21 @@ export function useApplicants() {
 
         setApplicants(json.applicants ?? []);
         setJobPipeline(json.pipeline ?? null);
+        // Anchor for the "date applied" windows; refreshed with every fetch so
+        // the filter is pure during render and still tracks the server clock.
+        setFetchedAt(Date.now());
       } catch (err: unknown) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An error occurred."
-        );
+        if (signal.aborted) return;
+        const msg = err instanceof Error ? err.message : "Failed to load applicants.";
+        setError(msg);
+        toast.error(msg);
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     },
-    []
+    [abortRead]
   );
 
   // --------------------------------
@@ -195,11 +219,9 @@ export function useApplicants() {
         return { ok: true, moved: true };
       } catch (err: unknown) {
         setApplicants(rollbackList);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An error occurred."
-        );
+        const msg = err instanceof Error ? err.message : "Failed to update stage.";
+        setError(msg);
+        toast.error(msg);
         return { ok: false, moved: false };
       } finally {
         setSaving(false);
@@ -282,14 +304,16 @@ export function useApplicants() {
           );
         }
 
+        (Array.isArray(json.warnings) ? (json.warnings as string[]) : []).forEach((w) =>
+          toast.warning(w)
+        );
+
         return { ok: true, gated: false };
       } catch (err: unknown) {
         setApplicants(rollbackList);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "An error occurred."
-        );
+        const msg = err instanceof Error ? err.message : "Failed to update status.";
+        setError(msg);
+        toast.error(msg);
 
         return { ok: false, gated: false };
       } finally {
@@ -311,13 +335,18 @@ export function useApplicants() {
         setDetailLoading(true);
         setDetailError("");
 
+        const signal = abortDetail();
+
         try {
           const res = await fetch(
-            `/api/client/applicants/${applicationId}`
+            `/api/client/applicants/${applicationId}`,
+            { signal }
           );
 
           const json =
             await res.json();
+
+          if (signal.aborted) return;
 
           if (!res.ok) {
             throw new Error(
@@ -339,6 +368,7 @@ export function useApplicants() {
             setDetail(null);
           }
         } catch (err: unknown) {
+          if (signal.aborted) return;
           setDetailError(
             err instanceof Error
               ? err.message
@@ -347,10 +377,12 @@ export function useApplicants() {
 
           setDetail(null);
         } finally {
-          setDetailLoading(false);
+          if (!signal.aborted) {
+            setDetailLoading(false);
+          }
         }
       },
-      []
+      [abortDetail]
     );
 
   // --------------------------------
@@ -358,10 +390,13 @@ export function useApplicants() {
   // --------------------------------
 
   const clearDetail = useCallback(() => {
+    // Cancel any read still in flight, otherwise it repopulates the detail the
+    // user just closed.
+    abortDetail();
     setDetail(null);
     setDetailError("");
     setDetailLoading(false);
-  }, []);
+  }, [abortDetail]);
 
   // --------------------------------
   // Search + filters
@@ -372,39 +407,14 @@ export function useApplicants() {
       .trim()
       .toLowerCase();
 
+    const now = fetchedAt;
+
     return applicants.filter((applicant) => {
-      let matchesStatus = false;
-
-      const stageType = applicant.stage_type;
-      const isTerminal =
-        stageType === "HIRED" ||
-        stageType === "REJECTED" ||
-        stageType === "WITHDRAWN" ||
-        (!stageType && (applicant.application_status === "HIRED" || applicant.application_status === "REJECTED" || applicant.application_status === "WITHDRAWN"));
-
-      if (filterStatus === "ALL") {
-        matchesStatus = true;
-      } else if (filterStatus === "ACTIVE_PIPELINE") {
-        matchesStatus = !isTerminal;
-      } else if (filterStatus.startsWith("STAGE_")) {
-        const stageId = parseInt(filterStatus.replace("STAGE_", ""), 10);
-        matchesStatus =
-          applicant.current_stage_id === stageId ||
-          Boolean(
-            applicant.stage_name &&
-              jobPipeline?.stages?.find((s) => s.id === stageId)?.stage_name ===
-                applicant.stage_name
-          );
-      } else {
-        matchesStatus =
-          applicant.stage_type === filterStatus ||
-          applicant.application_status === filterStatus ||
-          (filterStatus === "SCREENING" && applicant.application_status === "UNDER_REVIEW") ||
-          (filterStatus === "OFFER" && applicant.application_status === "SHORTLISTED") ||
-          (filterStatus === "INTERVIEW" && applicant.application_status === "INTERVIEWING");
+      if (!matchesStageFilter(applicant, filterStatus, jobPipeline)) {
+        return false;
       }
 
-      if (!matchesStatus) {
+      if (!matchesAdvancedFilters(applicant, filters, now)) {
         return false;
       }
 
@@ -422,7 +432,7 @@ export function useApplicants() {
         skillsText.includes(query)
       );
     });
-  }, [applicants, filterStatus, jobPipeline, search]);
+  }, [applicants, filterStatus, filters, jobPipeline, search, fetchedAt]);
 
   return {
     applicants: filteredApplicants,
@@ -441,6 +451,9 @@ export function useApplicants() {
 
     search,
     setSearch,
+
+    filters,
+    setFilters,
 
     fetchApplicants,
     updateStatus,

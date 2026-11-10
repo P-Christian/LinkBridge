@@ -18,11 +18,12 @@ const COMPANY_STATUS_OPTIONS = [
   { value: "ALL", label: "All Statuses" },
   { value: "PENDING_VERIFICATION", label: "Pending Verification" },
   { value: "IN_REVIEW", label: "Pending: Under Review" },
-  { value: "CORRECTION_REQUIRED", label: "Pending: Correction Required" },
+  { value: "NEEDS_REVISION", label: "Needs Revision" },
   { value: "VERIFIED", label: "Verified" },
+  { value: "REJECTED_OR_SUSPENDED", label: "Rejected / Suspended" },
   { value: "REJECTED", label: "Rejected" },
   { value: "SUSPENDED", label: "Suspended" },
-  { value: "DRAFT", label: "Draft" },
+  { value: "DRAFT", label: "Draft / Incomplete" },
 ];
 
 export const CompanyVerificationFilters: React.FC<CompanyVerificationFiltersProps> = ({

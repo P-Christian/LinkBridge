@@ -16,7 +16,7 @@ import {
   Sparkles,
   Award,
 } from 'lucide-react';
-import { stripHtmlTags } from '../services/job-referrals.helpers';
+import { stripHtmlTags } from '../utils/formatting';
 
 interface StudentCandidatePickerProps {
   job: VsJobPosting;

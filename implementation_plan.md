@@ -1,143 +1,141 @@
-# Implementation Plan: Google Sign-In Integration with Security & Vulnerability Controls
+# Implementation Plan: Dedicated Session Registry (`vs_user_sessions`) & Active Device Management
 
 ## 1. Executive Summary & Core Objective
 
-Integrate Google Sign-In into the VoSync login and signup forms with strict database verification (`vs_user`), resilient OAuth 2.0 / OIDC security controls, and an extensible architecture for future social providers (Facebook, Apple, LinkedIn).
+Transition VoSync from a single shared user-level `session_epoch` timestamp to an enterprise-grade, multi-session architecture using a dedicated Directus collection (`vs_user_sessions`). 
+
+This architecture guarantees:
+1. **Multi-profile & Multi-device Isolation**: Each browser profile, physical device, and deployment (Local `msi-lo.tail054015.ts.net` vs Ubuntu `ubuntuserver1.tail054015.ts.net`) maintains an independent session lifecycle.
+2. **Granular Session Revocation**: Logging out in one profile/device only invalidates that specific session.
+3. **Active Device Sessions Management**: Live UI in Settings displaying real authenticated sessions with individual revocation and "Log out all other devices" controls.
+4. **Password Change Choice B Flow**: Dialog during password update allowing users to revoke all other sessions while staying signed in on their current device.
 
 ---
 
-## 2. Configuration & Environment
+## 2. Database Schema: `vs_user_sessions`
 
-The implementation relies strictly on server-side environment variables:
-- `GOOGLE_CLIENT`: Google OAuth 2.0 Web Client ID.
-- `GOOGLE_SECRET`: Google OAuth 2.0 Client Secret (server-side only, never leaked to client bundles).
-- `JWT_SECRET`: Secret key used for signing/encrypting VoSync session tokens (`vos_sync_access_token`) and OAuth/registration transactions.
-- `GOOGLE_REDIRECT_URI` (optional): Explicit canonical redirect URI override.
+A new collection in Directus (`vs_user_sessions`) linked to `vs_user`:
 
-> **Constraint**: Per project safety rules, `.env.local` is never modified by the agent.
-
----
-
-## 3. Strict Callback Configuration & Host Matching
-
-To prevent host-header attacks or redirect mismatches:
-1. **Single Canonical Callback Path**: `/api/auth/google/callback` is the only supported callback path. The `/auth/google` alternative is removed to keep the contract canonical and deterministic.
-2. **Exact Allowlist Resolution**:
-   - `https://desktop-1al8ql9.tail054015.ts.net/api/auth/google/callback`
-   - `https://ubuntuserver1.tail054015.ts.net/api/auth/google/callback`
-   - *(Optional local fallback: `http://localhost:3000/api/auth/google/callback` in development)*
-3. **Strict Validation**: The incoming host is checked against these exact allowlisted hostnames. If no match is found, the request is immediately rejected with HTTP 400 Bad Request ("Untrusted host header"). Unverified or arbitrary host headers are never trusted.
-
----
-
-## 4. UI Specifications & Extensible Architecture
-
-### 4.1 Layout & Visual Structure
-- **Divider**: A clean `"OR CONTINUE WITH"` section placed between the primary form action and social auth buttons, styled with semantic tokens (`border-border`, `text-muted-foreground`, `text-xs uppercase tracking-wider`).
-- **Button Row**: Centered horizontal row with `gap-3` or `gap-4`.
-- **Button Specs**:
-  - Size: 48px square (`h-12 w-12`).
-  - Shape: Rounded rectangle (`rounded-lg` or `rounded-xl`) matching existing inputs.
-  - Sizing & Centering: Flex container, centered icon (20–24px).
-  - Colors & States: Semantic tokens (`border border-input bg-background hover:bg-accent hover:text-accent-foreground text-foreground`).
-  - Accessibility: `focus-visible:ring-2 focus-visible:ring-ring`, `aria-label="Continue with Google"`.
-  - Icon: Standalone, clean SVG asset for Google (no external images).
-
-### 4.2 Extensible Provider Architecture
-Dedicated reusable component: `src/modules/auth/components/SocialAuthButtons.tsx`
-
-```typescript
-export type AuthProviderId = "google" | "facebook" | "apple" | "linkedin";
-
-export interface AuthProviderConfig {
-  id: AuthProviderId;
-  label: string;
-  icon: React.ReactNode;
-  enabled: boolean;
-  href?: string;
-  onClick?: () => void;
-}
-```
-- Only providers with `enabled: true` are rendered.
-- Google is enabled initially; Facebook, Apple, and LinkedIn remain configurable placeholders (`enabled: false`).
-- Reused across both `/login` and `/signup`.
+| Field Name | Type | Properties / Constraints | Description |
+|---|---|---|---|
+| `session_id` | UUID / String | Primary Key, Unique | Unique identifier for each session |
+| `user_id` | Integer | Foreign key to `vs_user.user_id`, Indexed | Owner of the session |
+| `session_token_hash` | String | Nullable | Optional revocation hash |
+| `deployment_id` | String | e.g. `msi-lo` vs `ubuntuserver1` | Identifies deployment / host origin |
+| `device_name` | String | e.g. "Windows PC", "MacBook Pro", "iPhone 15" | Human-readable device label from UA |
+| `device_type` | String | "desktop", "mobile", "tablet" | Device classification |
+| `browser_name` | String | e.g. "Google Chrome", "Mozilla Firefox", "Safari" | Browser family |
+| `ip_address` | String | IPv4 / IPv6 | Server-observed client IP |
+| `location_label` | String | e.g. "Manila, Philippines" | Geo-resolved location description |
+| `created_at` | DateTime | Local PH Time (UTC+8 per VoSync rule) | Session creation timestamp |
+| `last_activity_at` | DateTime | Local PH Time (UTC+8) | Last observed activity |
+| `expires_at` | DateTime | Local PH Time (UTC+8, default +7 days) | Expiration cutoff |
+| `revoked_at` | DateTime | Nullable, Local PH Time (UTC+8) | Revocation timestamp |
+| `revocation_reason` | String | Nullable ("LOGOUT", "PASSWORD_RESET", "REVOKE_OTHER", "ADMIN") | Reason for session termination |
 
 ---
 
-## 5. OIDC, OAuth 2.0 & Replay Mitigation Controls
+## 3. End-to-End Authentication Architecture
 
-### 5.1 Separation of OAuth `state` and OIDC `nonce` with Server-Side Replay Defense
-- **`state`**: Protects the authorization transaction against CSRF (32 bytes cryptographically secure hex).
-- **`nonce`**: Cryptographically binds the returned Google ID token to the specific authentication request (32 bytes hex).
-- **PKCE `code_verifier`**: High-entropy cryptographic string with `S256` challenge.
-- **Atomic Single-Use Enforcement**:
-  - `state`, `nonce`, and `code_verifier` are bound into a signed, short-lived (5-minute TTL) `HttpOnly`, `SameSite=Lax` transaction cookie (`vos_sync_oauth_tx`) with a unique `jti`.
-  - The server tracks consumed transaction `jti`s in an atomic server-side memory store with automatic eviction after TTL.
-  - If a `jti` has already been consumed, the transaction is immediately rejected with HTTP 400.
-  - The cookie is deleted immediately after validation. In addition, Google's authorization code exchange is single-use (`invalid_grant` on replay).
+### 3.1 Session Creation at Login
+1. Client logs in via `/api/auth/login` or OAuth callback.
+2. Server extracts:
+   - Request Host (`req.headers.get("host")`) → `deployment_id`
+   - User-Agent → parsed into `device_name`, `device_type`, `browser_name`
+   - Client IP → resolved via `extractClientIp()` and `resolveIpGeo()`
+3. Creates a record in `vs_user_sessions`:
+   - `session_id = crypto.randomUUID()`
+   - `expires_at = now + 7 days`
+4. Injects `sid: session_id` into the JWT claims signed by `issueAuthSession`.
+5. Attaches the `vos_sync_access_token` HttpOnly cookie.
 
-### 5.2 Strict Google Identity Verification (OIDC with `jose`)
-1. Cryptographically verify `id_token` against Google’s official Remote JWKS (`https://www.googleapis.com/oauth2/v3/certs`) via `jose.createRemoteJWKSet`:
-   - **Signature Verification**: Validated using Google's public JWKS.
-   - **Issuer (`iss`) Allowlist**: Strictly must match `'https://accounts.google.com'` or `'accounts.google.com'`.
-   - **Audience (`aud`)**: Strictly must match `process.env.GOOGLE_CLIENT`.
-   - **Expiration (`exp`)**: Enforced by `jose.jwtVerify`.
-   - **Nonce Verification**: Explicitly verify `payload.nonce === transaction.nonce`.
-   - **Email Verification**: Strictly require `payload.email_verified === true`. Reject unverified or missing email claims.
+### 3.2 Request Verification in Middleware (`src/middleware.ts`)
+1. Decodes and verifies the JWT.
+2. Extracts `payload.sid` and `payload.sub` (userId).
+3. If `sid` is present:
+   - Validates that `vs_user_sessions` has the record, `revoked_at` is null, and `expires_at > now`.
+   - Rejects revoked or expired sessions immediately with redirect to `/login`.
+4. If `sid` is absent (legacy in-flight tokens during migration):
+   - Gracefully falls back to the existing `session_epoch` check so active users are not logged out mid-transition.
 
-### 5.3 Account Matching & Linking Policy
-- **Email Normalization**: Emails from Google are normalized (`email.trim().toLowerCase()`) before querying `vs_user`.
-- **Existing Accounts**:
-  - If a user exists in `vs_user`:
-    - Check `user.is_blocked !== true` and execute `canAuthenticate(user)`. If blocked or inactive, authentication is rejected with 403.
-    - No existing credentials or password hashes are overwritten, deleted, or silently modified.
-    - Google's `sub` claim is treated as the stable external identity.
-    - Reset failed attempts (`resetFailedAttempts`) and issue authenticated session (`issueAuthSession`).
+### 3.3 Individual Logout (`/api/auth/logout`)
+1. Reads `sid` from the user's incoming JWT token.
+2. Performs `PATCH /items/vs_user_sessions/${sid}`:
+   - `revoked_at: getPHTimeString()`
+   - `revocation_reason: "LOGOUT"`
+3. Evicts the `vos_sync_access_token` cookie on the response.
+4. **Leaves all other session records untouched**. Other profiles, devices, and deployments remain fully authenticated.
 
-### 5.4 Confidential Incomplete Registration with Atomic Consumption
-- **Zero Profile Data in URLs**: No profile data appears in query strings.
-- **Authenticated Encryption (JWE `A256GCM`)**:
-  - When a Google user is not in `vs_user`:
-  - Profile data (`email`, `given_name`, `family_name`, `sub`) is encrypted using JWE (`A256GCM`) into an opaque token in an `HttpOnly`, `SameSite=Lax`, `secure: process.env.NODE_ENV === "production"` cookie (`vos_sync_google_reg`).
-  - Contains explicit purpose (`purpose: "google-registration"`), 15-minute TTL, and unique `jti`.
-  - Server marks `jti` as consumed upon registration submission to prevent replay.
-  - The signup form pre-fills name and locks the email as read-only ("Verified via Google").
-  - The registration token never grants authenticated dashboard access or allows selecting privileged roles (`ADMIN`).
+### 3.4 Password Change with Choice B Dialog
+1. User enters current password and new password in Settings.
+2. On submit, before sending API request, opens a confirmation Dialog:
+   - **Dialog Title**: *"Log Out of Other Devices?"*
+   - **Description**: *"Would you like to sign out of all other devices and browser sessions? You will stay logged in on this device."*
+   - **Action 1 (Choice B)**: *"Log Out Other Devices"*
+     - Updates password.
+     - Revokes all active sessions for `user_id` where `session_id != currentSid` with `revocation_reason: "PASSWORD_RESET"`.
+     - Current session (`currentSid`) remains active and uninterrupted.
+   - **Action 2**: *"Keep Other Devices Logged In"*
+     - Updates password.
+     - Leaves all active sessions untouched.
+   - **Action 3**: *"Cancel"*
+     - Closes modal without making changes.
 
-### 5.5 Session Security & Fail-Safe Audit Logging
-- Reuses `issueAuthSession(user)` (`HS256`, 7-day expiration).
-- Cookie `vos_sync_access_token`: `httpOnly: true`, `secure: process.env.NODE_ENV === "production"`, `sameSite: "lax"`.
-- Audit logs via `createAuditRecordRepo` with Philippine ISO timestamp (UTC+8).
-- Audit system failures fail safely and never grant unauthorized access.
-- Successful login is only reported after identity verification, account checks, and session issuance have all succeeded.
-- Zero credentials, authorization codes, or tokens are written to logs.
+### 3.5 Real Active Device Sessions UI & API
+- **Endpoint**: `GET /api/freelancer/settings/sessions`
+  - Fetches non-revoked sessions from `vs_user_sessions` where `user_id == currentUserId`.
+  - Sets `is_current: session.session_id === currentSid`.
+  - Returns real devices, deployment tags (Local vs Ubuntu Server), IPs, locations, and timestamps.
+- **Endpoint**: `DELETE /api/freelancer/settings/sessions?session_id=<id>`
+  - If `session_id === "all-other"`:
+    - Revokes all sessions for `user_id` except `currentSid`.
+  - If specific `session_id`:
+    - Revokes that session. If `session_id === currentSid`, clears cookie and redirects to `/login`.
+- **UI (`SecuritySettings.tsx`)**:
+  - Replaces hardcoded mock sessions with live database-driven session cards.
+  - Adds a `"Log out all other devices"` button below the sessions list.
+  - Includes badge: `"This device"`, deployment pill (`Local` or `Production`), and live status.
 
 ---
 
-## 6. End-to-End Execution Sequence
+## 4. Implementation Steps Sequence
 
-1. **Inspect Interfaces**: Check signatures of `getUserByEmail`, `canAuthenticate`, `issueAuthSession`, and `createAuditRecordRepo`.
-2. **Build Component**: Create `src/modules/auth/components/SocialAuthButtons.tsx`.
-3. **Build OAuth Handlers**:
-   - `src/modules/auth/google/google.service.ts`: Helper with state/nonce generation, JWKS validation, PKCE, and server-side replay store.
-   - `GET /api/auth/google`: Initiates flow with strict allowlist matching.
-   - `GET /api/auth/google/callback`: Consumes transaction, validates ID token, verifies `vs_user`, and redirects.
-4. **Integrate with Forms**: Add `SocialAuthButtons` to `/login` and `/signup`.
-5. **Verify & Test**: Check TypeScript compilation and test error handling.
-6. **Documentation**: Update `README.md` and `progress_report.md`.
+1. **Directus Collection Provisioning**:
+   - Create `vs_user_sessions` collection and configure fields via Directus API with admin static token.
+2. **Session Repository (`src/modules/auth/sessions/session.repo.ts`)**:
+   - `createSession(data)`
+   - `getSessionById(sessionId)`
+   - `revokeSession(sessionId, reason)`
+   - `revokeOtherSessions(userId, keepSessionId, reason)`
+   - `getActiveSessionsForUser(userId)`
+3. **Auth Service & JWT Token Update**:
+   - In `loginUser` / `issueAuthSession`, generate `sid`, persist session, and embed `sid` in the JWT payload.
+4. **Middleware Session Validation**:
+   - Verify `sid` against `vs_user_sessions` with in-memory caching (e.g. short TTL or status-validator cache) for performance.
+5. **Logout Route Update**:
+   - Revoke only `sid` in `src/app/api/auth/logout/route.ts`.
+6. **Password Change & Dialog Integration**:
+   - Update `PATCH /api/client/settings` to support `revoke_other_sessions`.
+   - Add Radix Dialog in `SecuritySettings.tsx`.
+7. **Active Sessions API & UI**:
+   - Wire `GET` and `DELETE` in `/api/freelancer/settings/sessions` to the real repository.
+   - Update `SecuritySettings.tsx` to display real active sessions, deployment tags, and "Log out all other devices" button.
 
 ---
 
-## 7. Implementation Acceptance Criteria
+## 5. Verification & Testing Strategy
 
-- [ ] Existing email/password login and OTP flows continue to function without regression.
-- [ ] Google OAuth callback strictly verifies ID token signature against Google JWKS, `iss`, `aud`, `exp`, `nonce`, and `email_verified === true`.
-- [ ] Callback resolution strictly matches exact allowlist (`desktop-1al8ql9.tail054015.ts.net` and `ubuntuserver1.tail054015.ts.net`).
-- [ ] Independent `state` and `nonce` are generated, validated once, and protected against replay.
-- [ ] Blocked and inactive accounts are denied authentication and logged appropriately.
-- [ ] Incomplete registration data is encrypted via JWE (`A256GCM`) with single-use atomic consumption.
-- [ ] Session cookie uses `secure: process.env.NODE_ENV === "production"`, `httpOnly: true`, and `sameSite: "lax"`.
-- [ ] Audit failures fail safe and never grant access.
-- [ ] Timestamps adhere to Philippine local device time (UTC+8).
-- [ ] Reusable `SocialAuthButtons` component renders on `/login` and `/signup`.
-- [ ] `README.md` and `progress_report.md` updated upon completion.
+- **Test 1: Multi-profile isolation on same machine**:
+  - Login on Chrome Profile 1 and Chrome Profile 2.
+  - Log out on Profile 1. Verify Profile 2 remains logged in.
+- **Test 2: Cross-deployment isolation**:
+  - Login on Localhost / Tailscale Local (`msi-lo`).
+  - Login on Ubuntu (`ubuntuserver1`).
+  - Log out on Local. Verify Ubuntu session is active.
+- **Test 3: Password change with Choice B**:
+  - Change password and choose "Log Out Other Devices".
+  - Verify current profile continues working.
+  - Verify other profile is kicked to `/login` on next request.
+- **Test 4: Active sessions revocation from UI**:
+  - Revoke a specific remote session from the UI list.
+  - Verify that specific remote session is invalidated immediately.

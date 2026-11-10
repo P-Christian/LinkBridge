@@ -1,5 +1,5 @@
 // public/sw.js
-// VOS-Sync Web Push Notification Service Worker
+// LinkBridge Web Push Notification Service Worker
 
 self.addEventListener("install", () => {
   self.skipWaiting();
@@ -11,7 +11,7 @@ self.addEventListener("activate", (event) => {
 
 // Handle incoming push messages
 self.addEventListener("push", (event) => {
-  let data = { title: "VOS-Sync Alert", body: "You have a new update.", url: "/" };
+  let data = { title: "LinkBridge Alert", body: "You have a new update.", url: "/" };
 
   try {
     if (event.data) {

@@ -43,7 +43,7 @@ async function resolveClientCompany(
   baseUrl: string,
   token: string,
   userId: string | number,
-): Promise<string | number | null> {
+): Promise<{ companyId: string | number | null; unavailable: boolean }> {
   const params = new URLSearchParams({
     "filter[user_id][_eq]": String(userId),
     fields: "company_id",
@@ -53,13 +53,13 @@ async function resolveClientCompany(
     headers: getHeaders(token),
     cache: "no-store",
   });
-  if (!response.ok) return null;
+  if (!response.ok) return { companyId: null, unavailable: true };
   const json = (await response.json()) as { data?: Array<{ company_id?: CompanyDoc["company_id"] }> };
   for (const link of json.data ?? []) {
     const id = companyIdOf(link.company_id as CompanyDoc["company_id"]);
-    if (id !== null) return id;
+    if (id !== null) return { companyId: id, unavailable: false };
   }
-  return null;
+  return { companyId: null, unavailable: false };
 }
 
 function sameId(left: unknown, right: unknown): boolean {
@@ -81,7 +81,9 @@ export async function GET(req: NextRequest) {
   try {
     // The query-string companyId is a legacy UI hint only. Authorization is
     // always resolved from the signed session's current company link.
-    const companyId = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    const link = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    if (link.unavailable) return errorResponse("Your company association could not be read. Please try again.", 502);
+    const companyId = link.companyId;
     if (companyId === null) return errorResponse("No company is associated with this account.", 403);
 
     const { searchParams } = new URL(req.url);
@@ -145,8 +147,40 @@ export async function DELETE(req: NextRequest) {
   if (!config) return errorResponse("Directus base URL not configured.", 503);
 
   try {
-    const companyId = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    const link = await resolveClientCompany(config.baseUrl, config.token, session.userId);
+    if (link.unavailable) return errorResponse("Your company association could not be read. Please try again.", 502);
+    const companyId = link.companyId;
     if (companyId === null) return errorResponse("No company is associated with this account.", 403);
+
+    // Safeguard: Only allow deletion if company is DRAFT or REJECTED
+    const compUrl = `${config.baseUrl}/items/vs_company/${companyId}?fields=verification_status`;
+    const compRes = await fetch(compUrl, { headers: getHeaders(config.token), cache: "no-store" });
+    if (!compRes.ok) return errorResponse("Failed to verify company status.", 502);
+    const compJson = (await compRes.json()) as { data?: { verification_status?: string } };
+    const verifStatus = String(compJson.data?.verification_status || "").toUpperCase();
+
+    const editableStatuses = ["DRAFT", "REJECTED"];
+    let canEditDocuments = editableStatuses.includes(verifStatus);
+
+    if (!canEditDocuments) {
+      const verifUrl = `${config.baseUrl}/items/vs_company_verifications?filter[company_id][_eq]=${companyId}&sort=-created_at,-id&limit=1&fields=status`;
+      const verifRes = await fetch(verifUrl, {
+        headers: getHeaders(config.token),
+        cache: "no-store",
+      });
+      if (verifRes.ok) {
+        const verifJson = (await verifRes.json()) as { data?: Array<{ status?: string }> };
+        const latestWorkflowStatus = String(verifJson.data?.[0]?.status || "").toUpperCase();
+        canEditDocuments = latestWorkflowStatus === "CORRECTION_REQUIRED";
+      }
+    }
+
+    if (!canEditDocuments) {
+      return errorResponse(
+        "Documents cannot be removed while your profile is under review or has been verified.",
+        403
+      );
+    }
 
     const fileId = new URL(req.url).searchParams.get("id")?.trim();
     if (!fileId) return errorResponse("Missing document/file ID.", 400);

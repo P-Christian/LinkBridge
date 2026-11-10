@@ -16,6 +16,7 @@ export interface OAuthCancelPayload {
 export interface OAuthErrorPayload {
   provider: string;
   error?: string;
+  email?: string;
 }
 
 export interface OAuthPopupOptions {
@@ -101,14 +102,14 @@ export function openOAuthPopup({
     resolved = true;
     cleanup();
 
-    const { status, provider, flow, redirectUrl, error, notice } = event.data;
+    const { status, provider, flow, redirectUrl, error, notice, email } = event.data;
 
     if (status === "success") {
       onSuccess?.({ provider: provider || "", flow: flow || "", redirectUrl, notice });
     } else if (status === "cancelled") {
       onCancel?.({ provider: provider || "", flow: flow || "" });
     } else {
-      onError?.({ provider: provider || "", error });
+      onError?.({ provider: provider || "", error, email });
     }
   };
 

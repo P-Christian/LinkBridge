@@ -106,7 +106,7 @@ export function AIJobRecommendations({ onJobsLoaded, jobs: propJobs, loading: pr
                     {error || "No high-confidence AI job matches right now. Update your profile skills to trigger fresh recommendations."}
                 </p>
                 <Button variant="outline" asChild size="sm" className="mt-4">
-                    <Link href="/vos-sync/freelancer/profile">Update Skills & Profile</Link>
+                    <Link href="/linkbridge/freelancer/profile">Update Skills & Profile</Link>
                 </Button>
             </div>
         );
@@ -175,12 +175,12 @@ export function AIJobRecommendations({ onJobsLoaded, jobs: propJobs, loading: pr
 
                     <div className="mt-5 pt-4 border-t border-slate-200/60 dark:border-border/80 flex flex-wrap items-center gap-3">
                         <Button asChild className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-blue-600 text-white text-xs font-semibold transition shadow-sm min-h-11">
-                            <Link href={`/vos-sync/freelancer/jobs/${featuredJob.job_id}`}>
+                            <Link href={`/linkbridge/freelancer/jobs/${featuredJob.job_id}`}>
                                 Quick Apply Now
                             </Link>
                         </Button>
                         <Button variant="outline" asChild className="px-4 py-2.5 rounded-xl text-xs font-medium min-h-11">
-                            <Link href={`/vos-sync/freelancer/jobs/${featuredJob.job_id}`}>
+                            <Link href={`/linkbridge/freelancer/jobs/${featuredJob.job_id}`}>
                                 View Full Description <ArrowUpRight className="w-3.5 h-3.5 ml-1" />
                             </Link>
                         </Button>
@@ -193,7 +193,7 @@ export function AIJobRecommendations({ onJobsLoaded, jobs: propJobs, loading: pr
                         secondaryJobs.map((job) => (
                             <Link
                                 key={job.job_id}
-                                href={`/vos-sync/freelancer/jobs/${job.job_id}`}
+                                href={`/linkbridge/freelancer/jobs/${job.job_id}`}
                                 className="p-5 rounded-2xl bg-white dark:bg-card border border-slate-200/90 dark:border-border hover:border-blue-300 dark:hover:border-blue-500/50 hover:shadow-sm transition flex-1 flex flex-col justify-between group"
                             >
                                 <div>

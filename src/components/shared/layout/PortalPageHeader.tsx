@@ -16,7 +16,7 @@ import {
 import { NotificationBell as FreelancerNotificationBell } from "@/modules/freelancer/freelancer-notifications/components/NotificationBellWrapper";
 import { ClientNotificationBell } from "@/modules/client/notifications/components/ClientNotificationBellWrapper";
 import { SchoolAdminNotificationBell } from "@/modules/school-admin/components/SchoolAdminNotificationBellWrapper";
-import { UserSearchBar } from "@/modules/shared/search/components/UserSearchBar";
+// import { UserSearchBar } from "@/modules/shared/search/components/UserSearchBar";
 
 /**
  * Reusable page header for all portal pages.
@@ -37,15 +37,15 @@ export interface PortalPageHeaderProps {
 export function PortalPageHeader(_props?: PortalPageHeaderProps) {
   void _props;
   const pathname = usePathname();
-  const isClientRoute = pathname?.startsWith("/vos-sync/client");
-  const isFreelancerRoute = pathname?.startsWith("/vos-sync/freelancer");
-  const isSchoolAdminRoute = pathname?.startsWith("/vos-sync/school-admin");
-  const isVosAdminRoute = pathname?.startsWith("/vos-sync/vos-admin");
+  const isClientRoute = pathname?.startsWith("/linkbridge/client");
+  const isFreelancerRoute = pathname?.startsWith("/linkbridge/freelancer");
+  const isSchoolAdminRoute = pathname?.startsWith("/linkbridge/school-admin");
+  // const isVosAdminRoute = pathname?.startsWith("/linkbridge/admin");
 
   const helpRoute = React.useMemo(() => {
-    if (isClientRoute) return "/vos-sync/client/how-it-works";
-    if (isFreelancerRoute) return "/vos-sync/freelancer/how-it-works";
-    if (isSchoolAdminRoute) return "/vos-sync/school-admin/how-it-works";
+    if (isClientRoute) return "/linkbridge/client/how-it-works";
+    if (isFreelancerRoute) return "/linkbridge/freelancer/how-it-works";
+    if (isSchoolAdminRoute) return "/linkbridge/school-admin/how-it-works";
     return "/how-it-works";
   }, [isClientRoute, isFreelancerRoute, isSchoolAdminRoute]);
 
@@ -81,15 +81,14 @@ export function PortalPageHeader(_props?: PortalPageHeaderProps) {
   }, [storageKey]);
 
   const showNewBadge = !hasSeenHelp;
-  const showSearch = !isVosAdminRoute && !isSchoolAdminRoute;
+  // const showSearch = !isVosAdminRoute && !isSchoolAdminRoute;
 
   return (
     <header
       className="
         sticky top-0 z-50 isolate
         grid h-14 shrink-0 items-center gap-3 px-4 sm:h-16 md:gap-4 md:px-6
-        grid-cols-[auto_1fr_auto]
-        md:grid-cols-[1fr_minmax(0,40rem)_1fr]
+        grid-cols-2
         border-b border-border/60
         bg-gradient-to-r from-background/95 via-background/80 to-background/95
         backdrop-blur-xl backdrop-saturate-150
@@ -125,13 +124,13 @@ export function PortalPageHeader(_props?: PortalPageHeaderProps) {
       </div>
 
       {/* Center: search bar (empty cell on mobile/admin keeps the grid aligned) */}
-      <div className="min-w-0 justify-self-stretch">
+      {/* <div className="min-w-0 justify-self-stretch">
         {showSearch && (
           <div className="hidden w-full min-w-0 md:block">
             <UserSearchBar />
           </div>
         )}
-      </div>
+      </div> */}
 
       {/* Right: Help, then Bell */}
       <div className="flex shrink-0 items-center justify-self-end gap-1">

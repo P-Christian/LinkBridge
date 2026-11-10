@@ -13,12 +13,34 @@ export type SystemEventType =
   | "INTERVIEW_UPDATED"
   | "HIRED";
 
+export interface StageTransitionCardData {
+  event_type: string;
+  application_id: number;
+  viewer_role?: HiringViewerRole;
+  stage_history_id?: number | null;
+  from_stage_name?: string | null;
+  to_stage_name?: string | null;
+  from_stage_type?: string | null;
+  to_stage_type?: string | null;
+  job_title?: string | null;
+  candidate_name?: string | null;
+  applicant_name?: string | null;
+  has_assessment_tasks?: boolean;
+  has_scheduled_interview?: boolean;
+  interview_id?: number | null;
+  scheduled_at?: string | null;
+  duration_minutes?: number | null;
+  interview_status?: string | null;
+  created_at?: string | null;
+}
+
 export interface SystemMessageData {
   system_message_id: number;
   message_id: number;
   event_type: SystemEventType;
   application_id?: number | null;
   interview_id?: number | null;
+  stage_history_id?: number | null;
 }
 
 export interface Conversation {
@@ -58,6 +80,16 @@ export interface MessageReactionGroup {
   reacted_by_me: boolean;
 }
 
+export interface QuotedMessage {
+  message_id: number;
+  sender_id: number;
+  sender_name?: string | null;
+  message_content?: string | null;
+  message_type?: MessageType;
+  attachments?: MessageAttachment[];
+  is_deleted?: boolean;
+}
+
 export interface Message {
   message_id: number;
   conversation_id: number;
@@ -68,9 +100,18 @@ export interface Message {
   edited_at: string | null;
   created_at: string;
   is_deleted: boolean;
+  deleted_at?: string | null;
+  deleted_by?: number | null;
+  reply_to_message_id?: number | null;
+  reply_to?: QuotedMessage | null;
+  is_pinned?: boolean;
+  pinned_at?: string | null;
+  pinned_by?: number | null;
   attachments: MessageAttachment[];
   system_message?: SystemMessageData | null;
+  system_card_data?: unknown;
   reactions?: MessageReactionGroup[];
+  delivery_status?: "sending" | "sent" | "failed";
 }
 
 export interface MessageAttachment {
@@ -87,6 +128,24 @@ export interface SendMessagePayload {
   message_content?: string;
   message_type?: MessageType;
   attachments?: Omit<MessageAttachment, "attachment_id" | "message_id" | "created_at">[];
+  reply_to_message_id?: number | null;
+}
+
+export type MessageReportReasonCode =
+  | "SPAM"
+  | "HARASSMENT"
+  | "INAPPROPRIATE_CONTENT"
+  | "FRAUD_OR_SCAM"
+  | "OFF_PLATFORM_PAYMENT"
+  | "HATE_SPEECH"
+  | "OTHER";
+
+export interface MessageReportPayload {
+  message_id?: number;
+  conversation_id: number;
+  reported_user_id: number;
+  reason_code: MessageReportReasonCode;
+  report_details?: string;
 }
 
 export interface CreateConversationPayload {

@@ -1,4 +1,5 @@
 // src/lib/ai/adapters/AnthropicAdapter.ts
+import { fetchWithSafeEgress } from "../egress";
 import {
   AiProviderAdapter,
   AiProviderId,
@@ -40,7 +41,7 @@ export class AnthropicAdapter implements AiProviderAdapter {
     const start = Date.now();
 
     try {
-      const res = await fetch(`${base}/messages`, {
+      const res = await fetchWithSafeEgress(`${base}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -138,7 +139,7 @@ export class AnthropicAdapter implements AiProviderAdapter {
       bodyPayload.system = req.systemInstruction;
     }
 
-    const res = await fetch(`${base}/messages`, {
+    const res = await fetchWithSafeEgress(`${base}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

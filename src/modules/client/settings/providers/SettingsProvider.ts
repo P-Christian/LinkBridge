@@ -4,8 +4,8 @@ import { UserProfile, SecurityPayload, TeamMember } from "../types";
 
 const SETTINGS_API_BASE = "/api/client/settings";
 
-export async function fetchUserProfile(): Promise<UserProfile> {
-  const res = await fetch(SETTINGS_API_BASE, { cache: "no-store" });
+export async function fetchUserProfile(signal?: AbortSignal): Promise<UserProfile> {
+  const res = await fetch(SETTINGS_API_BASE, { cache: "no-store", signal });
   const json = await res.json();
   if (!res.ok) {
     throw new Error(json.error || "Failed to fetch user profile.");
@@ -38,8 +38,8 @@ export async function updateUserPassword(payload: SecurityPayload): Promise<void
   }
 }
 
-export async function fetchTeamMembers(): Promise<TeamMember[]> {
-  const res = await fetch(`${SETTINGS_API_BASE}/team`, { cache: "no-store" });
+export async function fetchTeamMembers(signal?: AbortSignal): Promise<TeamMember[]> {
+  const res = await fetch(`${SETTINGS_API_BASE}/team`, { cache: "no-store", signal });
   const json = await res.json();
   if (!res.ok) {
     throw new Error(json.error || "Failed to fetch team members.");

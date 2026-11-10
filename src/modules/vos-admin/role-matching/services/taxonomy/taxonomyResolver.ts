@@ -2,18 +2,7 @@
 // Directus read-only resolver for existing categories, roles, aliases, and master skills.
 
 import { normalizeKeyword } from "../../validators";
-
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
-
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
-}
+import { directusItems } from "@/lib/server/directus";
 
 export interface ExistingCategory {
   category_id: number;
@@ -46,26 +35,19 @@ export interface ExistingRoleSkill {
 }
 
 export async function fetchExistingTaxonomyState() {
-  try {
-    const [catRes, roleRes, aliasRes, skillRes, mappingRes] = await Promise.all([
-      fetch(`${DIRECTUS_BASE}/items/vs_role_category?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_title?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_title_alias?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_master_skills?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
-      fetch(`${DIRECTUS_BASE}/items/vs_role_skill_mapping?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
-    ]);
+  // Every collection is read fail-closed. With one list missing — usually
+  // vs_master_skills or vs_role_title_alias, the biggest — the governance pass
+  // treats the taxonomy as empty and auto-inserts aliases and master skills that
+  // already exist, because the reuse check had nothing to match against.
+  const [categories, roles, aliases, masterSkills, roleSkills] = await Promise.all([
+    directusItems<ExistingCategory>("vs_role_category", { query: "limit=-1" }),
+    directusItems<ExistingRole>("vs_role_title", { query: "limit=-1" }),
+    directusItems<ExistingAlias>("vs_role_title_alias", { query: "limit=-1" }),
+    directusItems<ExistingMasterSkill>("vs_master_skills", { query: "limit=-1" }),
+    directusItems<ExistingRoleSkill>("vs_role_skill_mapping", { query: "limit=-1" }),
+  ]);
 
-    const categories: ExistingCategory[] = catRes.ok ? ((await catRes.json()).data ?? []) : [];
-    const roles: ExistingRole[] = roleRes.ok ? ((await roleRes.json()).data ?? []) : [];
-    const aliases: ExistingAlias[] = aliasRes.ok ? ((await aliasRes.json()).data ?? []) : [];
-    const masterSkills: ExistingMasterSkill[] = skillRes.ok ? ((await skillRes.json()).data ?? []) : [];
-    const roleSkills: ExistingRoleSkill[] = mappingRes.ok ? ((await mappingRes.json()).data ?? []) : [];
-
-    return { categories, roles, aliases, masterSkills, roleSkills };
-  } catch (err) {
-    console.warn("[taxonomyResolver] ⚠️ Failed to fetch complete taxonomy state:", err);
-    return { categories: [], roles: [], aliases: [], masterSkills: [], roleSkills: [] };
-  }
+  return { categories, roles, aliases, masterSkills, roleSkills };
 }
 
 export function findMatchingCategory(categories: ExistingCategory[], name: string): ExistingCategory | null {

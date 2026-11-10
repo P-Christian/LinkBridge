@@ -1,9 +1,30 @@
 // src/lib/gemini/geminiClient.ts
 
+import { isLocalAiOnlyMode } from "@/lib/ai/aiConfigStore";
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+const GEMINI_BASE = "https://generativelanguage.googleapis.com";
 const DEFAULT_GEMINI_TIMEOUT_MS = 12000;
 const GEMINI_TIMEOUT_MS = DEFAULT_GEMINI_TIMEOUT_MS;
+
+/**
+ * The key travels in a header — query strings are logged by proxies and
+ * error reporters.
+ */
+function geminiHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "x-goog-api-key": GEMINI_API_KEY,
+  };
+}
+
+/** Local-only mode must stop candidate PII from reaching a cloud processor. */
+function cloudBlockReason(): string | null {
+  if (!GEMINI_API_KEY) return "GEMINI_API_KEY is not set in environment.";
+  if (isLocalAiOnlyMode()) return "Cloud AI is disabled by the local-only AI setting.";
+  return null;
+}
 
 export interface GeminiUsageMetadata {
   promptTokenCount: number;
@@ -34,7 +55,8 @@ export async function callGeminiRaw(
 ): Promise<GeminiRawResult> {
   const activeModel = modelOverride || GEMINI_MODEL;
 
-  if (!GEMINI_API_KEY) {
+  const blocked = cloudBlockReason();
+  if (blocked) {
     return {
       text: "",
       model: activeModel,
@@ -42,11 +64,11 @@ export async function callGeminiRaw(
       finishReason: "ERROR",
       httpStatus: 0,
       timedOut: false,
-      errorMessage: "GEMINI_API_KEY is not set in environment.",
+      errorMessage: blocked,
     };
   }
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `${GEMINI_BASE}/v1beta/models/${activeModel}:generateContent`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -54,7 +76,7 @@ export async function callGeminiRaw(
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: geminiHeaders(),
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -136,15 +158,10 @@ export async function callGeminiRaw(
 }
 
 export async function callGemini(prompt: string): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    console.warn("[gemini] ⚠️ GEMINI_API_KEY is not set in environment.");
-    throw new Error("GEMINI_API_KEY is not set in environment.");
-  }
+  const blocked = cloudBlockReason();
+  if (blocked) throw new Error(blocked);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-  console.log(`[gemini] 📤 Sending to ${GEMINI_MODEL}:`);
-  console.log(`[gemini] 📤 Prompt:\n${prompt.slice(0, 500)}${prompt.length > 500 ? "\n...(truncated)" : ""}`);
+  const url = `${GEMINI_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
@@ -152,7 +169,7 @@ export async function callGemini(prompt: string): Promise<string> {
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: geminiHeaders(),
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
@@ -167,15 +184,12 @@ export async function callGemini(prompt: string): Promise<string> {
 
     if (!res.ok) {
       const body = await res.text();
-      console.error(`[gemini] ❌ API error ${res.status}:`, body);
-      throw new Error(`Gemini API error ${res.status}: ${body}`);
+      console.error(`[gemini] ❌ API error ${res.status}:`, body.slice(0, 300));
+      throw new Error(`Gemini API error ${res.status}: ${body.slice(0, 300)}`);
     }
 
     const json = await res.json();
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[gemini] 📥 Response:\n${text.trim()}`);
-    }
     return text.trim();
   } catch (err) {
     clearTimeout(timeout);
@@ -201,18 +215,10 @@ export async function callGeminiSafe(prompt: string): Promise<string | null> {
  * Accepts base64 encoded data and a mimeType.
  */
 export async function callGeminiWithFile(prompt: string, base64Data: string, mimeType: string): Promise<string> {
-  if (!GEMINI_API_KEY) {
-    console.warn("[gemini] ⚠️ GEMINI_API_KEY is not set in environment.");
-    throw new Error("GEMINI_API_KEY is not set in environment.");
-  }
+  const blocked = cloudBlockReason();
+  if (blocked) throw new Error(blocked);
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-
-  if (process.env.NODE_ENV !== "production") {
-    console.log(`[gemini] 📤 Sending multimodal request to ${GEMINI_MODEL}:`);
-    console.log(`[gemini] 📤 Prompt:\n${prompt.slice(0, 500)}${prompt.length > 500 ? "\n...(truncated)" : ""}`);
-    console.log(`[gemini] 📤 File Info: mimeType=${mimeType}, length=${base64Data.length}`);
-  }
+  const url = `${GEMINI_BASE}/v1beta/models/${GEMINI_MODEL}:generateContent`;
 
   const controller = new AbortController();
   // Extending timeout for file processing if needed
@@ -221,7 +227,7 @@ export async function callGeminiWithFile(prompt: string, base64Data: string, mim
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: geminiHeaders(),
       body: JSON.stringify({
         contents: [
           {
@@ -248,15 +254,12 @@ export async function callGeminiWithFile(prompt: string, base64Data: string, mim
 
     if (!res.ok) {
       const body = await res.text();
-      console.error(`[gemini] ❌ API error ${res.status}:`, body);
-      throw new Error(`Gemini API error ${res.status}: ${body}`);
+      console.error(`[gemini] ❌ API error ${res.status}:`, body.slice(0, 300));
+      throw new Error(`Gemini API error ${res.status}: ${body.slice(0, 300)}`);
     }
 
     const json = await res.json();
     const text: string = json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[gemini] 📥 Response:\n${text.trim().slice(0, 500)}${text.trim().length > 500 ? "\n...(truncated)" : ""}`);
-    }
     return text.trim();
   } catch (err) {
     clearTimeout(timeout);

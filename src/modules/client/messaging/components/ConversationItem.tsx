@@ -2,7 +2,7 @@
 
 // src/modules/client/messaging/components/ConversationItem.tsx
 
-import React from "react";
+import React, { useState } from "react";
 import { Archive, ArchiveRestore, Briefcase } from "lucide-react";
 import { motion } from "framer-motion";
 import { Conversation } from "../types";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { formatListTime } from "../utils";
 import Avatar from "./Avatar";
 import Highlight from "./Highlight";
+import ArchiveConversationModal from "@/modules/shared/messaging/components/ArchiveConversationModal";
 
 interface Props {
   conversation: Conversation;
@@ -39,7 +40,8 @@ export default function ConversationItem({
 
   const name = other_party_name || "Unknown";
   const unread = unread_count ?? 0;
-  const hasUnread = unread > 0;
+  const hasUnread = unread > 0 && !isActive;
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   return (
     <div className="group relative border-b border-zinc-100 dark:border-zinc-800/60">
@@ -59,9 +61,9 @@ export default function ConversationItem({
       >
         {isActive && (
           <motion.span
-            layoutId="activeConversationBorderClient"
-            className="absolute bottom-0 left-0 top-0 w-1 rounded-r-full bg-indigo-500"
-            transition={{ type: "spring", stiffness: 400, damping: 32 }}
+            layoutId="active-conversation-indicator-client"
+            className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-indigo-500"
+            transition={{ type: "spring", stiffness: 600, damping: 40, mass: 0.2 }}
           />
         )}
 
@@ -112,7 +114,7 @@ export default function ConversationItem({
               {last_message_preview ? (
                 <Highlight text={last_message_preview} query={searchQuery} />
               ) : (
-                "No messages yet"
+                "Loading..."
               )}
             </p>
 
@@ -131,7 +133,7 @@ export default function ConversationItem({
       {/* Archive: desktop hover/focus only. On mobile it lives in the chat header menu. */}
       <button
         type="button"
-        onClick={() => onArchive(conversation_id, !archived_by_client)}
+        onClick={() => setShowArchiveConfirm(true)}
         title={archived_by_client ? "Move to inbox" : "Archive"}
         aria-label={archived_by_client ? "Move to inbox" : "Archive conversation"}
         className="absolute bottom-3 right-3 hidden h-7 w-7 items-center justify-center rounded-md border border-zinc-200 bg-white text-zinc-500 opacity-0 shadow-xs transition hover:bg-zinc-100 hover:text-zinc-700 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 group-hover:opacity-100 md:flex dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600"
@@ -142,6 +144,17 @@ export default function ConversationItem({
           <Archive className="h-3.5 w-3.5" />
         )}
       </button>
+
+      <ArchiveConversationModal
+        isOpen={showArchiveConfirm}
+        onClose={() => setShowArchiveConfirm(false)}
+        onConfirm={() => {
+          setShowArchiveConfirm(false);
+          onArchive(conversation_id, !archived_by_client);
+        }}
+        isArchived={Boolean(archived_by_client)}
+        conversationName={name}
+      />
     </div>
   );
 }

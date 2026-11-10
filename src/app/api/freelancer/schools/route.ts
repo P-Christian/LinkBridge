@@ -21,19 +21,20 @@ export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
     const raw = searchParams.get("search");
-    if (isBlankSearchTerm(raw)) {
-      return NextResponse.json({ schools: [] });
-    }
-    const termResult = searchTermSchema.safeParse(raw);
-    if (!termResult.success) {
-      const [firstIssue] = termResult.error.issues;
-      return NextResponse.json(
-        { error: firstIssue?.message ?? "Invalid search term." },
-        { status: 400 }
-      );
+    let searchTerm: string | undefined = undefined;
+    if (!isBlankSearchTerm(raw)) {
+      const termResult = searchTermSchema.safeParse(raw);
+      if (!termResult.success) {
+        const [firstIssue] = termResult.error.issues;
+        return NextResponse.json(
+          { error: firstIssue?.message ?? "Invalid search term." },
+          { status: 400 }
+        );
+      }
+      searchTerm = termResult.data;
     }
 
-    const classified = await searchClassifiedSchools(termResult.data);
+    const classified = await searchClassifiedSchools(searchTerm);
     const schools = freelancerSchoolSchema
       .array()
       .max(SCHOOL_SEARCH_LIMIT)

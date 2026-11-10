@@ -113,7 +113,7 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
       }
       const json: DashboardData = await response.json();
       if (json.onboardingRequired) {
-        router.push("/vos-sync/client/company-profile");
+        router.push("/linkbridge/client/company-profile");
         return;
       }
       setData(json);
@@ -131,7 +131,7 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
 
   useEffect(() => {
     if (initialData?.onboardingRequired) {
-      router.push("/vos-sync/client/company-profile");
+      router.push("/linkbridge/client/company-profile");
     }
   }, [initialData, router]);
 
@@ -154,32 +154,6 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
       shortlistedCount: 0,
     };
   }, [data?.stats]);
-
-  // Adjust KPI stats according to the selected hiring range if available
-  const activeStats = useMemo(() => {
-    if (selectedRange === "7d") {
-      return {
-        ...baseStats,
-        totalApplicants: Math.max(1, Math.round((baseStats.totalApplicants || 0) * 0.25)),
-        applicantsGrowthPercent: 12,
-      };
-    }
-    if (selectedRange === "3m") {
-      return {
-        ...baseStats,
-        totalApplicants: Math.round((baseStats.totalApplicants || 0) * 2.8),
-        applicantsGrowthPercent: 34,
-      };
-    }
-    if (selectedRange === "6m") {
-      return {
-        ...baseStats,
-        totalApplicants: Math.round((baseStats.totalApplicants || 0) * 5.2),
-        applicantsGrowthPercent: 48,
-      };
-    }
-    return baseStats;
-  }, [baseStats, selectedRange]);
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -257,7 +231,7 @@ export default function DashboardModule({ userName, initialData = null }: Dashbo
       </div>
 
       {/* 4. KPI Summary 4-card Grid */}
-      <KpiSummaryGrid stats={activeStats} />
+      <KpiSummaryGrid stats={baseStats} />
 
       {/* 5. Content Sections */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 items-stretch">

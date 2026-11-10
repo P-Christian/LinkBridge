@@ -17,16 +17,37 @@ import {
 
 const BASE_URL = "/api/vos-admin/job-roles";
 
+/**
+ * The routes answer a failed read or write with the reason ("Could not create
+ * the master skill \"Kubernetes\", so nothing was mapped."), but every caller
+ * here threw its own hard-coded sentence, so the admin never saw which of the
+ * taxonomy writes actually landed.
+ */
+async function fail(res: Response, fallback: string): Promise<never> {
+  const errJson = await res.json().catch(() => null);
+  const message = (errJson as { error?: unknown } | null)?.error;
+  throw new Error(typeof message === "string" && message ? message : fallback);
+}
+
+/**
+ * Directus answers writes with MySQL's `tinyint(1)` as 1/0, while the read routes
+ * normalize it to a boolean and the UI compares `is_active === false`. A merged
+ * 0 fails that comparison, which wedges the Active/Inactive toggles.
+ */
+function normalizeActive<T extends { is_active?: boolean }>(row: T): T {
+  return row && "is_active" in row ? { ...row, is_active: Boolean(row.is_active) } : row;
+}
+
 export async function fetchDashboardMetrics(): Promise<DashboardMetrics> {
   const res = await fetch(`${BASE_URL}`);
-  if (!res.ok) throw new Error("Failed to fetch metrics.");
+  if (!res.ok) return fail(res, "Failed to fetch metrics.");
   return res.json();
 }
 
 // Categories
-export async function fetchJobCategories(): Promise<JobCategory[]> {
-  const res = await fetch(`${BASE_URL}/categories`);
-  if (!res.ok) throw new Error("Failed to fetch job categories.");
+export async function fetchJobCategories(signal?: AbortSignal): Promise<JobCategory[]> {
+  const res = await fetch(`${BASE_URL}/categories`, { cache: "no-store", signal });
+  if (!res.ok) return fail(res, "Failed to fetch job categories.");
   const data = await res.json();
   return data.categories ?? [];
 }
@@ -37,8 +58,8 @@ export async function createJobCategory(payload: Partial<JobCategory>): Promise<
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to create job category.");
-  return res.json();
+  if (!res.ok) return fail(res, "Failed to create job category.");
+  return normalizeActive(await res.json());
 }
 
 export async function updateJobCategory(payload: Partial<JobCategory>): Promise<JobCategory> {
@@ -47,13 +68,13 @@ export async function updateJobCategory(payload: Partial<JobCategory>): Promise<
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to update job category.");
-  return res.json();
+  if (!res.ok) return fail(res, "Failed to update job category.");
+  return normalizeActive(await res.json());
 }
 
 export async function deleteJobCategory(categoryId: number): Promise<boolean> {
   const res = await fetch(`${BASE_URL}/categories?id=${categoryId}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete job category.");
+  if (!res.ok) return fail(res, "Failed to delete job category.");
   return true;
 }
 
@@ -61,7 +82,7 @@ export async function deleteJobCategory(categoryId: number): Promise<boolean> {
 export async function fetchStandardRoles(categoryId?: number): Promise<StandardRole[]> {
   const url = categoryId ? `${BASE_URL}/roles?category_id=${categoryId}` : `${BASE_URL}/roles`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch standard roles.");
+  if (!res.ok) return fail(res, "Failed to fetch standard roles.");
   const data = await res.json();
   return data.roles ?? [];
 }
@@ -72,8 +93,8 @@ export async function createStandardRole(payload: Partial<StandardRole>): Promis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to create standard role.");
-  return res.json();
+  if (!res.ok) return fail(res, "Failed to create standard role.");
+  return normalizeActive(await res.json());
 }
 
 export async function updateStandardRole(payload: Partial<StandardRole>): Promise<StandardRole> {
@@ -82,13 +103,13 @@ export async function updateStandardRole(payload: Partial<StandardRole>): Promis
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to update standard role.");
-  return res.json();
+  if (!res.ok) return fail(res, "Failed to update standard role.");
+  return normalizeActive(await res.json());
 }
 
 export async function deleteStandardRole(roleId: number): Promise<boolean> {
   const res = await fetch(`${BASE_URL}/roles?id=${roleId}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete standard role.");
+  if (!res.ok) return fail(res, "Failed to delete standard role.");
   return true;
 }
 
@@ -96,7 +117,7 @@ export async function deleteStandardRole(roleId: number): Promise<boolean> {
 export async function fetchSearchKeywords(roleId?: number): Promise<SearchKeyword[]> {
   const url = roleId ? `${BASE_URL}/keywords?role_id=${roleId}` : `${BASE_URL}/keywords`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch search keywords.");
+  if (!res.ok) return fail(res, "Failed to fetch search keywords.");
   const data = await res.json();
   return data.keywords ?? [];
 }
@@ -107,10 +128,7 @@ export async function createSearchKeyword(payload: Partial<SearchKeyword>): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(errJson.error || "Failed to create search keyword.");
-  }
+  if (!res.ok) return fail(res, "Failed to create search keyword.");
   return res.json();
 }
 
@@ -120,27 +138,32 @@ export async function updateSearchKeyword(payload: Partial<SearchKeyword>): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) {
-    const errJson = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(errJson.error || "Failed to update search keyword.");
-  }
+  if (!res.ok) return fail(res, "Failed to update search keyword.");
   return res.json();
 }
 
 
 export async function deleteSearchKeyword(aliasId: number): Promise<boolean> {
   const res = await fetch(`${BASE_URL}/keywords?id=${aliasId}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete search keyword.");
+  if (!res.ok) return fail(res, "Failed to delete search keyword.");
   return true;
 }
 
 // Role Skills
-export async function fetchRoleSkills(roleId?: number): Promise<RoleSkillMapping[]> {
+export interface RoleSkillRead {
+  skills: RoleSkillMapping[];
+  warnings: string[];
+}
+
+export async function fetchRoleSkills(roleId?: number): Promise<RoleSkillRead> {
   const url = roleId ? `${BASE_URL}/skills?role_id=${roleId}` : `${BASE_URL}/skills`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch role skills.");
+  if (!res.ok) return fail(res, "Failed to fetch role skills.");
   const data = await res.json();
-  return data.skills ?? [];
+  return {
+    skills: data.skills ?? [],
+    warnings: Array.isArray(data.warnings) ? (data.warnings as string[]) : [],
+  };
 }
 
 export async function createRoleSkill(payload: Partial<RoleSkillMapping>): Promise<RoleSkillMapping> {
@@ -149,7 +172,7 @@ export async function createRoleSkill(payload: Partial<RoleSkillMapping>): Promi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to add role skill.");
+  if (!res.ok) return fail(res, "Failed to add role skill.");
   return res.json();
 }
 
@@ -159,19 +182,19 @@ export async function updateRoleSkill(payload: Partial<RoleSkillMapping>): Promi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error("Failed to update role skill.");
+  if (!res.ok) return fail(res, "Failed to update role skill.");
   return res.json();
 }
 
 export async function deleteRoleSkill(id: number): Promise<boolean> {
   const res = await fetch(`${BASE_URL}/skills?id=${id}`, { method: "DELETE" });
-  if (!res.ok) throw new Error("Failed to delete role skill.");
+  if (!res.ok) return fail(res, "Failed to delete role skill.");
   return true;
 }
 
 export async function fetchMasterSkills(): Promise<MasterSkill[]> {
   const res = await fetch(`${BASE_URL}/skills?master=true`);
-  if (!res.ok) throw new Error("Failed to fetch master skills.");
+  if (!res.ok) return fail(res, "Failed to fetch master skills.");
   const data = await res.json();
   return data.master_skills ?? [];
 }
@@ -186,7 +209,7 @@ export async function runMatchSimulation(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ keyword, candidate_id: candidateId, candidate }),
   });
-  if (!res.ok) throw new Error("Failed to run match simulation.");
+  if (!res.ok) return fail(res, "Failed to run match simulation.");
   return res.json();
 }
 
@@ -207,7 +230,7 @@ export async function reviewIntelligenceRequest(
   suggestionId: number,
   action: IntelligenceRequestAction,
   payload?: Omit<ReviewRequestPayload, "action">
-): Promise<void> {
+): Promise<string[]> {
   const res = await fetch(`${BASE_URL}/suggestions`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -217,4 +240,6 @@ export async function reviewIntelligenceRequest(
     const errJson = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(errJson.error || "Failed to review intelligence request.");
   }
+  const json = await res.json().catch(() => ({}));
+  return json.warnings ?? [];
 }

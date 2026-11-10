@@ -1,7 +1,7 @@
 // src/modules/client/dashboard/components/ActionRequiredCard.tsx
 "use client";
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useMemo, useCallback } from "react";
 import { ActionRequiredItem } from "../types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,13 +10,12 @@ import {
   CheckCircle2,
   Clock,
   Briefcase,
-  UserCheck,
-  UserX,
+  Users,
   Calendar,
+  ArrowRight,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { toast } from "sonner";
 
 interface ActionRequiredCardProps {
   initialActions?: ActionRequiredItem[];
@@ -26,89 +25,37 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
   const router = useRouter();
 
   // Seed sample priority actionable items if backend returns empty or limited actions
-  const defaultActions: ActionRequiredItem[] = initialActions.length > 0
-    ? initialActions
-    : [
-        {
-          id: "act-app-1",
-          type: "unreviewed_applicants",
-          title: "Sarah Jenkins",
-          description: "Applied for Senior Frontend Engineer • 4 years exp",
-          actionUrl: "/vos-sync/client/applicants",
-          actionLabel: "Review",
-          severity: "warning",
-          dismissible: true,
-        },
-        {
-          id: "act-int-2",
-          type: "interview_pending",
-          title: "David Chen",
-          description: "Technical Interview pending schedule",
-          actionUrl: "/vos-sync/client/interviews",
-          actionLabel: "Schedule",
-          severity: "warning",
-          dismissible: true,
-        },
-        {
-          id: "act-job-3",
-          type: "job_expiring",
-          title: "Product Designer (UI/UX)",
-          description: "Listing expires in 2 days • 18 active applicants",
-          actionUrl: "/vos-sync/client/jobs",
-          actionLabel: "Extend",
-          severity: "warning",
-          dismissible: true,
-        },
-      ];
-
-  const [actions, setActions] = useState<ActionRequiredItem[]>(defaultActions);
-  const undoTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
-
-  // Optimistic Reject with 5-second Undo toast
-  const handleReject = useCallback((item: ActionRequiredItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-
-    // Remove optimistically
-    setActions((prev) => prev.filter((a) => a.id !== item.id));
-
-    // Show Undo toast for 5 seconds
-    toast(`Rejected "${item.title}"`, {
-      description: "Reversible for the next 5 seconds.",
-      duration: 5000,
-      action: {
-        label: "Undo",
-        onClick: () => {
-          // Clear any pending timeout and restore item
-          const timer = undoTimersRef.current.get(item.id);
-          if (timer) clearTimeout(timer);
-          undoTimersRef.current.delete(item.id);
-          setActions((prev) => [item, ...prev]);
-          toast.success(`Restored "${item.title}"`);
-        },
-      },
-    });
-
-    // Schedule actual final commit after 5s
-    const timer = setTimeout(() => {
-      undoTimersRef.current.delete(item.id);
-    }, 5000);
-
-    undoTimersRef.current.set(item.id, timer);
-  }, []);
-
-  // Optimistic Shortlist
-  const handleShortlist = useCallback((item: ActionRequiredItem, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setActions((prev) => prev.filter((a) => a.id !== item.id));
-    toast.success(`Shortlisted "${item.title}"`, {
-      description: "Candidate moved to Shortlisted stage.",
-    });
-  }, []);
+  const actions: ActionRequiredItem[] = useMemo(() => {
+    return initialActions.length > 0
+      ? initialActions
+      : [
+          {
+            id: "act-app-1",
+            type: "unreviewed_applicants",
+            title: "7 new applicants need review",
+            description: "Highest volume in: Senior Frontend Engineer",
+            actionUrl: "/linkbridge/client/applicants?status=APPLIED",
+            actionLabel: "Review Applicants",
+            severity: "warning",
+            dismissible: false,
+          },
+          {
+            id: "act-int-2",
+            type: "interview_outcome_pending",
+            title: "1 interview outcome pending",
+            description: "Requires completion or attendance status: David Chen",
+            actionUrl: "/linkbridge/client/interviews?tab=awaiting_outcome",
+            actionLabel: "Mark Outcome",
+            severity: "urgent",
+            dismissible: false,
+          },
+        ];
+  }, [initialActions]);
 
   // Quick schedule action
   const handleSchedule = useCallback((item: ActionRequiredItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    router.push(`/vos-sync/client/interviews?candidate=${encodeURIComponent(item.title)}`);
+    router.push(`/linkbridge/client/interviews?candidate=${encodeURIComponent(item.title)}`);
   }, [router]);
 
   const handleRowClick = useCallback((url: string) => {
@@ -151,7 +98,15 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
                 )}
               </div>
             </div>
-            <span className="text-[11px] text-muted-foreground dark:text-[#8A94AD]">High priority queue</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => router.push("/linkbridge/client/notifications")}
+              className="text-sm md:text-xs font-semibold text-primary hover:text-primary/90 h-8 max-md:min-h-10 px-2.5 flex items-center gap-1 group"
+            >
+              Notification Center
+              <ArrowRight className="h-3.5 w-3.5 group-hover:translate-x-0.5 transition-transform" />
+            </Button>
           </CardHeader>
 
           <CardContent className="p-4 md:p-5">
@@ -168,6 +123,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
                     const isApplicant = item.type === "unreviewed_applicants";
                     const isInterview = item.type === "interview_pending" || item.type === "interview_outcome_pending";
                     const isJob = item.type === "job_expiring";
+                    const isProfile = item.type === "profile_verification";
 
                     return (
                       <motion.div
@@ -198,39 +154,37 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
                           {/* Inline Action Buttons */}
                           <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-center">
                             {isApplicant && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={(e) => handleShortlist(item, e)}
-                                  className="h-7 px-2.5 text-[11px] rounded-lg font-semibold border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30"
-                                  title="Shortlist applicant"
-                                >
-                                  <UserCheck className="h-3 w-3 mr-1" />
-                                  Shortlist
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={(e) => handleReject(item, e)}
-                                  className="h-7 px-2 text-[11px] rounded-lg font-semibold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30"
-                                  title="Reject with undo"
-                                >
-                                  <UserX className="h-3 w-3 mr-1" />
-                                  Reject
-                                </Button>
-                              </>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(item.actionUrl);
+                                }}
+                                className="h-7 px-2.5 text-[11px] rounded-lg font-semibold border-amber-500/30 text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                                title="Review applicants"
+                              >
+                                <Users className="h-3 w-3 mr-1" />
+                                {item.actionLabel || "Review Applicants"}
+                              </Button>
                             )}
 
                             {isInterview && (
                               <Button
                                 size="sm"
                                 variant="outline"
-                                onClick={(e) => handleSchedule(item, e)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (item.actionUrl) {
+                                    router.push(item.actionUrl);
+                                  } else {
+                                    handleSchedule(item, e);
+                                  }
+                                }}
                                 className="h-7 px-2.5 text-[11px] rounded-lg font-semibold border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
                               >
                                 <Calendar className="h-3 w-3 mr-1" />
-                                Schedule
+                                {item.actionLabel || "Review"}
                               </Button>
                             )}
 
@@ -244,7 +198,21 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
                                 }}
                                 className="h-7 px-2.5 text-[11px] rounded-lg font-semibold border-border text-foreground hover:bg-muted"
                               >
-                                Extend
+                                {item.actionLabel || "Extend"}
+                              </Button>
+                            )}
+
+                            {isProfile && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  router.push(item.actionUrl);
+                                }}
+                                className="h-7 px-2.5 text-[11px] rounded-lg font-semibold border-border text-foreground hover:bg-muted"
+                              >
+                                {item.actionLabel || "Complete Profile"}
                               </Button>
                             )}
                           </div>
@@ -257,18 +225,7 @@ export default function ActionRequiredCard({ initialActions = [] }: ActionRequir
             )}
           </CardContent>
         </div>
-
-        <div className="p-4 bg-muted/20 border-t border-[#E6EAF2]/80 dark:border-[#1E2942] flex items-center justify-between">
-          <span className="text-sm md:text-xs text-muted-foreground dark:text-[#8A94AD]">Prioritized hiring tasks</span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.push("/vos-sync/client/notifications")}
-            className="text-sm md:text-xs font-semibold h-8 max-md:min-h-10 rounded-lg"
-          >
-            Notification Center
-          </Button>
-        </div>
+ 
       </Card>
     </motion.div>
   );

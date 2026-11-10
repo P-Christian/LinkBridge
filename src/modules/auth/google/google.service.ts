@@ -1,6 +1,7 @@
 // src/modules/auth/google/google.service.ts
 import crypto from "crypto";
 import * as jose from "jose";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
  
 export class GoogleOAuthError extends Error {
   public readonly code: string;
@@ -153,8 +154,11 @@ export function resolveCanonicalRedirectUri(incomingHost: string | null, incomin
   const proto = incomingProto?.trim() || (cleanHost.includes("localhost") || cleanHost.startsWith("127.0.0.1") ? "http" : "https");
 
   let requestOrigin: string;
+  let incomingHostname = "";
   try {
-    requestOrigin = new URL(`${proto}://${cleanHost}`).origin.toLowerCase();
+    const parsedUrl = new URL(`${proto}://${cleanHost}`);
+    requestOrigin = parsedUrl.origin.toLowerCase();
+    incomingHostname = parsedUrl.hostname.toLowerCase();
   } catch {
     throw new GoogleOAuthError(`Invalid host header: ${incomingHost}`, "INVALID_HOST", 400);
   }
@@ -169,10 +173,14 @@ export function resolveCanonicalRedirectUri(incomingHost: string | null, incomin
   });
   if (exactOrigin) return `${exactOrigin}${CANONICAL_CALLBACK_PATH}`;
 
-  // 2. Fallback to host match
+  // 2. Fallback to host match or normalized hostname match (handles reverse proxy ports e.g. :4000)
   const matchedOrigin = allowedOrigins.find((allowed) => {
     try {
-      return new URL(allowed).host.toLowerCase() === cleanHost.toLowerCase();
+      const u = new URL(allowed);
+      return (
+        u.host.toLowerCase() === cleanHost.toLowerCase() ||
+        (Boolean(incomingHostname) && u.hostname.toLowerCase() === incomingHostname)
+      );
     } catch {
       return false;
     }
@@ -203,8 +211,11 @@ export function resolveRequestOrigin(
       (cleanHost.includes("localhost") || cleanHost.startsWith("127.0.0.1") ? "http" : "https");
 
     let reqOrigin = "";
+    let incomingHostname = "";
     try {
-      reqOrigin = new URL(`${proto}://${cleanHost}`).origin.toLowerCase();
+      const parsedUrl = new URL(`${proto}://${cleanHost}`);
+      reqOrigin = parsedUrl.origin.toLowerCase();
+      incomingHostname = parsedUrl.hostname.toLowerCase();
     } catch {
       // ignore invalid URL
     }
@@ -222,28 +233,30 @@ export function resolveRequestOrigin(
 
     const hostMatch = allowedOrigins.find((allowed) => {
       try {
-        return new URL(allowed).host.toLowerCase() === cleanHost.toLowerCase();
+        const u = new URL(allowed);
+        return (
+          u.host.toLowerCase() === cleanHost.toLowerCase() ||
+          (Boolean(incomingHostname) && u.hostname.toLowerCase() === incomingHostname)
+        );
       } catch {
         return false;
       }
     });
     if (hostMatch) return hostMatch;
-    if (reqOrigin) return reqOrigin;
+    // An unmatched Host must never become the redirect base — fall through to the configured origin.
   }
 
   return fallbackOrigin || allowedOrigins[0] ;
 }
 
-/** Derives 32-byte key for JWE authenticated encryption (A256GCM) */
+/** 32-byte key for JWE authenticated encryption (A256GCM), separate from the state-signing key */
 function getEncryptionKey(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return crypto.createHash("sha256").update(`${secret}:google-oauth-encryption`).digest();
+  return deriveJwtPurposeSecret("google-oauth-encryption");
 }
 
-/** Derives key for signing transaction cookie */
+/** Key for signing the OAuth transaction cookie; never the access-session key */
 function getSigningSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return new TextEncoder().encode(secret);
+  return deriveJwtPurposeSecret("google-oauth-state");
 }
 
 /** Creates a secure signed OAuth transaction token for cookies */
@@ -496,6 +509,7 @@ export interface GooglePendingLinkPayload {
   userId: number | string;
   sub: string;
   email: string;
+  name?: string;
   exp: number;
 }
 
@@ -516,6 +530,7 @@ export async function sealPendingLinkToken(data: {
   userId: number | string;
   sub: string;
   email: string;
+  name?: string;
 }): Promise<string> {
   const key = getEncryptionKey();
   const jti = crypto.randomUUID();
@@ -525,6 +540,7 @@ export async function sealPendingLinkToken(data: {
     userId: data.userId,
     sub: data.sub,
     email: data.email.trim().toLowerCase(),
+    name: data.name,
     exp: Math.floor(Date.now() / 1000) + 10 * 60, // 10 minutes
   };
 

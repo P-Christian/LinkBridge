@@ -26,7 +26,7 @@ export async function recalculateAndPersistScoreForUser(userId: number, email?: 
             const NEXT_PUBLIC_API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL;
             const DIRECTUS_STATIC_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
             if (NEXT_PUBLIC_API_BASE_URL && DIRECTUS_STATIC_TOKEN) {
-                const res = await fetch(`${NEXT_PUBLIC_API_BASE_URL}/items/vs_user/${userId}`, {
+                const res = await fetch(`${NEXT_PUBLIC_API_BASE_URL}/items/vs_user/${userId}?fields=user_email`, {
                     headers: { "Authorization": `Bearer ${DIRECTUS_STATIC_TOKEN}` }
                 });
                 if (res.ok) {

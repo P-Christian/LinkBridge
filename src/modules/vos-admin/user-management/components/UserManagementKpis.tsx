@@ -2,19 +2,22 @@
 
 import React from "react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Users, Clock, CheckCircle2, XCircle } from "lucide-react";
+import { Users, Clock, CheckCircle2, XCircle, FileQuestion } from "lucide-react";
 import { UserManagementKPIs } from "../types/user.types";
+import { KpiValue } from "@/components/shared/KpiValue";
 
 interface UserManagementKpisProps {
   kpis: UserManagementKPIs;
   onFilterSelect?: (status: string) => void;
   currentFilter?: string;
+  loading?: boolean;
 }
 
 export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
   kpis,
   onFilterSelect,
   currentFilter,
+  loading,
 }) => {
   const cards = [
     {
@@ -53,10 +56,19 @@ export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
       bgColor: "bg-rose-500/10",
       borderColor: currentFilter === "rejected" ? "border-rose-500" : "border-border",
     },
+    {
+      id: "not_submitted",
+      title: "Not Submitted",
+      value: kpis.notSubmittedCount,
+      icon: FileQuestion,
+      color: "text-zinc-500",
+      bgColor: "bg-zinc-500/10",
+      borderColor: currentFilter === "not_submitted" ? "border-zinc-500" : "border-border",
+    },
   ];
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5 mb-6">
       {cards.map((card) => {
         const Icon = card.icon;
         return (
@@ -70,7 +82,9 @@ export const UserManagementKpis: React.FC<UserManagementKpisProps> = ({
                 <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {card.title}
                 </p>
-                <h3 className="text-2xl font-bold mt-1 text-foreground">{card.value}</h3>
+                <h3 className="text-2xl font-bold mt-1 text-foreground">
+                  <KpiValue value={card.value} loading={loading} />
+                </h3>
               </div>
               <div className={`p-3 rounded-xl ${card.bgColor} ${card.color}`}>
                 <Icon className="h-6 w-6" />

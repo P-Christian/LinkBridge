@@ -2,7 +2,7 @@
 // src/app/api/client/jobs/[id]/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import * as jobService from "../service.directus";
-import { checkRestriction } from "@/lib/status-validator";
+import { checkRestrictionState } from "@/lib/status-validator";
 import { getPHTimeString } from "@/lib/utils";
 import {
   authenticateRequest,
@@ -10,6 +10,7 @@ import {
   isClientSession,
 } from "@/lib/authenticated-session";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -26,23 +27,38 @@ function getHeaders(): Record<string, string> {
 }
 
 async function getCompanyId(userId: number): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const json = await res.json();
-    return json.data?.[0]?.company_id ?? null;
-  } catch {
-    return null;
-  }
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  // An unreadable link is not "no link": falling through to the null branch
+  // answered 403/404 and a recruiter read that as having no company at all.
+  if (!res.ok) throw new Error(`Company link lookup failed (${res.status}).`);
+  const json = await res.json();
+  return json.data?.[0]?.company_id ?? null;
 }
 
 async function attachCompanyToJob(job: any) {
   if (!job || !job.company_id) return job;
   try {
+    const companyFields = [
+      "company_id",
+      "company_name",
+      "company_logo",
+      "company_cover",
+      "company_email",
+      "company_contact",
+      "company_address",
+      "company_city",
+      "company_province",
+      "company_facebook",
+      "company_linkedin",
+      "company_instagram",
+      "company_x",
+      "company_youtube",
+    ].join(",");
     const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company/${job.company_id}?fields=*`,
+      `${DIRECTUS_BASE}/items/vs_company/${job.company_id}?fields=${companyFields}`,
       { headers: getHeaders(), cache: "no-store" }
     );
     if (!res.ok) return job;
@@ -89,19 +105,53 @@ async function attachCompanyToJob(job: any) {
   }
 }
 
-// GET — Fetch single job
+// GET — Fetch single job. The employer that owns the posting, or an admin.
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const session = await authenticateRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    const isAdmin = isAdministratorSession(session);
+    const isClient = isClientSession(session);
+    if (!isAdmin && !isClient) {
+      return NextResponse.json(
+        { error: "Forbidden: Client or Admin access required." },
+        { status: 403 }
+      );
+    }
+
     const job = await jobService.getJob(id);
+    if (!job) {
+      return NextResponse.json({ error: "Job posting not found." }, { status: 404 });
+    }
+
+    if (!isAdmin) {
+      const callerCompanyId = await getCompanyId(Number(session.userId));
+      if (!callerCompanyId) {
+        return NextResponse.json(
+          { error: "Company association not found." },
+          { status: 403 }
+        );
+      }
+      if (job.company_id !== callerCompanyId) {
+        return NextResponse.json(
+          { error: "Forbidden: job belongs to another organization." },
+          { status: 403 }
+        );
+      }
+    }
+
     const jobWithCompany = await attachCompanyToJob(job);
     return NextResponse.json({ job: jobWithCompany });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -152,8 +202,14 @@ export async function PATCH(
       );
     }
 
-    const isRestricted = await checkRestriction(userId, "PUBLISH_JOBS");
-    if (isRestricted) {
+    const restriction = await checkRestrictionState(userId, "PUBLISH_JOBS");
+    if (restriction.restricted) {
+      if (restriction.reason === "unavailable") {
+        return NextResponse.json(
+          { error: "Your account status could not be verified, so this job was not updated. Please try again." },
+          { status: 503 }
+        );
+      }
       return NextResponse.json(
         { error: "Your job posting privileges are temporarily suspended." },
         { status: 403 }
@@ -176,6 +232,9 @@ export async function PATCH(
       "salary_negotiable",
       "experience_level",
       "status",
+      "skills",
+      "benefits",
+      "screening_questions",
     ];
 
     const safePayload: Record<string, unknown> = {};
@@ -186,13 +245,13 @@ export async function PATCH(
     const nowPH = getPHTimeString();
     safePayload.updated_at = nowPH;
 
-    const updatedJob = await jobService.updateJob(id, safePayload);
+    const { job: updatedJob, warnings } = await jobService.updateJob(id, safePayload);
     const jobWithCompany = await attachCompanyToJob(updatedJob);
 
-    return NextResponse.json({ success: true, job: jobWithCompany });
+    return NextResponse.json({ success: true, job: jobWithCompany, warnings });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -243,7 +302,7 @@ export async function DELETE(
     return NextResponse.json({ success: true, message: "Job posting closed." });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

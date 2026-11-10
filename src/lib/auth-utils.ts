@@ -92,20 +92,27 @@ export function extractClientIp(headers: Headers): string | null {
 }
 
 /**
- * Resolves an IP address to approximate lat/lon.
+ * SEC-022: geolocation lookup for the session list has been removed.
+ *
+ * This helper used to call `http://ip-api.com/json/<ip>` — cleartext HTTP, to an
+ * external host, with the signed-in user's own IP, on every read of
+ * `/api/{client,freelancer}/settings/sessions`. The resolved lat/lon only ever
+ * fed a cosmetic `location` label on a row the user is looking at; it was never
+ * persisted (`location_label` is a separate column that no caller populates) and
+ * never used for a security decision. The value did not justify shipping a user's
+ * IP to a third party, so the feature is dropped rather than upgraded to HTTPS.
+ *
+ * The session rows still render the IP address and the parsed user agent, which
+ * is what the list needs; the callers keep their existing "Philippines" fallback
+ * label (the same one already used whenever this lookup failed or timed out).
+ *
+ * If geolocation is ever required for a real security decision (new-location
+ * alerts, impossible travel), resolve it once at login over HTTPS and persist it
+ * into `vs_user_sessions.location_label` — do not re-query a third party with the
+ * IP on every list view.
  */
-export async function resolveIpGeo(ip: string): Promise<{ latitude: number; longitude: number } | null> {
-    if (!ip || ip === "127.0.0.1" || ip === "::1") return null;
-    try {
-        const res = await fetch(`http://ip-api.com/json/${ip}?fields=status,lat,lon`, {
-            cache: "no-store",
-            signal: AbortSignal.timeout(3000),
-        });
-        const data = await res.json();
-        if (data.status !== "success") return null;
-        return { latitude: data.lat, longitude: data.lon };
-    } catch {
-        return null;
-    }
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- the argument is kept only so the session-list call sites keep their shape
+export async function resolveIpGeo(_ip: string): Promise<{ latitude: number; longitude: number } | null> {
+    return null;
 }
 

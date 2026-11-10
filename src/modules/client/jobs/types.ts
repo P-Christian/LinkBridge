@@ -35,6 +35,7 @@ export interface JobPosting {
   experience_level?: ExperienceLevel | null;
   status: JobStatus;
   applicants_count?: number;
+  active_applicants_count?: number;
   created_at?: string;
   updated_at?: string;
   category_id?: number | null;
@@ -125,6 +126,10 @@ export interface PublicJobPosting {
   status: JobStatus;
 
   created_at?: string;
+
+  applicants_count?: number;
+
+  active_applicants_count?: number;
 
   skills?: {
     id:number;

@@ -19,6 +19,7 @@ export function ResumeSidebar() {
         data, 
         pendingVisibility, 
         refresh, 
+        updateProfile,
         isAutofilling, 
         setIsAutofilling,
         setProfessionalSummaryDraft,
@@ -38,6 +39,7 @@ export function ResumeSidebar() {
     // Data states
     const [selectedFile, setSelectedFile] = useState<File | null>(null);
     const [resumeToDelete, setResumeToDelete] = useState<{ id: number, name: string } | null>(null);
+    const [updatingResumeId, setUpdatingResumeId] = useState<number | null>(null);
     
     const [isUploading, setIsUploading] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -61,8 +63,9 @@ export function ResumeSidebar() {
         if (!file) return;
 
         // Basic validation
-        if (file.size > 5 * 1024 * 1024) {
-            toast.error("File exceeds 5MB limit.");
+        if (file.size > 10 * 1024 * 1024) {
+            const sizeMB = (file.size / (1024 * 1024)).toFixed(2);
+            toast.error(`File is too large (${sizeMB}MB). Maximum allowed size is 10MB.`);
             return;
         }
 
@@ -95,6 +98,17 @@ export function ResumeSidebar() {
                     if (parsed.professional_summary) {
                         setProfessionalSummaryDraft(parsed.professional_summary);
                     }
+                    const sanitizeDate = (d: unknown): string | null => {
+                        if (!d || typeof d !== "string") return null;
+                        const trimmed = d.trim();
+                        if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+                        const dateObj = new Date(trimmed);
+                        if (!isNaN(dateObj.getTime())) {
+                            return dateObj.toISOString().split("T")[0];
+                        }
+                        return null;
+                    };
+
                     if (parsed.work_experience && parsed.work_experience.length > 0) {
                         const newWorkExp = parsed.work_experience.map((we: { job_title: string; company_name: string; start_date: string; end_date: string | null; description: string }, i: number) => {
                             const existingMatch = data.work_experience?.find(
@@ -107,8 +121,8 @@ export function ResumeSidebar() {
                                 user_id: data.user_id,
                                 job_title: we.job_title,
                                 company_name: we.company_name,
-                                start_date: we.start_date,
-                                end_date: we.end_date,
+                                start_date: sanitizeDate(we.start_date) || new Date().toISOString().split("T")[0],
+                                end_date: sanitizeDate(we.end_date),
                                 job_description: we.description,
                                 is_current_role: !we.end_date,
                                 location: existingMatch?.location || null,
@@ -130,9 +144,10 @@ export function ResumeSidebar() {
                                 user_id: data.user_id,
                                 school_name_raw: ed.school_name,
                                 course_name_raw: ed.course_name,
-                                start_date: ed.start_date,
-                                end_date: ed.end_date,
-                                education_status: existingMatch?.education_status || 'Unverified' as const,
+                                start_date: sanitizeDate(ed.start_date),
+                                end_date: sanitizeDate(ed.end_date),
+                                education_status: existingMatch?.education_status || 'Pending' as const,
+                                course_request_draft_key: existingMatch?.course_request_draft_key || crypto.randomUUID(),
                                 school_id: existingMatch?.school_id || null,
                                 school_course_id: existingMatch?.school_course_id || null
                             };
@@ -164,8 +179,9 @@ export function ResumeSidebar() {
             } else {
                 toast.error(res.error || "Failed to process resume");
             }
-        } catch {
-            toast.error("An unexpected error occurred");
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "An unexpected error occurred";
+            toast.error(msg);
         } finally {
             setIsUploading(false);
             if (isAutofill) setIsAutofilling(false);
@@ -189,16 +205,31 @@ export function ResumeSidebar() {
     };
 
     const handleMakePrimary = async (resumeId: number) => {
+        const previousResumes = data.resumes || [];
+        const optimisticResumes = previousResumes.map(r => ({
+            ...r,
+            is_primary: r.id === resumeId
+        }));
+
+        // Instant optimistic update (0ms UI latency)
+        updateProfile({ resumes: optimisticResumes });
+        setUpdatingResumeId(resumeId);
+
         try {
             const res = await setPrimaryResumeAction(data.user_id, resumeId);
             if (res.success) {
                 toast.success("Primary resume updated");
-                refresh();
             } else {
+                // Roll back to previous state if backend operation fails
+                updateProfile({ resumes: previousResumes });
                 toast.error(res.error || "Failed to set primary resume");
             }
         } catch {
+            // Roll back on network or unexpected exception
+            updateProfile({ resumes: previousResumes });
             toast.error("An unexpected error occurred");
+        } finally {
+            setUpdatingResumeId(null);
         }
     };
 
@@ -262,7 +293,7 @@ export function ResumeSidebar() {
                 <div>
                     <h3 className="text-lg font-semibold text-foreground">Resume/CV</h3>
                     <p className="text-sm text-muted-foreground mt-1 max-w-[200px] mx-auto">
-                        Upload your latest professional document. PDF, DOCX (Max 5MB)
+                        Upload your latest professional document. PDF, DOCX (Max 10MB)
                     </p>
                 </div>
                 <Button 
@@ -310,6 +341,7 @@ export function ResumeSidebar() {
                                 onDelete={() => promptDelete(resume.id, resume.file_name || "Document")}
                                 onMakePrimary={() => handleMakePrimary(resume.id)}
                                 isPrimary={false}
+                                isUpdating={updatingResumeId === resume.id}
                             />
                         ))}
                     </div>
@@ -363,7 +395,7 @@ export function ResumeSidebar() {
     );
 }
 
-function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary }: { resume: VsJobSeekerResume, onDelete: () => void, onMakePrimary?: () => void, isPrimary: boolean }) {
+function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary, isUpdating }: { resume: VsJobSeekerResume, onDelete: () => void, onMakePrimary?: () => void, isPrimary: boolean, isUpdating?: boolean }) {
     const rawFileReference = String(resume.file_url || "");
     const fileId = rawFileReference.includes("/assets/")
         ? rawFileReference.split("/assets/").pop()?.split(/[?#]/u)[0]
@@ -386,7 +418,14 @@ function ResumeItem({ resume, onDelete, onMakePrimary, isPrimary }: { resume: Vs
                 </div>
                 <div className="flex items-center gap-1 shrink-0 ml-2">
                     {!isPrimary && onMakePrimary && (
-                        <Button variant="ghost" size="sm" className="h-8 text-sm md:text-xs text-muted-foreground hover:text-primary max-md:min-h-11" onClick={onMakePrimary}>
+                        <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="h-8 text-sm md:text-xs text-muted-foreground hover:text-primary max-md:min-h-11 flex items-center gap-1.5" 
+                            onClick={onMakePrimary}
+                            disabled={isUpdating}
+                        >
+                            {isUpdating && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                             Make Primary
                         </Button>
                     )}

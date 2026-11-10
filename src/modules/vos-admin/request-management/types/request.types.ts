@@ -82,7 +82,7 @@ export type CourseAvailableAction = 'approve' | 'route' | 'reject' | 'resume';
 /**
  * Persisted approval claim retained after a 503 response loss. The claim
  * initiator is the ORIGINAL reviewer (server `reviewed_by` when present) and
- * is never replaced, so any currently authorized VOS Admin can resume it.
+ * is never replaced, so any currently authorized Admin Portal can resume it.
  */
 export interface PersistedCourseClaim {
   requestId: number;

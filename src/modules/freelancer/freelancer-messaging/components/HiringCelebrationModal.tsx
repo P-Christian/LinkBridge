@@ -150,14 +150,14 @@ export default function HiringCelebrationModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.88, y: 20 }}
             transition={{ type: "spring", stiffness: 350, damping: 25 }}
-            className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-500/30 bg-white/95 dark:bg-zinc-900/95 p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-center"
+            className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border border-primary/20 bg-card/95 text-card-foreground p-6 sm:p-8 shadow-2xl backdrop-blur-xl text-center"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Top Close Button */}
             <button
               type="button"
               onClick={onDismiss}
-              className="absolute top-4 right-4 p-2 rounded-full text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition max-md:size-11 max-md:grid max-md:place-items-center"
+              className="absolute top-4 right-4 p-2 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition max-md:size-11 max-md:grid max-md:place-items-center"
               title="Dismiss"
             >
               <X className="h-4 w-4" />
@@ -221,7 +221,7 @@ export default function HiringCelebrationModal({
                   </div>
                   <div className="min-w-0">
                     <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                      Target Position
+                      Position
                     </span>
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
                       {celebration.job_title}

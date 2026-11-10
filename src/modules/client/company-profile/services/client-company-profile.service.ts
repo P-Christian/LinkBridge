@@ -113,15 +113,19 @@ export async function getClientCompanyProfileData(userId: number): Promise<Clien
   const computedPercent = companyData ? calculateCompletionPercent(companyData) : 0;
 
   let publicRejectionReason: string | null = (companyData?.rejection_reason as string) || null;
+  let workflowStatus: string | null = null;
   if (companyId) {
     try {
-      const verifUrl = `${DIRECTUS_BASE}/items/vs_company_verifications?filter[company_id][_eq]=${companyId}&sort=-created_at&limit=1`;
+      const verifUrl = `${DIRECTUS_BASE}/items/vs_company_verifications?filter[company_id][_eq]=${companyId}&sort=-created_at,-id&limit=1`;
       const verifRes = await fetch(verifUrl, { headers: getHeaders(), cache: "no-store" });
       if (verifRes.ok) {
         const verifJson = await verifRes.json();
         const latestV = verifJson.data?.[0];
         if (latestV?.public_rejection_reason) {
           publicRejectionReason = latestV.public_rejection_reason;
+        }
+        if (latestV?.status) {
+          workflowStatus = String(latestV.status).toUpperCase();
         }
       }
     } catch (e) {
@@ -133,6 +137,7 @@ export async function getClientCompanyProfileData(userId: number): Promise<Clien
     ? {
         ...companyData,
         profile_completion_percent: computedPercent,
+        verification_workflow_status: workflowStatus,
         rejection_reason: publicRejectionReason || companyData.rejection_reason || null,
         public_rejection_reason: publicRejectionReason || companyData.rejection_reason || null,
       }

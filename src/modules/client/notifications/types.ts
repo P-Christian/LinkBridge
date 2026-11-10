@@ -9,6 +9,7 @@ export interface Notification {
   message: string;
   action_url?: string | null;
   is_read: boolean;
+  is_starred: boolean;
   created_at: string;
   // from vs_notification_event join
   event_type?: string | null;
@@ -162,4 +163,3 @@ export const NOTIFICATION_CATEGORIES_BY_GROUP: NotificationCategoryGroup[] = [
     ],
   },
 ];
-

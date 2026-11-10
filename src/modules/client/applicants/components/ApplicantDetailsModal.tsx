@@ -62,7 +62,7 @@ import {
   faGithub,
 } from "@fortawesome/free-brands-svg-icons";
 import { faGlobe } from "@fortawesome/free-solid-svg-icons";
-import { cn } from "@/lib/utils";
+import { cn, copyToClipboard } from "@/lib/utils";
 import { Applicant, ApplicationStatus, CandidateDetail, STATUS_LABELS } from "../types";
 import { STAGE_COLOR_CLASSES } from "@/modules/client/pipeline/types";
 import {
@@ -234,12 +234,10 @@ function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(value);
+    const success = await copyToClipboard(value);
+    if (success) {
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard unavailable — fail silently */
     }
   };
 
@@ -561,8 +559,11 @@ export default function ApplicantDetailsModal({
           </div>
         )}
 
-        {/* ── Scrollable content ─────────────────────────────── */}
-        <div className="flex-1 overflow-y-auto scroll-smooth bg-muted/20 p-6 [scrollbar-gutter:stable]">
+        {/* ── Scrollable content ───────────────────────────────
+            wrap-anywhere (overflow-wrap: anywhere) is inherited by every text
+            node below, so one unbreakable token wraps inside its card instead of
+            painting past it. (Tailwind 4 renamed break-anywhere -> wrap-anywhere.) */}
+        <div className="flex-1 overflow-y-auto scroll-smooth bg-muted/20 p-6 wrap-anywhere [scrollbar-gutter:stable]">
           {error && (
             <div className="mb-5 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive md:text-xs">
               <AlertCircle className="h-3.5 w-3.5 shrink-0" />
@@ -845,7 +846,7 @@ export default function ApplicantDetailsModal({
                               ? `Endorsed by ${detail.referral_school_name}${detail.referrer_name ? ` (${detail.referrer_name})` : ""}`
                               : detail.referrer_name
                                 ? `Referred by ${detail.referrer_name}`
-                                : "Referred candidate on VOS Sync"}
+                                : "Referred candidate on LinkBridge"}
                           </p>
                         </div>
                       </div>
@@ -1009,7 +1010,7 @@ export default function ApplicantDetailsModal({
 
           <div className="flex flex-row items-center gap-2.5 max-md:flex-col max-md:items-stretch">
             <Button asChild variant="outline" className="gap-1.5 border-border font-medium hover:bg-muted max-md:min-h-10 max-md:w-full">
-              <Link href={`/vos-sync/client/messaging?freelancer_id=${activeApplicant?.user_id ?? ""}&job_id=${activeApplicant?.job_id ?? ""}`}>
+              <Link href={`/linkbridge/client/messaging?freelancer_id=${activeApplicant?.user_id ?? ""}&job_id=${activeApplicant?.job_id ?? ""}`}>
                 <MessageSquare className="h-4 w-4 text-primary" />
                 Message
               </Link>
@@ -1024,7 +1025,7 @@ export default function ApplicantDetailsModal({
             {isInterviewEligible &&
               (interviewId ? (
                 <Button asChild variant="outline" className="gap-1.5 border-border font-medium hover:bg-muted max-md:min-h-10 max-md:w-full">
-                  <Link href="/vos-sync/client/interviews">
+                  <Link href="/linkbridge/client/interviews">
                     <CalendarPlus className="h-4 w-4 text-primary" />
                     View Interview
                   </Link>

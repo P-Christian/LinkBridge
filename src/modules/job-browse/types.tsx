@@ -90,3 +90,13 @@ export const EXPERIENCE_LEVEL_LABELS: Record<ExperienceLevel, string> = {
   MANAGER: 'Manager / Lead',
   EXECUTIVE: 'Executive / Director',
 };
+
+export type DatePostedFilter = 'ALL' | '24h' | '7d' | '30d';
+
+export const DATE_POSTED_OPTIONS: { value: DatePostedFilter; label: string }[] = [
+  { value: 'ALL', label: 'Anytime' },
+  { value: '24h', label: 'Past 24 Hours' },
+  { value: '7d', label: 'Past Week (Last 7 Days)' },
+  { value: '30d', label: 'Past Month (Last 30 Days)' },
+];
+

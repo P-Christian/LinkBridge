@@ -65,12 +65,39 @@ export default function FreelancerNotificationPreferences({
 
   const draftMap = useMemo(() => {
     const map = new Map<string, FreelancerNotificationPreference>();
-    preferences.forEach((p) => {
-      map.set(p.category, {
-        ...p,
-        ...(overrides.get(p.category) ?? {}),
+
+    // Seed with all known categories and their defaults first
+    FREELANCER_NOTIFICATION_CATEGORIES.flatMap((g) => g.categories).forEach((catItem) => {
+      map.set(catItem.category, {
+        user_id: 0,
+        category: catItem.category,
+        email_enabled: catItem.defaultEmail,
+        in_app_enabled: catItem.defaultInApp,
       });
     });
+
+    // Merge server preferences
+    preferences.forEach((p) => {
+      map.set(p.category, {
+        ...map.get(p.category),
+        ...p,
+      });
+    });
+
+    // Apply local unsaved overrides
+    overrides.forEach((val, cat) => {
+      const existing = map.get(cat) ?? {
+        user_id: 0,
+        category: cat,
+        email_enabled: true,
+        in_app_enabled: true,
+      };
+      map.set(cat, {
+        ...existing,
+        ...val,
+      });
+    });
+
     return map;
   }, [preferences, overrides]);
 
@@ -251,6 +278,8 @@ export default function FreelancerNotificationPreferences({
                           handleToggle(catItem.category, "email_enabled", val)
                         }
                         disabled={saving || !globalEmailEnabled}
+                        className="cursor-pointer"
+                        aria-label={`Enable email notifications for ${catItem.label}`}
                       />
                     </div>
 
@@ -263,6 +292,8 @@ export default function FreelancerNotificationPreferences({
                           handleToggle(catItem.category, "in_app_enabled", val)
                         }
                         disabled={saving}
+                        className="cursor-pointer"
+                        aria-label={`Enable in-app notifications for ${catItem.label}`}
                       />
                     </div>
                   </div>

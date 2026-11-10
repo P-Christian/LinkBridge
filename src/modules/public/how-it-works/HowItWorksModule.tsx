@@ -1,13 +1,12 @@
 // src/modules/public/how-it-works/HowItWorksModule.tsx
 "use client";
 
-
 import { useState } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { RoleKey } from "./types";
-import { ROLE_GUIDES } from "./config";
+import { isRoleKey, type RoleKey } from "./types";
+import { ROLE_GUIDES, SECTION_IDS } from "./config";
 import {
   HeroSection,
   QuickOverview,
@@ -17,98 +16,89 @@ import {
   FAQSection,
   RoleSwitcherCards,
   NeedHelpSection,
+  RoleNavigationProvider,
 } from "./components";
+
+const ROLE_GUIDE_PATHS = ["/client", "/freelancer", "/school-admin"];
+const PUBLIC_PATHS = ["/how-it-works", "/how-it-works/"];
 
 interface Props {
   defaultRole?: RoleKey;
   singleRoleMode?: boolean;
 }
 
-export default function HowItWorksModule({
-  defaultRole = "employee",
-  singleRoleMode = false,
-}: Props) {
+export default function HowItWorksModule({ defaultRole = "employee", singleRoleMode = false }: Props) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
 
-  const isPublicPage = pathname === "/how-it-works" || pathname === "/how-it-works/";
-  const showBackButton = singleRoleMode || (!isPublicPage && (pathname?.includes("/client") || pathname?.includes("/freelancer") || pathname?.includes("/school-admin")));
+  const isPublicPage = PUBLIC_PATHS.includes(pathname ?? "");
+  const showBackButton =
+    singleRoleMode || (!isPublicPage && ROLE_GUIDE_PATHS.some((p) => pathname?.includes(p)));
 
-  const getRoleFromQuery = (): RoleKey => {
-    if (singleRoleMode) return defaultRole;
-    const raw = searchParams.get("role")?.toLowerCase();
-    if (raw === "employer") return "employer";
-    if (raw === "school") return "school";
-    if (raw === "employee") return "employee";
-    return defaultRole;
-  };
+  const rawRole = searchParams.get("role")?.toLowerCase();
+  const queryRole: RoleKey = singleRoleMode ? defaultRole : isRoleKey(rawRole) ? rawRole : defaultRole;
 
-  const queryRole = getRoleFromQuery();
+  // Optimistic role: update the UI instantly, let the URL catch up.
   const [optimisticRole, setOptimisticRole] = useState<RoleKey | null>(null);
   const [lastQueryRole, setLastQueryRole] = useState(queryRole);
-
   if (queryRole !== lastQueryRole) {
     setLastQueryRole(queryRole);
     setOptimisticRole(null);
   }
 
   const activeRole = optimisticRole ?? queryRole;
+  const guide = ROLE_GUIDES[activeRole];
 
-  const handleRoleChange = (newRole: RoleKey) => {
+  const handleRoleChange = (role: RoleKey) => {
     if (singleRoleMode) return;
-    setOptimisticRole(newRole);
+    setOptimisticRole(role);
     const params = new URLSearchParams(searchParams.toString());
-    params.set("role", newRole);
+    params.set("role", role);
     router.push(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
-  const currentGuide = ROLE_GUIDES[activeRole] || ROLE_GUIDES[defaultRole] || ROLE_GUIDES.employee;
+  const handleSwitchFromBottom = (role: RoleKey) => {
+    handleRoleChange(role);
+    document.getElementById(SECTION_IDS.overview)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
-    <div className="min-h-screen text-foreground relative">
-      {/* Top Left Go Back button for client, employee, and school guide pages (excluding public landing page) */}
-      {showBackButton && (
-        <div className="absolute top-4 left-4 sm:top-6 sm:left-8 z-30">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-xs font-semibold cursor-pointer shadow-xs bg-background/90 backdrop-blur-xs hover:bg-muted text-foreground border-border px-3 py-2 rounded-lg transition-all"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            <span>Go Back</span>
-          </Button>
-        </div>
-      )}
+    <RoleNavigationProvider>
+      <div className="min-h-screen text-foreground relative">
+        {showBackButton && (
+          <div className="absolute top-4 left-4 sm:top-6 sm:left-8 z-30">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => router.back()}
+              className="gap-2 text-xs font-semibold cursor-pointer bg-background/90 backdrop-blur-xs"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Go back
+            </Button>
+          </div>
+        )}
 
-      {/* 1. Hero Section */}
-      <HeroSection />
+        <HeroSection />
 
-      {/* 2. Quick Overview Cards (Public only) */}
-      {!singleRoleMode && (
-        <QuickOverview activeRole={activeRole} onSelectRole={handleRoleChange} />
-      )}
+        {!singleRoleMode && (
+          <>
+            <QuickOverview activeRole={activeRole} onSelectRole={handleRoleChange} />
+            <StickyRoleTabs activeRole={activeRole} onSelectRole={handleRoleChange} />
+          </>
+        )}
 
-      {/* 3. Sticky Role Navigation Tabs (Public only) */}
-      {!singleRoleMode && (
-        <StickyRoleTabs activeRole={activeRole} onSelectRole={handleRoleChange} />
-      )}
+        <RoadmapSection guide={guide} />
 
-      {/* 4. Six-Step Interactive Roadmap (Role Specific) */}
-      <RoadmapSection guide={currentGuide} />
+        {!singleRoleMode && <FinalCTA guide={guide} />}
 
-      {/* 5. Role-Specific Final CTA Banner (Public only) */}
-      {!singleRoleMode && <FinalCTA guide={currentGuide} />}
+        <FAQSection activeRole={activeRole} />
 
-      {/* 6. Frequently Asked Questions */}
-      <FAQSection activeRole={activeRole} />
+        {!singleRoleMode && <RoleSwitcherCards activeRole={activeRole} onSelectRole={handleSwitchFromBottom} />}
 
-      {/* 7. Global Role Switcher Cards (Public only) */}
-      {!singleRoleMode && <RoleSwitcherCards />}
-
-      {/* 8. Need Help Support Callout */}
-      <NeedHelpSection />
-    </div>
+        <NeedHelpSection />
+      </div>
+    </RoleNavigationProvider>
   );
 }

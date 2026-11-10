@@ -1,22 +1,99 @@
 // src/app/api/client/talent-profile/[id]/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
+import {
+  DirectusError,
+  directusItems,
+  directusItemsWhereIn,
+  directusSettled,
+} from "@/lib/server/directus";
+import { toId } from "@/lib/server/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+/** Directus wraps a single-item read as `{ data: {...} }`. */
+interface DirectusRow<T> {
+  data?: T;
+}
 
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
+interface TalentUserRow {
+  user_id: number;
+  user_fname?: string | null;
+  user_lname?: string | null;
+  user_email?: string | null;
+  user_contact?: string | null;
+  user_city?: string | null;
+  user_province?: string | null;
+  user_brgy?: string | null;
+  profile_image_url?: string | null;
+  gender?: string | null;
+  nationality?: string | null;
+}
+
+interface TalentProfileRow {
+  profile_id: number;
+  profile_headline?: string | null;
+  professional_summary?: string | null;
+  profile_visibility?: string | null;
+  expected_salary?: string | number | null;
+}
+
+interface TalentSkillRow {
+  id: number;
+  skill_id?: { id?: number; skill_name?: string } | null;
+}
+
+interface TalentWorkRow {
+  id: number;
+  company_name: string;
+  job_title: string;
+  location?: string | null;
+  location_type?: string | null;
+  employment_type?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  is_current_role?: boolean | null;
+  job_description?: string | null;
+}
+
+interface TalentEduRow {
+  employee_education_id: number;
+  school_id?: { school_name?: string; city_municipality?: string; province?: string } | null;
+  school_course_id?: { course_name?: string } | null;
+  education_status?: string | null;
+  start_date?: string | null;
+  end_date?: string | null;
+}
+
+interface TalentCertRow {
+  id: number;
+  certificate_name: string;
+  issuing_organization: string;
+  issue_date?: string | null;
+  credential_url?: string | null;
+}
+
+interface TalentSocialRow {
+  id: number;
+  platform_name: string;
+  profile_url: string;
+}
+
+interface TalentResumeRow {
+  id: number;
+  file_url: string;
+  file_name?: string | null;
+  is_primary: boolean;
+  uploaded_at?: string | null;
+}
+
+interface TalentJobPreferenceRow {
+  id: number;
+  work_setup?: string | null;
+  preferred_location?: string | null;
 }
 
 function toProtectedAssetUrl(fileReference: string): string {
@@ -49,15 +126,18 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const talentUserId = Number(id);
+    const talentUserId = toId(id);
 
-    if (!talentUserId || isNaN(talentUserId)) {
+    if (talentUserId === null) {
       return NextResponse.json({ error: "Invalid talent ID." }, { status: 400 });
     }
 
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
@@ -74,92 +154,97 @@ export async function GET(
 
     // ────────────────────────────────────────────
     // Parallel fetch: all profile data
+    //
+    // Each read is fatal on failure. This payload is what an employer judges a
+    // candidate on, and every one of these used to answer `[]` or `null` when
+    // Directus was unreachable, so an outage was indistinguishable from a
+    // candidate who has no skills, no history and no education.
     // ────────────────────────────────────────────
-    const [userRes, profileRes, skillsRes, workRes, workSkillsRes, eduRes, certRes, socialRes, savedRes] =
+    const [userRes, profileRows, skillsData, workData, eduData, certData, socialData, savedRows, jobPrefRows] =
       await Promise.all([
         // Basic user info
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_user/${talentUserId}?fields=user_id,user_fname,user_lname,user_email,user_contact,user_city,user_province,user_brgy,profile_image_url,gender,nationality`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusSettled<DirectusRow<TalentUserRow>>(`/items/vs_user/${talentUserId}`, {
+          query: "fields=user_id,user_fname,user_lname,user_email,user_contact,user_city,user_province,user_brgy,profile_image_url,gender,nationality",
+        }),
         // Job seeker profile
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_job_seeker_profile?filter[user_id][_eq]=${talentUserId}&fields=profile_id,profile_headline,professional_summary,profile_visibility,expected_salary&limit=1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentProfileRow>("vs_job_seeker_profile", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=profile_id,profile_headline,professional_summary,profile_visibility,expected_salary&limit=1`,
+        }),
         // Skills
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_user_skills_map?filter[user_id][_eq]=${talentUserId}&fields=id,skill_id.id,skill_id.skill_name&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentSkillRow>("vs_user_skills_map", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,skill_id.id,skill_id.skill_name&limit=-1`,
+        }),
         // Work experience
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_work_experience?filter[user_id][_eq]=${talentUserId}&fields=id,company_name,job_title,location,location_type,employment_type,start_date,end_date,is_current_role,job_description&sort[]=-start_date&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
-        // Work experience skills
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_work_experience_skills?fields=experience_id,skill_id.skill_name&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentWorkRow>("vs_work_experience", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,company_name,job_title,location,location_type,employment_type,start_date,end_date,is_current_role,job_description&sort[]=-start_date&limit=-1`,
+        }),
         // Education
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_employee_education?filter[user_id][_eq]=${talentUserId}&fields=employee_education_id,school_id.school_name,school_id.city_municipality,school_id.province,school_course_id.course_name,education_status,start_date,end_date&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentEduRow>("vs_employee_education", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=employee_education_id,school_id.school_name,school_id.city_municipality,school_id.province,school_course_id.course_name,education_status,start_date,end_date&limit=-1`,
+        }),
         // Certifications
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_certifications?filter[user_id][_eq]=${talentUserId}&fields=id,certificate_name,issuing_organization,issue_date,credential_url&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentCertRow>("vs_certifications", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,certificate_name,issuing_organization,issue_date,credential_url&limit=-1`,
+        }),
         // Social links
-        fetch(
-          `${DIRECTUS_BASE}/items/vs_user_social_links?filter[user_id][_eq]=${talentUserId}&fields=id,platform_name,profile_url&limit=-1`,
-          { headers: getHeaders(), cache: "no-store" }
-        ),
+        directusItems<TalentSocialRow>("vs_user_social_links", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,platform_name,profile_url&limit=-1`,
+        }),
         // Is saved?
         companyId
-          ? fetch(
-              `${DIRECTUS_BASE}/items/vs_saved_applicant?filter[company_id][_eq]=${companyId}&filter[applicant_user_id][_eq]=${talentUserId}&fields=saved_applicant_id,notes&limit=1`,
-              { headers: getHeaders(), cache: "no-store" }
-            )
-          : Promise.resolve(null),
+          ? directusItems<{ saved_applicant_id: number; notes?: string | null }>("vs_saved_applicant", {
+              query: `filter[company_id][_eq]=${companyId}&filter[applicant_user_id][_eq]=${talentUserId}&fields=saved_applicant_id,notes&limit=1`,
+            })
+          : Promise.resolve([]),
+        // Job preferences (work setup)
+        directusItems<TalentJobPreferenceRow>("vs_job_preferences", {
+          query: `filter[user_id][_eq]=${talentUserId}&fields=id,work_setup,preferred_location&limit=1`,
+        }).catch(() => []),
       ]);
 
     if (!userRes.ok) {
+      // An unreachable Directus is not a candidate who does not exist.
+      if (userRes.status !== 404) {
+        console.error("[talent-profile] user read failed:", userRes.error);
+        return NextResponse.json(
+          { error: "Talent profile could not be read. Please try again." },
+          { status: 502 }
+        );
+      }
       return NextResponse.json({ error: "Talent not found." }, { status: 404 });
     }
 
-    const userData = (await userRes.json()).data;
+    const userData = userRes.data?.data;
     if (!userData) {
       return NextResponse.json({ error: "Talent not found." }, { status: 404 });
     }
 
-    const profileData = profileRes.ok ? (await profileRes.json()).data?.[0] ?? null : null;
+    const profileData = profileRows[0] ?? null;
 
-    // Only return public profiles
-    if (profileData && profileData.profile_visibility !== "Public") {
+    // "Recruiters Only" is meant for exactly this caller. Anything other than the
+    // two employer-visible values stays denied, as before.
+    const visibility = profileData?.profile_visibility;
+    if (profileData && visibility !== "Public" && visibility !== "Recruiters Only") {
       return NextResponse.json({ error: "This profile is not publicly visible." }, { status: 403 });
     }
 
-    const skillsData: Array<{ skill_id?: { skill_name?: string } }> =
-      skillsRes.ok ? (await skillsRes.json()).data ?? [] : [];
-
-    const workData: Array<{
-      id: number;
-      company_name: string;
-      job_title: string;
-      location?: string;
-      location_type?: string;
-      employment_type?: string;
-      start_date?: string;
-      end_date?: string;
-      is_current_role?: boolean;
-      job_description?: string;
-    }> = workRes.ok ? (await workRes.json()).data ?? [] : [];
-
-    const workSkillsData: Array<{ experience_id: number; skill_id?: { skill_name?: string } }> =
-      workSkillsRes.ok ? (await workSkillsRes.json()).data ?? [] : [];
+    // Work experience skills, scoped to this talent's experience rows so the
+    // read is bounded to one profile instead of the whole junction table.
+    let workSkillsData: Array<{
+      experience_id: number;
+      skill_id?: { skill_name?: string } | null;
+    }> = [];
+    if (workData.length > 0) {
+      workSkillsData = await directusItemsWhereIn<{
+        experience_id: number;
+        skill_id?: { skill_name?: string } | null;
+      }>(
+        "vs_work_experience_skills",
+        "experience_id",
+        workData.map((w) => Number(w.id)),
+        "experience_id,skill_id.skill_name"
+      );
+    }
 
     // Work experience skill map
     const workSkillMap = new Map<number, string[]>();
@@ -170,45 +255,14 @@ export async function GET(
       workSkillMap.get(row.experience_id)!.push(name);
     }
 
-    const eduData: Array<{
-      employee_education_id: number;
-      school_id?: { school_name?: string; city_municipality?: string; province?: string };
-      school_course_id?: { course_name?: string };
-      education_status?: string | null;
-      start_date?: string;
-      end_date?: string;
-    }> = eduRes.ok ? (await eduRes.json()).data ?? [] : [];
-
-    const certData: Array<{
-      id: number;
-      certificate_name: string;
-      issuing_organization: string;
-      issue_date?: string;
-      credential_url?: string;
-    }> = certRes.ok ? (await certRes.json()).data ?? [] : [];
-
-    const socialData: Array<{ id: number; platform_name: string; profile_url: string }> =
-      socialRes.ok ? (await socialRes.json()).data ?? [] : [];
-
     // Resumes — only return URLs if company is VERIFIED (already confirmed above)
-    const resumesRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_seeker_resumes?filter[user_id][_eq]=${talentUserId}&fields=id,file_url,file_name,is_primary,uploaded_at&sort[]=-is_primary&limit=10`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const resumeData: Array<{ id: number; file_url: string; file_name?: string; is_primary: boolean; uploaded_at?: string }> =
-      resumesRes.ok ? (await resumesRes.json()).data ?? [] : [];
+    const resumeData = await directusItems<TalentResumeRow>("vs_job_seeker_resumes", {
+      query: `filter[user_id][_eq]=${talentUserId}&fields=id,file_url,file_name,is_primary,uploaded_at&sort[]=-is_primary&limit=10`,
+    });
 
-    // Saved status
-    let isSaved = false;
-    let savedNotes: string | null = null;
-    if (savedRes && savedRes.ok) {
-      const savedJson = await savedRes.json();
-      const savedRecord = savedJson.data?.[0];
-      if (savedRecord) {
-        isSaved = true;
-        savedNotes = savedRecord.notes ?? null;
-      }
-    }
+    const savedRecord = savedRows[0] ?? null;
+    const isSaved = Boolean(savedRecord);
+    const savedNotes = savedRecord?.notes ?? null;
 
     const location = [userData.user_city, userData.user_province].filter(Boolean).join(", ");
     const skills = skillsData
@@ -255,7 +309,7 @@ export async function GET(
         employment_type: w.employment_type ?? null,
         start_date: w.start_date ?? null,
         end_date: w.end_date ?? null,
-        is_current_role: w.is_current_role ?? false,
+        is_current_role: Boolean(w.is_current_role),
         description: w.job_description ?? null,
         skills: workSkillMap.get(w.id) ?? [],
       })),
@@ -290,11 +344,20 @@ export async function GET(
       })),
       is_saved: isSaved,
       saved_notes: savedNotes,
+      work_setup: jobPrefRows[0]?.work_setup ?? null,
     };
 
     return NextResponse.json({ profile });
   } catch (err: unknown) {
     console.error("[talent-profile] Error:", err);
-    return NextResponse.json({ error: "Internal server error." }, { status: 500 });
+    const upstream = err instanceof DirectusError;
+    return NextResponse.json(
+      {
+        error: upstream
+          ? "Talent profile could not be read. Please try again."
+          : "Internal server error.",
+      },
+      { status: upstream ? 502 : 500 }
+    );
   }
 }

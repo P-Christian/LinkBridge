@@ -48,7 +48,7 @@ export function ProfessionalSummaryCard() {
                 </Button>
             </div>
             
-            <div className="p-6">
+            <div className="p-6 pb-7">
                 {isAutofilling ? (
                     <div className="space-y-2">
                         <Skeleton className="h-4 w-full" />
@@ -56,7 +56,7 @@ export function ProfessionalSummaryCard() {
                         <Skeleton className="h-4 w-[80%]" />
                     </div>
                 ) : (
-                    <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
+                    <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
                         {summary || 'No professional summary provided.'}
                     </p>
                 )}

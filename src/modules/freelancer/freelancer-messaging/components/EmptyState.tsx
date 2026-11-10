@@ -17,16 +17,16 @@ export default function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center h-full gap-5 text-center px-8">
       <div className="relative">
-        <div className="absolute inset-0 bg-emerald-500/20 blur-2xl rounded-full" />
-        <div className="relative p-6 rounded-3xl bg-gradient-to-br from-emerald-50 to-teal-50 dark:from-emerald-950/30 dark:to-teal-950/30 border border-emerald-100 dark:border-emerald-900/50">
-          <MessageSquareDashed className="h-12 w-12 text-emerald-500 dark:text-emerald-400" />
+        <div className="absolute inset-0 bg-primary/15 blur-2xl rounded-full" />
+        <div className="relative p-6 rounded-3xl bg-primary/10 border border-primary/20">
+          <MessageSquareDashed className="h-12 w-12 text-primary" />
         </div>
       </div>
       <div className="space-y-1.5">
-        <h3 className="text-base font-semibold text-zinc-700 dark:text-zinc-300">
+        <h3 className="text-base font-semibold text-foreground">
           {message}
         </h3>
-        <p className="text-sm text-zinc-400 dark:text-zinc-500 max-w-sm">
+        <p className="text-sm text-muted-foreground max-w-sm">
           {subMessage}
         </p>
       </div>

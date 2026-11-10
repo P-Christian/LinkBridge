@@ -56,7 +56,10 @@ export const ApplicationStatusBadge: React.FC<ApplicationStatusBadgeProps> = ({
 }) => {
   const config = statusConfig[status] ?? statusConfig.APPLIED;
   const Icon = config.icon;
-  const label = stageName || (STATUS_LABELS[status] ?? status);
+  // Terminal statuses like WITHDRAWN or REJECTED should always show their canonical label
+  const isTerminal = ["WITHDRAWN", "REJECTED", "HIRED"].includes((status || "").toUpperCase());
+  const rawLabel = (!isTerminal && stageName) ? stageName : (STATUS_LABELS[status] ?? status);
+  const label = rawLabel.trim().toLowerCase() === "application received" ? "Application Submitted" : rawLabel;
 
   return (
     <span

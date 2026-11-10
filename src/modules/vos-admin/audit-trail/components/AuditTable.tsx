@@ -36,7 +36,8 @@ export function AuditTable({
     if (!isoStr) return "---";
     try {
       const cleaned = isoStr.replace(" ", "T");
-      const d = new Date(cleaned);
+      const utcStr = cleaned.endsWith("Z") || cleaned.includes("+") ? cleaned : `${cleaned}Z`;
+      const d = new Date(utcStr);
       if (isNaN(d.getTime())) return isoStr;
       return new Intl.DateTimeFormat("en-US", {
         timeZone: "Asia/Manila",
@@ -97,10 +98,11 @@ export function AuditTable({
       cell: ({ row }) => {
         const rec = row.original;
         const name = rec.actor_name || rec.actor_email || (rec.actor_user_id ? `User #${rec.actor_user_id}` : rec.actor_type);
+        const roleDisplay = rec.actor_role || rec.actor_type;
         return (
           <div className="flex flex-col">
             <span className="text-xs font-medium text-foreground">{name}</span>
-            <span className="text-[10px] text-muted-foreground font-mono">{rec.actor_type}</span>
+            <span className="text-[10px] text-muted-foreground font-mono">{roleDisplay}</span>
           </div>
         );
       },

@@ -1,6 +1,7 @@
 // src/modules/auth/facebook/facebook.service.ts
 import crypto from "crypto";
 import * as jose from "jose";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
 import {
   getGoogleAllowedOrigins,
   resolveRequestOrigin,
@@ -117,8 +118,11 @@ export function resolveCanonicalRedirectUri(
     (cleanHost.includes("localhost") || cleanHost.startsWith("127.0.0.1") ? "http" : "https");
 
   let requestOrigin: string;
+  let incomingHostname = "";
   try {
-    requestOrigin = new URL(`${proto}://${cleanHost}`).origin.toLowerCase();
+    const parsedUrl = new URL(`${proto}://${cleanHost}`);
+    requestOrigin = parsedUrl.origin.toLowerCase();
+    incomingHostname = parsedUrl.hostname.toLowerCase();
   } catch {
     throw new FacebookOAuthError(`Invalid host header: ${incomingHost}`, "INVALID_HOST", 400);
   }
@@ -133,10 +137,14 @@ export function resolveCanonicalRedirectUri(
   });
   if (exactOrigin) return `${exactOrigin}${CANONICAL_CALLBACK_PATH}`;
 
-  // 2. Host match
+  // 2. Host match or normalized hostname match (handles reverse proxy ports e.g. :4000)
   const matchedOrigin = allowedOrigins.find((allowed) => {
     try {
-      return new URL(allowed).host.toLowerCase() === cleanHost.toLowerCase();
+      const u = new URL(allowed);
+      return (
+        u.host.toLowerCase() === cleanHost.toLowerCase() ||
+        (Boolean(incomingHostname) && u.hostname.toLowerCase() === incomingHostname)
+      );
     } catch {
       return false;
     }
@@ -151,16 +159,14 @@ export function resolveCanonicalRedirectUri(
 
 export { resolveRequestOrigin };
 
-/** Derives 32-byte key for JWE encryption (A256GCM) */
+/** 32-byte key for JWE encryption (A256GCM), separate from the state-signing key */
 function getEncryptionKey(): Uint8Array {
-  const secret = process.env.JWT_SECRET ;
-  return crypto.createHash("sha256").update(`${secret}:facebook-oauth-encryption`).digest();
+  return deriveJwtPurposeSecret("facebook-oauth-encryption");
 }
 
-/** Derives key for signing transaction cookie */
+/** Key for signing the OAuth transaction cookie; never the access-session key */
 function getSigningSecret(): Uint8Array {
-  const secret = process.env.JWT_SECRET;
-  return new TextEncoder().encode(secret);
+  return deriveJwtPurposeSecret("facebook-oauth-state");
 }
 
 /** Creates a secure signed OAuth transaction token for cookies */

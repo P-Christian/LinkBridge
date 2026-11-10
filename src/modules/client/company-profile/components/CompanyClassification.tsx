@@ -1,13 +1,14 @@
 // src/modules/client/company-profile/components/CompanyClassification.tsx
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { Loader2 } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 import { EditableCompanyFields } from "../types";
 import InlineAITrigger from "./InlineAITrigger";
+import { cn } from "@/lib/utils";
 
 interface CompanyClassificationProps {
   data: Partial<EditableCompanyFields & { custom_industry_name?: string }>;
@@ -15,7 +16,37 @@ interface CompanyClassificationProps {
     field: keyof EditableCompanyFields | "custom_industry_name",
     value: string | number | boolean | null | undefined
   ) => void;
+  fieldErrors?: Record<string, string>;
   readOnly?: boolean;
+}
+
+function CharCounter({
+  current,
+  max,
+  min,
+}: {
+  current: number;
+  max: number;
+  min?: number;
+}) {
+  const isOver = current > max;
+  const isUnder = min !== undefined && current > 0 && current < min;
+
+  return (
+    <span
+      className={cn(
+        "text-[10px] font-mono transition-colors",
+        isOver
+          ? "text-destructive font-bold"
+          : isUnder
+          ? "text-amber-500 dark:text-amber-400 font-medium"
+          : "text-muted-foreground"
+      )}
+    >
+      {min !== undefined && isUnder ? `min ${min} · ` : ""}
+      {current}/{max}
+    </span>
+  );
 }
 
 interface IndustryItem {
@@ -36,6 +67,7 @@ interface CompanySizeItem {
 export default function CompanyClassification({
   data,
   onChange,
+  fieldErrors = {},
   readOnly = false,
 }: CompanyClassificationProps) {
   const [industries, setIndustries] = useState<IndustryItem[]>([]);
@@ -122,6 +154,30 @@ export default function CompanyClassification({
   const selectedSizeName = sizes.find(
     (s) => s.company_size_id === Number(data.company_size_id)
   )?.company_size_name || "—";
+
+  const liveErrors = useMemo(() => {
+    const errs: Record<string, string> = {};
+
+    // Tags: max 255
+    const tags = data.company_tags ?? "";
+    if (tags.length > 255) {
+      errs.company_tags = "Company tags cannot exceed 255 characters.";
+    }
+
+    // Year Established: between 1800 and current year + 1
+    if (data.year_established !== undefined && data.year_established !== null && (data.year_established as unknown) !== "") {
+      const year = Number(data.year_established);
+      const currentYear = new Date().getFullYear();
+      if (isNaN(year) || year < 1800 || year > currentYear + 1) {
+        errs.year_established = `Year must be between 1800 and ${currentYear + 1}.`;
+      }
+    }
+
+    return errs;
+  }, [data.company_tags, data.year_established]);
+
+  const getError = (field: string) => liveErrors[field] || fieldErrors[field];
+  const hasError = (field: string) => Boolean(getError(field));
 
   if (readOnly) {
     return (
@@ -234,8 +290,18 @@ export default function CompanyClassification({
             value={data.year_established ?? ""}
             onChange={(e) => onChange("year_established", e.target.value ? Number(e.target.value) : "")}
             placeholder="e.g. 2026"
-            className="h-9 md:text-sm max-md:h-10 max-md:text-base"
+            aria-invalid={hasError("year_established")}
+            className={cn(
+              "h-9 md:text-sm max-md:h-10 max-md:text-base",
+              hasError("year_established") && "border-destructive ring-2 ring-destructive/20 focus-visible:border-destructive focus-visible:ring-destructive/20"
+            )}
           />
+          {hasError("year_established") && (
+            <p className="text-[11px] text-destructive flex items-center gap-1 font-medium">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {getError("year_established")}
+            </p>
+          )}
         </div>
 
         <div className="space-y-1.5 md:col-span-2">
@@ -243,20 +309,34 @@ export default function CompanyClassification({
             <Label htmlFor="cp-tags" className="text-sm md:text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Tags
             </Label>
-            <InlineAITrigger
-              currentText={data.company_tags ?? ""}
-              fieldType="company_tags"
-              companyName="Company"
-              onRefined={(val) => onChange("company_tags", val)}
-            />
+            <div className="flex items-center gap-2">
+              <CharCounter current={(data.company_tags ?? "").length} max={255} />
+              <InlineAITrigger
+                currentText={data.company_tags ?? ""}
+                fieldType="company_tags"
+                companyName="Company"
+                onRefined={(val) => onChange("company_tags", val)}
+              />
+            </div>
           </div>
           <Input
             id="cp-tags"
             value={data.company_tags ?? ""}
             onChange={(e) => onChange("company_tags", e.target.value)}
-            placeholder="e.g. Software Development, Cloud Computing, Artificial Intelligence, SaaS"
-            className="h-9 md:text-sm max-md:h-10 max-md:text-base"
+            placeholder="e.g. Software Development, Cloud Computing, SaaS"
+            maxLength={255}
+            aria-invalid={hasError("company_tags")}
+            className={cn(
+              "h-9 md:text-sm max-md:h-10 max-md:text-base",
+              hasError("company_tags") && "border-destructive ring-2 ring-destructive/20 focus-visible:border-destructive focus-visible:ring-destructive/20"
+            )}
           />
+          {hasError("company_tags") && (
+            <p className="text-[11px] text-destructive flex items-center gap-1 font-medium">
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              {getError("company_tags")}
+            </p>
+          )}
         </div>
       </div>
     </div>

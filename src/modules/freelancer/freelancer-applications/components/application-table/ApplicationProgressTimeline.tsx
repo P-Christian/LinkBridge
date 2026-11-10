@@ -14,7 +14,6 @@ import {
   XOctagon,
 } from "lucide-react";
 import type { ApplicationItem, ApplicationStatus } from "../../types";
-import { formatDate } from "./formatters";
 
 interface Props {
   status: ApplicationStatus;
@@ -71,13 +70,14 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
   // Fallback: If no dynamic stages exist from pipeline snapshot, use default 4 stages
   if (linearStages.length === 0) {
     const defaultSteps = [
-      { label: "Applied", desc: "Your application was successfully submitted.", statusKey: "APPLIED" },
+      { label: "Application Submitted", desc: "Your application was successfully submitted.", statusKey: "APPLIED" },
       { label: "Shortlisted", desc: "The employer has shortlisted you for potential opportunities.", statusKey: "SHORTLISTED" },
       { label: "Interviewing", desc: "You have entered the interview phase with the employer.", statusKey: "INTERVIEWING" },
       { label: "Hired", desc: "Congratulations! You have been hired for this role.", statusKey: "HIRED" },
     ];
     const statusOrder = ["APPLIED", "SHORTLISTED", "INTERVIEWING", "HIRED"];
-    const currentIndex = statusOrder.indexOf(status);
+    const currentIndex = Math.max(0, statusOrder.indexOf(status));
+    const visibleDefaultSteps = defaultSteps.slice(0, currentIndex + 1);
 
     return (
       <div className="border border-border bg-muted/20 p-5 rounded-xl space-y-4">
@@ -93,7 +93,7 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
                   <CheckCircle className="h-3.5 w-3.5" />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-foreground">Applied</p>
+                  <p className="text-sm font-semibold text-foreground">Application Submitted</p>
                   <p className="text-sm md:text-xs text-muted-foreground mt-0.5">
                     Your application was successfully submitted.
                   </p>
@@ -105,7 +105,7 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
                   <XCircle className="h-3.5 w-3.5" />
                 </span>
                 <div>
-                  <p className="text-sm font-semibold text-rose-600 dark:text-rose-400">Rejected</p>
+                  <p className="text-sm font-semibold text-rose-600 dark:text-rose-400">Application Closed / Rejected</p>
                   <p className="text-sm md:text-xs text-muted-foreground mt-0.5">
                     The employer decided not to move forward with your application.
                   </p>
@@ -125,7 +125,7 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
               </div>
             </div>
           ) : (
-            defaultSteps.map((step, idx) => {
+            visibleDefaultSteps.map((step, idx) => {
               const isCompleted = idx < currentIndex || status === "HIRED";
               const isActive = idx === currentIndex && status !== "HIRED";
 
@@ -143,10 +143,6 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
                 if (idx === 1) Icon = Star;
                 else if (idx === 2) Icon = Calendar;
                 else Icon = Clock;
-              } else {
-                if (idx === 1) Icon = Star;
-                else if (idx === 2) Icon = Calendar;
-                else if (idx === 3) Icon = CheckCircle;
               }
 
               return (
@@ -169,8 +165,16 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
     );
   }
 
-  // Dynamic Pipeline Rendering
-  const currentStageIndex = linearStages.findIndex((s) => s.id === currentStageId);
+  // Dynamic Pipeline Rendering: Only show stages reached up to currentStageIndex
+  let currentStageIndex = linearStages.findIndex((s) => s.id === currentStageId);
+  if (currentStageIndex === -1 && currentStage?.stage_order != null) {
+    currentStageIndex = linearStages.findIndex((s) => s.stage_order >= currentStage.stage_order);
+  }
+  if (currentStageIndex === -1) {
+    currentStageIndex = 0;
+  }
+
+  const visibleStages = linearStages.slice(0, currentStageIndex + 1);
   const isTerminalSuccess = status === "HIRED" || currentStage?.stage_type === "HIRED";
 
   return (
@@ -187,17 +191,16 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
       </div>
 
       <div className="relative pl-8 space-y-6 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-border">
-        {linearStages.map((stage, idx) => {
+        {visibleStages.map((stage, idx) => {
           const isCompleted =
             isTerminalSuccess ||
-            (currentStageIndex !== -1 && idx < currentStageIndex) ||
-            (!isRejected && !isWithdrawn && currentStageIndex === -1 && stage.stage_order < (currentStage?.stage_order ?? 0));
+            idx < currentStageIndex;
 
           const isActive =
             !isRejected &&
             !isWithdrawn &&
             !isTerminalSuccess &&
-            (stage.id === currentStageId || idx === currentStageIndex);
+            idx === currentStageIndex;
 
           let iconBg = "bg-muted text-muted-foreground";
           let labelColor = "text-muted-foreground";
@@ -212,8 +215,6 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
             labelColor = "text-primary font-semibold";
           }
 
-          const stageDate = historyDateMap.get(stage.id) || (idx === 0 ? application?.applied_at : undefined);
-
           return (
             <div key={stage.id} className="relative flex gap-4 items-start">
               <span
@@ -224,11 +225,6 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
               <div className="flex-1">
                 <div className="flex items-center justify-between">
                   <p className={`text-sm ${labelColor}`}>{stage.stage_name}</p>
-                  {stageDate && (
-                    <span className="text-xs text-muted-foreground">
-                      {formatDate(stageDate)}
-                    </span>
-                  )}
                 </div>
                 <p className="text-sm md:text-xs text-muted-foreground mt-0.5">
                   {stage.description || (isActive ? "Application currently under review in this stage." : "")}
@@ -249,11 +245,6 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
               <p className="text-sm md:text-xs text-muted-foreground mt-0.5">
                 The employer decided not to move forward with your application.
               </p>
-              {application?.status_updated_at && (
-                <span className="text-xs text-muted-foreground block mt-1">
-                  Updated: {formatDate(application.status_updated_at)}
-                </span>
-              )}
             </div>
           </div>
         )}
@@ -269,11 +260,6 @@ export function ApplicationProgressTimeline({ status, application }: Props) {
               <p className="text-sm md:text-xs text-muted-foreground mt-0.5">
                 You voluntarily withdrew this application.
               </p>
-              {application?.status_updated_at && (
-                <span className="text-xs text-muted-foreground block mt-1">
-                  Withdrawn: {formatDate(application.status_updated_at)}
-                </span>
-              )}
             </div>
           </div>
         )}

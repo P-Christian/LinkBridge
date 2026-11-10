@@ -9,6 +9,7 @@ import {
   getDecryptedProviderCredentials,
 } from "@/lib/ai/aiConfigStore";
 import { getProviderAdapter } from "@/lib/ai/adapters";
+import { assertSafeEgressUrl } from "@/lib/ai/egress";
 import { AiProviderId, RegisteredModel, WorkloadRoutingRule } from "@/lib/ai/types";
 
 export const runtime = "nodejs";
@@ -49,10 +50,10 @@ const OFFICIAL_PROVIDER_DOMAINS: Partial<Record<AiProviderId, string[]>> = {
  * Validate and sanitize endpoint base URLs.
  * Mitigates SSRF and credential exfiltration against metadata or internal services.
  */
-function validateBaseUrl(
+async function validateBaseUrl(
   urlStr: string | undefined,
   providerId: AiProviderId
-): { valid: boolean; error?: string; cleanUrl?: string } {
+): Promise<{ valid: boolean; error?: string; cleanUrl?: string }> {
   if (!urlStr || !urlStr.trim()) {
     return { valid: true, cleanUrl: "" };
   }
@@ -77,6 +78,20 @@ function validateBaseUrl(
     hostname === "instance-data"
   ) {
     return { valid: false, error: "Access to cloud metadata endpoints is prohibited." };
+  }
+
+  /**
+   * SEC-016: refuse loopback/link-local/private/CGNAT/metadata destinations and
+   * resolve the host so an allowlisted-looking name cannot point internally.
+   * Applies to the saved config as well as to the test/discover calls.
+   */
+  try {
+    await assertSafeEgressUrl(parsed);
+  } catch (err) {
+    return {
+      valid: false,
+      error: err instanceof Error ? err.message : "Egress target is not permitted.",
+    };
   }
 
   // Local/custom self-hosted AI models
@@ -130,16 +145,22 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Missing providerId." }, { status: 400 });
         }
 
-        const urlValidation = validateBaseUrl(baseUrl, providerId as AiProviderId);
+        const urlValidation = await validateBaseUrl(baseUrl, providerId as AiProviderId);
         if (!urlValidation.valid) {
           return NextResponse.json({ error: urlValidation.error }, { status: 400 });
         }
 
-        saveProviderConfig(providerId as AiProviderId, {
+        const saved = saveProviderConfig(providerId as AiProviderId, {
           baseUrl: urlValidation.cleanUrl || baseUrl,
           rawApiKey: apiKey,
           isActive,
         });
+        if (!saved) {
+          return NextResponse.json(
+            { error: "The provider settings could not be saved to the AI config file. Nothing was changed." },
+            { status: 500 }
+          );
+        }
 
         const updated = getAiSystemConfig(true);
         return NextResponse.json({ success: true, config: updated });
@@ -151,7 +172,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Missing providerId." }, { status: 400 });
         }
 
-        const urlValidation = validateBaseUrl(tempBaseUrl, providerId as AiProviderId);
+        const urlValidation = await validateBaseUrl(tempBaseUrl, providerId as AiProviderId);
         if (!urlValidation.valid) {
           return NextResponse.json({ error: urlValidation.error }, { status: 400 });
         }
@@ -199,7 +220,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Missing providerId." }, { status: 400 });
         }
 
-        const urlValidation = validateBaseUrl(tempBaseUrl, providerId as AiProviderId);
+        const urlValidation = await validateBaseUrl(tempBaseUrl, providerId as AiProviderId);
         if (!urlValidation.valid) {
           return NextResponse.json({ error: urlValidation.error }, { status: 400 });
         }
@@ -238,7 +259,12 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ error: "Invalid model definition." }, { status: 400 });
         }
 
-        registerOrUpdateModel(model);
+        if (!registerOrUpdateModel(model)) {
+          return NextResponse.json(
+            { error: "The model could not be saved to the AI config file. Nothing was changed." },
+            { status: 500 }
+          );
+        }
         const updated = getAiSystemConfig(true);
         return NextResponse.json({ success: true, config: updated });
       }
@@ -250,10 +276,18 @@ export async function POST(req: NextRequest) {
           localAiOnlyMode?: boolean;
         };
 
-        saveWorkloadRouting(workloadRouting, {
+        // localAiOnlyMode is the gate that keeps candidate PII on-server; a
+        // write that never reached disk must not be reported as saved.
+        const saved = saveWorkloadRouting(workloadRouting, {
           globalFailoverEnabled,
           localAiOnlyMode,
         });
+        if (!saved) {
+          return NextResponse.json(
+            { error: "The AI settings could not be saved to the config file. The local-only setting was NOT changed." },
+            { status: 500 }
+          );
+        }
 
         const updated = getAiSystemConfig(true);
         return NextResponse.json({ success: true, config: updated });

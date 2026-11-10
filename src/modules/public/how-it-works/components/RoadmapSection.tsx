@@ -1,9 +1,10 @@
 // src/modules/public/how-it-works/components/RoadmapSection.tsx
 "use client";
 
-import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { RoleGuide } from "../types";
+import { stepAnchor } from "../config";
+import { ROLE_THEME } from "../theme";
+import type { RoleGuide } from "../types";
 import { StepCard } from "./StepCard";
 
 interface Props {
@@ -11,67 +12,49 @@ interface Props {
 }
 
 export function RoadmapSection({ guide }: Props) {
-  const scrollToStep = (e: React.MouseEvent<HTMLAnchorElement>, stepNumber: number) => {
+  const scrollToStep = (e: React.MouseEvent<HTMLAnchorElement>, n: number) => {
     e.preventDefault();
-    const target = document.getElementById(`step${stepNumber}`);
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
+    document.getElementById(stepAnchor(n))?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-      {/* Header Banner for Selected Role */}
+    <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
       <div className="mb-10 text-center space-y-3">
-        <span className={`inline-block text-xs font-extrabold uppercase tracking-wider px-3.5 py-1 rounded-full border ${guide.bgAccent} ${guide.accentColor} ${guide.borderAccent}`}>
+        <span className={`inline-block text-xs font-bold px-3.5 py-1 rounded-full border ${ROLE_THEME[guide.roleKey].badge}`}>
           {guide.badgeText}
         </span>
-        <h2 className="text-2xl sm:text-4xl font-extrabold text-foreground tracking-tight">
-          {guide.heading}
-        </h2>
-        <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-          {guide.introduction}
-        </p>
+        <h2 className="text-2xl sm:text-4xl font-extrabold text-foreground tracking-tight">{guide.heading}</h2>
+        <p className="text-sm sm:text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">{guide.introduction}</p>
 
-        {/* Visual Progress Dots Bar */}
-        <div className="pt-4 flex items-center justify-center gap-2">
-          {guide.steps.map((s) => (
+        <nav aria-label="Jump to step" className="pt-4 flex items-center justify-center gap-2">
+          {guide.steps.map((s, i) => (
             <a
-              key={s.stepNumber}
-              href={`#step${s.stepNumber}`}
-              onClick={(e) => scrollToStep(e, s.stepNumber)}
-              className="group flex flex-col items-center gap-1 cursor-pointer max-md:h-11 max-md:min-w-11 max-md:justify-center"
-              title={`Jump to Step ${s.stepNumber}: ${s.title}`}
+              key={s.title}
+              href={`#${stepAnchor(i + 1)}`}
+              onClick={(e) => scrollToStep(e, i + 1)}
+              title={`Step ${i + 1}: ${s.title}`}
+              className="group flex flex-col items-center gap-1 max-md:h-11 max-md:min-w-11 max-md:justify-center"
             >
-              <div className="h-2.5 w-8 rounded-full bg-primary/20 group-hover:bg-primary transition-colors" />
-              <span className="text-[10px] font-mono font-bold text-muted-foreground group-hover:text-primary">
-                0{s.stepNumber}
-              </span>
+              <span className="h-2.5 w-8 rounded-full bg-primary/20 group-hover:bg-primary transition-colors" />
+              <span className="text-xs font-semibold text-muted-foreground group-hover:text-primary">{i + 1}</span>
             </a>
           ))}
-        </div>
+        </nav>
       </div>
 
-      {/* Animated Step List (200ms Fade & Slide-Up on tab change) */}
       <AnimatePresence mode="wait">
         <motion.div
           key={guide.roleKey}
-          initial={{ opacity: 0, y: 15 }}
+          initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -15 }}
+          exit={{ opacity: 0, y: -12 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
-          className="space-y-4"
         >
-          {guide.steps.map((step, index) => (
-            <StepCard
-              key={step.stepNumber}
-              step={step}
-              roleKey={guide.roleKey}
-              isEven={index % 2 === 1}
-            />
+          {guide.steps.map((step, i) => (
+            <StepCard key={step.title} step={step} number={i + 1} roleKey={guide.roleKey} reversed={i % 2 === 1} />
           ))}
         </motion.div>
       </AnimatePresence>
-    </div>
+    </section>
   );
 }

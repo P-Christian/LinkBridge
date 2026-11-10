@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { formatAssetUrl } from "@/lib/utils";
+import { formatAssetUrl, cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 import {
   Dialog,
@@ -41,15 +41,53 @@ import {
 } from "lucide-react";
 import { CompanyVerificationRecord } from "../types";
 import { VerificationStatusBadge } from "./VerificationStatusBadge";
-import { formatDate } from "../utils/companyVerification.utils";
+import { DocumentViewerModal, AdminDocumentPreview } from "./DocumentViewerModal";
+import {
+  formatDate,
+  formatDocumentTypeLabel,
+  getDocumentCategoryBadgeStyle,
+  getDocumentCategoryPriority,
+  getCompanyStatusBucket,
+} from "../utils/companyVerification.utils";
+
+const THUMBNAIL_EXT = /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i;
+
+const DocumentThumbnail: React.FC<{ fileId: string; fileName?: string }> = ({
+  fileId,
+  fileName = "",
+}) => {
+  const [thumbnailFailed, setThumbnailFailed] = useState(false);
+  const safeName = fileName || "";
+  const ext = safeName.split(".").pop()?.toUpperCase() || "FILE";
+  const showThumbnail = THUMBNAIL_EXT.test(safeName) && !thumbnailFailed;
+
+  if (!showThumbnail) {
+    return (
+      <div className="h-full w-full flex flex-col items-center justify-center gap-1 bg-gradient-to-br from-muted to-muted/40 text-muted-foreground">
+        <FileText className="h-6 w-6" />
+        <span className="text-[9px] font-bold uppercase tracking-wider">{ext}</span>
+      </div>
+    );
+  }
+
+  return (
+    /* eslint-disable-next-line @next/next/no-img-element */
+    <img
+      src={`/api/assets/${fileId}?width=240`}
+      alt={fileName}
+      loading="lazy"
+      onError={() => setThumbnailFailed(true)}
+      className="h-full w-full object-cover"
+    />
+  );
+};
 
 interface CompanyVerificationDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   company: CompanyVerificationRecord | null;
   onApprove: (company: CompanyVerificationRecord) => void;
-  onRequestCorrection: (company: CompanyVerificationRecord) => void;
-  onReject: (company: CompanyVerificationRecord) => void;
+  onRequestRevision: (company: CompanyVerificationRecord) => void;
   isSubmitting: boolean;
 }
 
@@ -64,12 +102,12 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
   onClose,
   company,
   onApprove,
-  onRequestCorrection,
-  onReject,
+  onRequestRevision,
   isSubmitting,
 }) => {
   const [previewImage, setPreviewImage] = useState<{ url: string; title: string; type: "logo" | "cover" } | null>(null);
   const [lastImage, setLastImage] = useState<{ url: string; title: string; type: "logo" | "cover" } | null>(null);
+  const [viewerDoc, setViewerDoc] = useState<AdminDocumentPreview | null>(null);
 
   const openPreview = (img: { url: string; title: string; type: "logo" | "cover" }) => {
     setLastImage(img);
@@ -80,8 +118,29 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
 
   if (!company) return null;
 
+  const sortedDocuments = (company.documents || []).slice().sort((a, b) => {
+    const priorityA = getDocumentCategoryPriority(a.document_type);
+    const priorityB = getDocumentCategoryPriority(b.document_type);
+    if (priorityA !== priorityB) {
+      return priorityA - priorityB;
+    }
+    const dateA = a.uploaded_at ? new Date(a.uploaded_at).getTime() : 0;
+    const dateB = b.uploaded_at ? new Date(b.uploaded_at).getTime() : 0;
+    return dateB - dateA;
+  });
+
   const primaryOwner = company.users?.find((u) => u.is_primary_contact || u.company_user_role === "OWNER");
   const verifications = company.verifications || [];
+
+  const statusBucket = getCompanyStatusBucket(company);
+  const canApprove = statusBucket !== "VERIFIED" && statusBucket !== "DRAFT";
+  const canRequestRevision = statusBucket !== "DRAFT";
+  const reviewNote =
+    statusBucket === "VERIFIED"
+      ? `Already verified${company.verified_at ? ` on ${formatDate(company.verified_at)}` : ""} — no further approval needed.`
+      : statusBucket === "DRAFT"
+        ? "This profile has not been submitted for verification yet."
+        : null;
 
   const addressParts = [
     company.company_address,
@@ -171,7 +230,7 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                 </TabsTrigger>
                 <TabsTrigger value="contact" className="gap-2 text-xs font-semibold">
                   <UserCheck className="h-3.5 w-3.5" />
-                  Contacts & Owners
+                  Owner &amp; Contact
                 </TabsTrigger>
                 <TabsTrigger value="history" className="gap-2 text-xs font-semibold">
                   <ShieldCheck className="h-3.5 w-3.5" />
@@ -324,7 +383,7 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                           <Briefcase className="h-3 w-3 text-muted-foreground" /> Industry
                         </span>
                         <span className="font-medium text-foreground">
-                          {company.industry_id ? `Industry #${company.industry_id}` : "Not Specified"}
+                          {company.industry_name || "Not Specified"}
                         </span>
                       </div>
                       <div>
@@ -332,7 +391,7 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                           <Users className="h-3 w-3 text-muted-foreground" /> Company Size
                         </span>
                         <span className="font-medium text-foreground">
-                          {company.company_size_id ? `Size #${company.company_size_id}` : "Not Specified"}
+                          {company.company_size_name || "Not Specified"}
                         </span>
                       </div>
                       <div>
@@ -348,7 +407,7 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                           Organization Type
                         </span>
                         <span className="font-medium text-foreground">
-                          {company.organization_type_id ? `Type #${company.organization_type_id}` : "Standard Corp"}
+                          {company.organization_type_name || "Not Specified"}
                         </span>
                       </div>
                     </div>
@@ -519,61 +578,101 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
 
               {/* TAB 2: DOCUMENTS */}
               <TabsContent value="documents" className="space-y-3 text-xs outline-none">
-                {!company.documents || company.documents.length === 0 ? (
+                {sortedDocuments.length === 0 ? (
                   <div className="border border-dashed rounded-xl p-8 text-center text-muted-foreground">
                     No company verification documents attached to this submission.
                   </div>
                 ) : (
-                  company.documents.map((doc) => (
-                    <div key={doc.company_document_id} className="flex items-center justify-between border rounded-xl p-4 bg-card hover:bg-muted/30 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
-                          <FileCheck2 className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <div className="font-bold text-foreground text-sm">{doc.document_name}</div>
-                          <div className="text-muted-foreground flex items-center gap-2 mt-0.5">
-                            <Badge variant="outline" className="text-[10px]">
-                              {doc.document_type === "DTI_SEC_REGISTRATION"
-                                ? "DTI / SEC Registration"
-                                : doc.document_type === "BUSINESS_PERMIT"
-                                ? "Business Permit"
-                                : doc.document_type === "TIN_DOCUMENT"
-                                ? "TIN Document"
-                                : doc.document_type === "OTHER_DOCUMENT" || doc.document_type === "OTHER"
-                                ? "Other Document"
-                                : doc.document_type.replace(/_/g, " ")}
-                            </Badge>
-                            <span>•</span>
-                            <span>Uploaded: {formatDate(doc.uploaded_at)}</span>
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                    {sortedDocuments.map((doc) => {
+                      const documentTypeLabel = formatDocumentTypeLabel(doc.document_type);
+                      return (
+                        <div
+                          key={doc.company_document_id}
+                          className="flex items-stretch gap-3 border rounded-xl p-3 bg-card hover:bg-muted/30 transition-colors"
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setViewerDoc({
+                                fileId: doc.directus_file_id,
+                                fileName: doc.document_name,
+                                documentTypeLabel,
+                              })
+                            }
+                            title="Open full-size preview"
+                            className="relative shrink-0 h-24 w-24 rounded-lg overflow-hidden border bg-muted group/thumb cursor-zoom-in"
+                          >
+                            <DocumentThumbnail fileId={doc.directus_file_id} fileName={doc.document_name} />
+                            <span className="absolute inset-0 bg-black/45 opacity-0 group-hover/thumb:opacity-100 transition-opacity flex items-center justify-center text-white">
+                              <Maximize2 className="h-4 w-4" />
+                            </span>
+                          </button>
+
+                          <div className="flex-1 min-w-0 flex flex-col justify-between gap-2">
+                            <div className="min-w-0 space-y-1.5">
+                              {/* Primary text: File Name */}
+                              <p
+                                className="font-semibold text-foreground text-xs sm:text-sm truncate leading-snug"
+                                title={doc.document_name || "Verification Document"}
+                              >
+                                {doc.document_name || "Verification Document"}
+                              </p>
+
+                              {/* Subtext badge: Document Category & Upload Date */}
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                                    getDocumentCategoryBadgeStyle(documentTypeLabel)
+                                  )}
+                                >
+                                  {documentTypeLabel}
+                                </Badge>
+                              </div>
+                              <div>                                
+                                <span className="text-[11px] text-muted-foreground">
+                                Uploaded {formatDate(doc.uploaded_at)}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2 justify-end">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setViewerDoc({
+                                    fileId: doc.directus_file_id,
+                                    fileName: doc.document_name,
+                                    documentTypeLabel,
+                                  })
+                                }
+                                className="h-7 text-[11px] gap-1.5"
+                              >
+                                <Maximize2 className="h-3.5 w-3.5" />
+                                Preview
+                              </Button>
+                              <Button variant="default" size="sm" asChild className="h-7 text-[11px] gap-1.5">
+                                <a
+                                  href={`/api/assets/${doc.directus_file_id}?download`}
+                                  download={doc.document_name}
+                                >
+                                  <Download className="h-3.5 w-3.5" />
+                                  Download
+                                </a>
+                              </Button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`/api/assets/${doc.directus_file_id}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold hover:bg-muted transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          Preview
-                        </a>
-                        <a
-                          href={`/api/assets/${doc.directus_file_id}?download`}
-                          download
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-                        >
-                          <Download className="h-3.5 w-3.5" />
-                          Download
-                        </a>
-                      </div>
-                    </div>
-                  ))
+                      );
+                    })}
+                  </div>
                 )}
               </TabsContent>
 
-              {/* TAB 3: CONTACTS & OWNERS */}
+              {/* TAB 3: OWNER & CONTACT */}
               <TabsContent value="contact" className="space-y-6 text-xs outline-none">
                 {/* Primary Account Holder / Submitter */}
                 <div className="bg-card border rounded-xl p-5 space-y-4 shadow-2xs">
@@ -743,79 +842,6 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                   )}
                 </div>
 
-                {/* All Associated Team Members */}
-                <div className="bg-card border rounded-xl p-5 space-y-4">
-                  <h4 className="font-bold text-foreground text-xs uppercase tracking-wider text-muted-foreground">
-                    All Associated Company Members ({company.users?.length || 0})
-                  </h4>
-                  <div className="space-y-4">
-                    {company.users?.map((u) => {
-                      const uFrontUrl = getGovIdUrl(
-                        u.identity_verification?.gov_id_front_url ||
-                        u.identity_verification?.gov_id_front_image_uuid
-                      );
-                      const uBackUrl = getGovIdUrl(
-                        u.identity_verification?.gov_id_back_url ||
-                        u.identity_verification?.gov_id_back_image_uuid
-                      );
-
-                      return (
-                        <div key={u.company_user_id} className="border rounded-xl p-4 bg-muted/20 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <div className="font-bold text-foreground text-sm">
-                                {`${u.user_fname || ""} ${u.user_lname || ""}`.trim() || "Account User"} {u.is_primary_contact ? "(Primary)" : ""}
-                              </div>
-                              <div className="text-muted-foreground text-xs flex items-center gap-2">
-                                <span>{u.user_email}</span>
-                                {u.user_contact && <span>• {u.user_contact}</span>}
-                              </div>
-                            </div>
-                            <Badge variant="outline" className="text-[10px]">{u.company_user_role}</Badge>
-                          </div>
-
-                          {/* Government ID for team member */}
-                          {(uFrontUrl || uBackUrl) && (
-                            <div className="pt-2 border-t grid grid-cols-2 gap-3">
-                              {uFrontUrl && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    openPreview({
-                                      url: uFrontUrl,
-                                      title: `${u.user_fname} ${u.user_lname} - Government ID (Front)`,
-                                      type: "cover",
-                                    })
-                                  }
-                                  className="h-8 text-xs gap-1.5"
-                                >
-                                  <ExternalLink size={12} /> View Front ID
-                                </Button>
-                              )}
-                              {uBackUrl && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() =>
-                                    openPreview({
-                                      url: uBackUrl,
-                                      title: `${u.user_fname} ${u.user_lname} - Government ID (Back)`,
-                                      type: "cover",
-                                    })
-                                  }
-                                  className="h-8 text-xs gap-1.5"
-                                >
-                                  <ExternalLink size={12} /> View Back ID
-                                </Button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
               </TabsContent>
 
               {/* TAB 4: VERIFICATION LOGS */}
@@ -861,39 +887,37 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
 
           {/* Footer Actions */}
           <DialogFooter className="p-4 border-t bg-muted/20 flex flex-row items-center justify-between gap-3 shrink-0">
-            {/* <div className="text-xs text-muted-foreground">
-              Target Company ID: <strong className="font-mono">{company.company_id}</strong>
-            </div> */}
+            {reviewNote && (
+              <div className="flex items-center gap-1.5 text-xs text-muted-foreground mr-auto">
+                <Info className="h-3.5 w-3.5 shrink-0" />
+                {reviewNote}
+              </div>
+            )}
             <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onRequestCorrection(company)}
-                disabled={isSubmitting}
-                className="border-amber-500/30 text-amber-600 hover:bg-amber-500/10 gap-1 text-xs"
-              >
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Request Correction
-              </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => onReject(company)}
-                disabled={isSubmitting}
-                className="gap-1 text-xs font-semibold"
-              >
-                Reject
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
-                onClick={() => onApprove(company)}
-                disabled={isSubmitting}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 text-xs font-semibold"
-              >
-                <ShieldCheck className="h-3.5 w-3.5" />
-                Approve Verification
-              </Button>
+              {canRequestRevision && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onRequestRevision(company)}
+                  disabled={isSubmitting}
+                  className="border-amber-500/30 text-amber-600 hover:bg-amber-500/10 gap-1 text-xs font-semibold"
+                >
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Request Revision
+                </Button>
+              )}
+              {canApprove && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => onApprove(company)}
+                  disabled={isSubmitting}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1 text-xs font-semibold"
+                >
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Approve Verification
+                </Button>
+              )}
             </div>
           </DialogFooter>
         </DialogContent>
@@ -938,14 +962,22 @@ export const CompanyVerificationDetailModal: React.FC<CompanyVerificationDetailM
                 width={800}
                 height={600}
                 unoptimized
-                className={`object-contain rounded-xl shadow-md border bg-background ${
-                  currentImg.type === "logo" ? "max-h-[320px] max-w-[320px]" : "max-h-[60vh] max-w-full"
-                }`}
+                className={`object-contain rounded-xl shadow-md border bg-background ${currentImg.type === "logo" ? "max-h-[320px] max-w-[320px]" : "max-h-[60vh] max-w-full"
+                  }`}
               />
             )}
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Document Lightbox Viewer (pan / zoom / rotate / download) */}
+      {isOpen && viewerDoc && (
+        <DocumentViewerModal
+          key={viewerDoc.fileId}
+          doc={viewerDoc}
+          onClose={() => setViewerDoc(null)}
+        />
+      )}
     </>
   );
 };

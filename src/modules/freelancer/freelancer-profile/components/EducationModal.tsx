@@ -2,6 +2,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./local-dialog";
 import { toast } from "sonner";
@@ -10,6 +12,9 @@ import type { VsEducation } from "../types/freelancer-profile.types";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Input } from "@/components/ui/input";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { generateUUID } from "@/lib/utils";
 
 interface EducationModalProps {
     isOpen: boolean;
@@ -51,6 +56,7 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
     const [rawSchoolName, setRawSchoolName] = useState("");
     const [rawCourseName, setRawCourseName] = useState("");
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [schoolOpen, setSchoolOpen] = useState(false);
     const newDraftKeyRef = useRef<string | null>(null);
 
     const { data, pendingEducation, setEducationDraft } = useFreelancerProfileContext();
@@ -67,45 +73,46 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
         };
     }, []);
 
+    const fetchSchools = React.useCallback((query?: string) => {
+        setLoadingSchools(true);
+        const url = query && query.trim()
+            ? `/api/freelancer/schools?search=${encodeURIComponent(query.trim())}`
+            : `/api/freelancer/schools`;
+        fetch(url)
+            .then(async (res) => {
+                const json: unknown = await res.json();
+                if (
+                    json &&
+                    typeof json === "object" &&
+                    Array.isArray((json as { schools?: unknown }).schools)
+                ) {
+                    setSchools((json as { schools: FreelancerSchoolSearchResult[] }).schools);
+                } else {
+                    setSchools([]);
+                }
+            })
+            .catch((e) => {
+                console.error(e);
+                setSchools([]);
+            })
+            .finally(() => {
+                setLoadingSchools(false);
+            });
+    }, []);
+
     const handleSchoolSearch = React.useCallback((term: string) => {
         if (schoolSearchTimerRef.current) {
             clearTimeout(schoolSearchTimerRef.current);
         }
         const query = term.trim();
-        if (!query) {
-            setSchools([]);
-            setLoadingSchools(false);
-            return;
-        }
-        setLoadingSchools(true);
         schoolSearchTimerRef.current = setTimeout(() => {
-            fetch(`/api/freelancer/schools?search=${encodeURIComponent(query)}`)
-                .then(async (res) => {
-                    const json: unknown = await res.json();
-                    if (
-                        json &&
-                        typeof json === "object" &&
-                        Array.isArray((json as { schools?: unknown }).schools)
-                    ) {
-                        setSchools((json as { schools: FreelancerSchoolSearchResult[] }).schools);
-                    } else {
-                        setSchools([]);
-                    }
-                })
-                .catch((e) => {
-                    console.error(e);
-                    setSchools([]);
-                })
-                .finally(() => {
-                    setLoadingSchools(false);
-                });
+            fetchSchools(query);
         }, 300);
-    }, []);
+    }, [fetchSchools]);
 
     useEffect(() => {
         if (isOpen) {
-            setSchools([]);
-            setLoadingSchools(false);
+            fetchSchools();
             if (educationToEdit) {
                 if (educationToEdit.school_id) {
                     setSchoolId(String(educationToEdit.school_id));
@@ -123,7 +130,7 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                 setEndDate(educationToEdit.end_date ? educationToEdit.end_date.split("T")[0] : "");
             } else {
                 if (newDraftKeyRef.current === null) {
-                    newDraftKeyRef.current = crypto.randomUUID();
+                    newDraftKeyRef.current = generateUUID();
                 }
                 setSchoolId("");
                 setIsUnverifiedSchool(false);
@@ -135,7 +142,7 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                 setEndDate("");
             }
         }
-    }, [isOpen, educationToEdit]);
+    }, [isOpen, educationToEdit, fetchSchools]);
 
     useEffect(() => {
         async function fetchCourses(sId: string) {
@@ -293,15 +300,62 @@ export function EducationModal({ isOpen, onClose, userId, educationToEdit }: Edu
                                     </>
                                 ) : (
                                     <>
-                                        <SearchableSelect
-                                            options={schoolOptions}
-                                            value={schoolId}
-                                            onValueChange={(val) => { setSchoolId(val); setCourseId(""); setIsUnverifiedCourse(false); setRawCourseName(""); }}
-                                            onSearchChange={handleSchoolSearch}
-                                            serverFiltered
-                                            placeholder={loadingSchools ? "Loading schools..." : "Search for your school..."}
-                                            disabled={isVerifiedEdit}
-                                        />
+                                        <Popover open={schoolOpen} onOpenChange={setSchoolOpen}>
+                                            <PopoverTrigger asChild>
+                                                <Button
+                                                    variant="outline"
+                                                    role="combobox"
+                                                    aria-expanded={schoolOpen}
+                                                    className={cn("w-full min-w-0 justify-between font-normal", !schoolId && "text-muted-foreground")}
+                                                    disabled={isVerifiedEdit}
+                                                >
+                                                    <span className="truncate">
+                                                        {schoolOptions.find((o) => o.value === schoolId)?.label || (loadingSchools ? "Loading schools..." : "Search for your school...")}
+                                                    </span>
+                                                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                </Button>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                                                <Command shouldFilter={false}>
+                                                    <CommandInput
+                                                        className="text-base md:text-sm"
+                                                        placeholder="Search for your school..."
+                                                        onValueChange={handleSchoolSearch}
+                                                    />
+                                                    <CommandList>
+                                                        {loadingSchools ? (
+                                                            <div className="py-6 text-center text-sm text-muted-foreground">Loading schools...</div>
+                                                        ) : schoolOptions.length === 0 ? (
+                                                            <CommandEmpty>No results found.</CommandEmpty>
+                                                        ) : (
+                                                            <CommandGroup>
+                                                                {schoolOptions.map((opt) => (
+                                                                    <CommandItem
+                                                                        key={opt.value}
+                                                                        value={`${opt.label}__${opt.value}`}
+                                                                        onSelect={() => {
+                                                                            setSchoolId(opt.value);
+                                                                            setCourseId("");
+                                                                            setIsUnverifiedCourse(false);
+                                                                            setRawCourseName("");
+                                                                            setSchoolOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <Check
+                                                                            className={cn(
+                                                                                "mr-2 h-4 w-4 shrink-0",
+                                                                                schoolId === opt.value ? "opacity-100" : "opacity-0"
+                                                                            )}
+                                                                        />
+                                                                        <span className="min-w-0 flex-1 break-words">{opt.label}</span>
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        )}
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                         {!isVerifiedEdit && (
                                             <div className="text-sm md:text-xs text-muted-foreground mt-1 text-right">
                                                 Can&apos;t find your school? <button type="button" onClick={() => { setIsUnverifiedSchool(true); setIsUnverifiedCourse(false); setSchoolId(""); setCourseId(""); }} className="text-primary font-medium hover:underline">Request to add school</button>

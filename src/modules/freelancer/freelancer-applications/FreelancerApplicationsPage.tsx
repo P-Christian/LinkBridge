@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react';
 import { useFreelancerApplications } from './hooks/useFreelancerApplications';
 import { useRealtime } from '@/modules/shared/providers/RealtimeProvider';
-import { ApplicationHeader, APPLICATION_STATUS_FILTERS } from './components/ApplicationHeader';
+import { ApplicationHeader } from './components/ApplicationHeader';
 import { ApplicationSummaryCards } from './components/ApplicationSummaryCards';
 import { ApplicationTable } from './components/ApplicationTable';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -13,7 +13,7 @@ import { BookmarkHeader } from './components/BookmarkHeader';
 import { Input } from '@/components/ui/input';
 import { Search, ClipboardList, Filter } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { ApplicationStatus } from './types';
+import { DateRangeFilter } from './components/application-table/DateRangeFilter';
 
 interface FreelancerApplicationsPageProps {
   defaultTab?: "applications" | "bookmarks";
@@ -26,10 +26,12 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
     applications,
     summary,
     loading,
-    error,
     fetchApplications,
     filterStatus,
     setFilterStatus,
+    dateFilter,
+    setDateFilter,
+    statusOptions,
   } = useFreelancerApplications();
 
   const { subscribe } = useRealtime();
@@ -46,7 +48,6 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
   const {
     bookmarks,
     loading: bookmarksLoading,
-    error: bookmarksError,
     fetchBookmarks,
     removeBookmark,
   } = useFreelancerBookmarks();
@@ -111,12 +112,10 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
         <TabsContent value="applications" className="outline-none">
           <ApplicationHeader 
             totalOpportunities={summary.totalApplied} 
-            filterStatus={filterStatus} 
-            onFilterChange={setFilterStatus} 
           />
           <ApplicationSummaryCards summary={summary} />
 
-          {/* Mobile-only filter bar: search + status (desktop keeps the DataTable toolbar) */}
+          {/* Mobile-only filter bar: search + status + date */}
           <div className="md:hidden mb-4 space-y-2">
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -127,31 +126,31 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
                 className="rounded-lg pl-8 h-11 text-base"
               />
             </div>
-            <Select
-              value={filterStatus}
-              onValueChange={(val) => setFilterStatus(val as ApplicationStatus | "ALL")}
-            >
-              <SelectTrigger className="w-full max-md:min-h-11">
-                <div className="flex items-center gap-2">
-                  <Filter className="w-4 h-4" />
-                  <SelectValue placeholder="Filter by status" />
-                </div>
-              </SelectTrigger>
-              <SelectContent>
-                {APPLICATION_STATUS_FILTERS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {error && (
-            <div className="flex items-center gap-3 p-4 mb-6 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-              {error}
+            <div className="flex items-center gap-2">
+              <Select
+                value={filterStatus}
+                onValueChange={(val) => setFilterStatus(val)}
+              >
+                <SelectTrigger className="w-full max-md:min-h-11">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4" />
+                    <SelectValue placeholder="Filter by status" />
+                  </div>
+                </SelectTrigger>
+                <SelectContent>
+                  {statusOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <DateRangeFilter
+                value={dateFilter}
+                onChange={setDateFilter}
+              />
             </div>
-          )}
+          </div>
 
           {loading ? (
             <div className="flex items-center justify-center py-16 gap-3 bg-card rounded-xl border shadow-sm mb-8">
@@ -160,7 +159,16 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
             </div>
           ) : (
             <div className="mb-8">
-              <ApplicationTable applications={applications} onRefresh={fetchApplications} mobileSearch={applicationSearch} />
+              <ApplicationTable
+                applications={applications}
+                onRefresh={fetchApplications}
+                mobileSearch={applicationSearch}
+                filterStatus={filterStatus}
+                onFilterChange={setFilterStatus}
+                statusOptions={statusOptions}
+                dateFilter={dateFilter}
+                onDateFilterChange={setDateFilter}
+              />
             </div>
           )}
         </TabsContent>
@@ -179,12 +187,6 @@ const FreelancerApplicationsPage: React.FC<FreelancerApplicationsPageProps> = ({
               />
             </div>
           </div>
-
-          {bookmarksError && (
-            <div className="flex items-center gap-3 p-4 mb-6 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-              {bookmarksError}
-            </div>
-          )}
 
           {bookmarksLoading ? (
             <div className="flex items-center justify-center py-16 gap-3 bg-card rounded-xl border shadow-sm mb-8">

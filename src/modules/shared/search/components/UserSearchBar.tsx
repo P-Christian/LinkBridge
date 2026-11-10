@@ -1,162 +1,80 @@
 "use client";
 
-import { useState, useRef, useEffect, useSyncExternalStore } from "react";
-import { Search, X, User, Building2, GraduationCap } from "lucide-react";
-import { useRouter, usePathname } from "next/navigation";
-import { useUserSearch } from "../hooks/useUserSearch";
-import { Badge } from "@/components/ui/badge";
-import { ClientCommandPalette } from "@/modules/client/dashboard/components/ClientCommandPalette";
+import { useState, useEffect, useSyncExternalStore } from "react";
+import { Search, X } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { PortalCommandPalette } from "./PortalCommandPalette";
+import { PORTAL_SEARCH_CONFIG, resolvePortal } from "./portalSearchConfig";
 
 export function UserSearchBar() {
   const [query, setQuery] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  // On public profile pages the portal comes from ?portal=..., read safely with useSyncExternalStore to avoid hydration mismatch
+  const portalParam = useSyncExternalStore(
+    (onStoreChange) => {
+      window.addEventListener("popstate", onStoreChange);
+      return () => window.removeEventListener("popstate", onStoreChange);
+    },
+    () => new URLSearchParams(window.location.search).get("portal"),
+    () => null
+  );
   const isMac = useSyncExternalStore(
-    () => () => {},
+    () => () => { },
     () => /(Mac|iPhone|iPod|iPad)/i.test(navigator.userAgent || ""),
     () => false
   );
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const { results, isLoading, error } = useUserSearch(query);
-  const router = useRouter();
   const pathname = usePathname();
-  const isClientPortal = pathname?.startsWith("/vos-sync/client");
 
-  // Global Ctrl/Cmd + K listener for client portal
+  const portal = resolvePortal(pathname, portalParam);
+  const cfg = PORTAL_SEARCH_CONFIG[portal];
+
+  // Ctrl/Cmd + K for every portal
   useEffect(() => {
-    if (!isClientPortal) return;
-
     function handleKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
-        setCommandPaletteOpen((prev) => !prev);
+        setPaletteOpen((prev) => !prev);
       }
     }
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isClientPortal]);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  const handleResultClick = async (userId: number, entityType: "freelancer" | "client" | "school-admin") => {
-    setIsOpen(false);
-    setQuery("");
-
-    // Log the profile view (only for freelancer profiles)
-    if (entityType === "freelancer") {
-      try {
-        await fetch("/api/freelancer/profile-views", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ viewed_user_id: userId }),
-        });
-      } catch (e) {
-        console.error("Failed to log view", e);
-      }
-    }
-
-    // Determine which portal we are currently in so the sidebar stays consistent
-    const isClientPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/vos-sync/client");
-    const isSchoolPortal = typeof window !== "undefined" && window.location.pathname.startsWith("/vos-sync/school-admin");
-    let portalParam = "?portal=freelancer";
-    if (isClientPortal) {
-      portalParam = "?portal=client";
-    } else if (isSchoolPortal) {
-      portalParam = "?portal=school-admin";
-    }
-
-    // Navigate to public profile
-    router.push(`/vos-sync/public/${entityType}/${userId}${portalParam}`);
-  };
-
-  const getEntityIcon = (type: "freelancer" | "client" | "school-admin", avatarUrl?: string) => {
-    if (avatarUrl) {
-      return (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={avatarUrl} alt="Logo" className="h-full w-full rounded-full object-cover" />
-      );
-    }
-    if (type === "client") {
-      return <Building2 className="h-4 w-4" />;
-    }
-    if (type === "school-admin") {
-      return <GraduationCap className="h-4 w-4" />;
-    }
-    return <User className="h-4 w-4" />;
-  };
-
-  const getEntityStyles = (type: "freelancer" | "client" | "school-admin") => {
-    switch (type) {
-      case "client":
-        return {
-          iconBg: "bg-violet-500/10 text-violet-600 dark:text-violet-400",
-          badge: "bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20",
-        };
-      case "school-admin":
-        return {
-          iconBg: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-          badge: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-        };
-      default:
-        return {
-          iconBg: "bg-blue-500/10 text-blue-600 dark:text-blue-400",
-          badge: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",
-        };
-    }
-  };
 
   return (
     <>
-      <div className="relative w-full" ref={wrapperRef}>
+      <div className="relative w-full">
         <div className="relative flex items-center">
           <Search className="absolute left-2.5 h-4 w-4 text-muted-foreground" />
+          {/*
+            No onFocus handler on purpose: when the dialog closes Radix returns focus to
+            this input, which would immediately re-open the palette.
+          */}
           <input
             type="text"
             value={query}
             onChange={(e) => {
               setQuery(e.target.value);
-              setIsOpen(true);
+              setPaletteOpen(true);
             }}
-            onClick={() => {
-              if (isClientPortal) {
-                setCommandPaletteOpen(true);
-              }
+            onClick={() => setPaletteOpen(true)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") setPaletteOpen(true);
             }}
-            onFocus={() => {
-              if (isClientPortal) {
-                setCommandPaletteOpen(true);
-              } else {
-                setIsOpen(true);
-              }
-            }}
-            placeholder={isClientPortal ? "Search candidates, jobs, or quick actions..." : "Search profiles, companies, schools..."}
-            className={`h-9 w-full rounded-full border border-input bg-background/50 pl-9 text-sm outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-              isClientPortal ? "pr-16" : "pr-8"
-            }`}
+            placeholder={cfg.barPlaceholder}
+            className="h-9 w-full rounded-full border border-input bg-background/50 pl-9 pr-16 text-sm outline-none ring-offset-background transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           />
           {query ? (
             <button
-              onClick={() => {
-                setQuery("");
-                setIsOpen(false);
-              }}
+              onClick={() => setQuery("")}
               className="absolute right-2.5 flex h-4 w-4 items-center justify-center rounded-full bg-muted text-muted-foreground hover:bg-muted-foreground hover:text-background"
+              aria-label="Clear search"
             >
               <X className="h-3 w-3" />
             </button>
-          ) : isClientPortal ? (
+          ) : (
             <div className="absolute right-2.5 flex items-center gap-1">
               <kbd
-                onClick={() => setCommandPaletteOpen(true)}
+                onClick={() => setPaletteOpen(true)}
                 className="cursor-pointer pointer-events-auto inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted/70 px-1.5 font-mono text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 title={isMac ? "Open command palette (⌘K)" : "Open command palette (Ctrl+K)"}
               >
@@ -172,75 +90,19 @@ export function UserSearchBar() {
                 )}
               </kbd>
             </div>
-          ) : null}
+          )}
         </div>
-
-      {isOpen && query.trim().length >= 2 && (
-        <div className="absolute left-0 right-0 top-full mt-2 overflow-hidden rounded-xl border border-border bg-background shadow-lg z-50">
-          <div className="max-h-[340px] overflow-y-auto py-2">
-            {isLoading ? (
-              <div className="px-4 py-3 text-sm text-muted-foreground text-center">Searching profiles...</div>
-            ) : error ? (
-              <div className="px-4 py-3 text-sm text-red-500 text-center">{error}</div>
-            ) : results.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-muted-foreground text-center">No matching profiles found.</div>
-            ) : (
-              <ul className="flex flex-col divide-y divide-border/40">
-                {results.map((item, index) => {
-                  const styles = getEntityStyles(item.entity_type);
-                  return (
-                    <li key={`${item.entity_type}-${item.user_id}-${index}`}>
-                      <button
-                        onClick={() => handleResultClick(item.user_id, item.entity_type)}
-                        className="w-full flex items-center justify-between gap-3 px-4 py-2.5 hover:bg-muted/50 transition-colors text-left"
-                      >
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <div
-                            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full overflow-hidden ${
-                              item.avatar_url ? "bg-muted" : styles.iconBg
-                            }`}
-                          >
-                            {getEntityIcon(item.entity_type, item.avatar_url)}
-                          </div>
-                          <div className="flex flex-col min-w-0 overflow-hidden">
-                            <span className="truncate text-sm font-semibold text-foreground leading-tight">
-                              {item.name}
-                            </span>
-                            {item.headline && (
-                              <span className="truncate text-xs text-muted-foreground mt-0.5">
-                                {item.headline}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <Badge
-                          variant="outline"
-                          className={`text-[10px] shrink-0 font-medium px-2 py-0.5 ${styles.badge}`}
-                        >
-                          {item.badge_label}
-                        </Badge>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
       </div>
-      {isClientPortal && (
-        <ClientCommandPalette
-          open={commandPaletteOpen}
-          onOpenChange={(val) => {
-            setCommandPaletteOpen(val);
-            if (!val) setQuery("");
-          }}
-          initialQuery={query}
-        />
-      )}
+
+      <PortalCommandPalette
+        portal={portal}
+        open={paletteOpen}
+        onOpenChange={(val) => {
+          setPaletteOpen(val);
+          if (!val) setQuery("");
+        }}
+        initialQuery={query}
+      />
     </>
   );
 }
-

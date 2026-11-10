@@ -129,6 +129,7 @@ interface DataTableProps<TData, TValue> {
   emptyDescription?: string;
   onSelectionChange?: (selectedRows: TData[]) => void;
   actionComponent?: React.ReactNode;
+  filterComponent?: React.ReactNode;
 }
 
 export function DataTable<TData, TValue>({
@@ -148,6 +149,7 @@ export function DataTable<TData, TValue>({
   emptyDescription,
   onSelectionChange,
   actionComponent,
+  filterComponent,
 }: DataTableProps<TData, TValue>) {
   "use no memo"
   const [internalSorting, setInternalSorting] = React.useState<SortingState>(
@@ -245,9 +247,9 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
         {searchKey && (
-          <div className="max-w-sm w-full">
+          <div className="max-w-xs w-full">
             <SearchInput
               placeholder={`Search ${searchKey.replace(/_/g, " ")}...`}
               initialValue={
@@ -258,8 +260,13 @@ export function DataTable<TData, TValue>({
             />
           </div>
         )}
+        {filterComponent && (
+          <div className="shrink-0">
+            {filterComponent}
+          </div>
+        )}
 
-        <div className="flex items-center gap-2 ml-auto">
+        <div className="flex items-center gap-2 sm:ml-auto">
           {actionComponent}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

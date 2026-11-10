@@ -79,7 +79,7 @@ export function DashboardKpiStats({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 h-full">
             {/* Card 1: Action Required (Replaces duplicate Active Apps) */}
             <Link
-                href="/vos-sync/freelancer/applications"
+                href="/linkbridge/freelancer/applications"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-amber-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">
@@ -108,7 +108,10 @@ export function DashboardKpiStats({
             </Link>
 
             {/* Card 2: Top AI Match */}
-            <div className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-indigo-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5 group">
+            <Link
+                href="/linkbridge/freelancer/find-work"
+                className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-indigo-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5 group"
+            >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">
                     <span>Top AI Match</span>
                     <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center group-hover:scale-110 transition-transform">
@@ -116,19 +119,27 @@ export function DashboardKpiStats({
                     </div>
                 </div>
                 <div className="my-2">
-                    <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
-                        {topMatchScore ? `${topMatchScore}%` : "95%"}
-                    </span>
-                    <span className="text-xs text-slate-400 dark:text-muted-foreground"> fit score</span>
+                    {topMatchScore ? (
+                        <>
+                            <span className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">
+                                {topMatchScore}%
+                            </span>
+                            <span className="text-xs text-slate-400 dark:text-muted-foreground"> fit score</span>
+                        </>
+                    ) : (
+                        <span className="text-2xl font-bold text-slate-400 dark:text-muted-foreground">
+                            —
+                        </span>
+                    )}
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-muted-foreground truncate font-medium">
-                    {topMatchTitle || "AI Integration Engineer"}
+                <p className="text-[11px] text-slate-500 dark:text-muted-foreground truncate font-medium group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                    {topMatchTitle || "No matches yet · Explore jobs"}
                 </p>
-            </div>
+            </Link>
 
             {/* Card 3: Recent Messages */}
             <Link
-                href="/vos-sync/freelancer/messaging"
+                href="/linkbridge/freelancer/messaging"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-emerald-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-emerald-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">

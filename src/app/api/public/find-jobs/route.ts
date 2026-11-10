@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { PublicJobPosting } from "@/modules/public/find-jobs/types";
+import type { PublicJobPosting, PopularPreset } from "@/modules/public/find-jobs/types";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +40,108 @@ function formatWorkSetup(val: string): string {
   if (norm.includes("hybrid")) return "Hybrid";
   if (norm.includes("site") || norm.includes("office")) return "On-site";
   return val.replace(/[_-]+/g, " ");
+}
+
+const EXCLUDED_WORK_SETUPS = new Set(["on-site", "onsite", "all"]);
+const EXCLUDED_JOB_TYPES = new Set(["full time", "fulltime", "all"]);
+// Work setup or employment type only qualifies if active listings reach a major volume (50+)
+const MIN_METADATA_JOB_THRESHOLD = 50;
+
+function isGenericRoleOrCategory(str: string): boolean {
+  const norm = str.trim().toLowerCase();
+  return (
+    !norm ||
+    norm === "other" ||
+    norm === "unassigned" ||
+    norm === "general" ||
+    norm === "none" ||
+    norm === "n/a" ||
+    norm === "all"
+  );
+}
+
+export function computePopularPresets(rawJobs: Record<string, unknown>[]): PopularPreset[] {
+  if (!Array.isArray(rawJobs) || rawJobs.length === 0) {
+    return [];
+  }
+
+  const setupCounts = new Map<string, number>();
+  const typeCounts = new Map<string, number>();
+  const roleCounts = new Map<string, number>();
+
+  for (const j of rawJobs) {
+    // 1. Work setup (strictly exclude On-site and All)
+    const rawSetup = String(j.work_arrangement || j.work_setup || "").trim();
+    if (rawSetup) {
+      const formatted = formatWorkSetup(rawSetup);
+      if (formatted && !EXCLUDED_WORK_SETUPS.has(formatted.toLowerCase())) {
+        setupCounts.set(formatted, (setupCounts.get(formatted) || 0) + 1);
+      }
+    }
+
+    // 2. Job type (strictly exclude Full Time and All)
+    const rawType = String(j.job_type || "").trim();
+    if (rawType) {
+      const formatted = formatJobType(rawType);
+      if (formatted && !EXCLUDED_JOB_TYPES.has(formatted.toLowerCase())) {
+        typeCounts.set(formatted, (typeCounts.get(formatted) || 0) + 1);
+      }
+    }
+
+    // 3. Category / Role
+    const category = String(j.job_category || "").trim();
+    const title = String(j.job_title || "").trim();
+    if (category && !isGenericRoleOrCategory(category)) {
+      roleCounts.set(category, (roleCounts.get(category) || 0) + 1);
+    } else if (title && !isGenericRoleOrCategory(title)) {
+      roleCounts.set(title, (roleCounts.get(title) || 0) + 1);
+    }
+  }
+
+  const presets: PopularPreset[] = [];
+  const seenLabels = new Set<string>();
+
+  // Work Setup: ONLY included if job count reaches significant volume (>= 50 active listings)
+  const sortedSetups = Array.from(setupCounts.entries()).sort((a, b) => b[1] - a[1]);
+  if (sortedSetups.length > 0 && sortedSetups[0][1] >= MIN_METADATA_JOB_THRESHOLD) {
+    const label = sortedSetups[0][0];
+    presets.push({
+      label,
+      type: "work_setup",
+      count: sortedSetups[0][1],
+    });
+    seenLabels.add(label.toLowerCase());
+  }
+
+  // Employment Type: ONLY included if job count reaches significant volume (>= 50 active listings)
+  const sortedTypes = Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1]);
+  if (sortedTypes.length > 0 && sortedTypes[0][1] >= MIN_METADATA_JOB_THRESHOLD) {
+    const label = sortedTypes[0][0];
+    if (!seenLabels.has(label.toLowerCase())) {
+      presets.push({
+        label,
+        type: "job_type",
+        count: sortedTypes[0][1],
+      });
+      seenLabels.add(label.toLowerCase());
+    }
+  }
+
+  // Top Roles / Categories (fill up to 5 presets total)
+  const sortedRoles = Array.from(roleCounts.entries()).sort((a, b) => b[1] - a[1]);
+  for (const [role, count] of sortedRoles) {
+    if (presets.length >= 5) break;
+    if (count > 0 && !seenLabels.has(role.toLowerCase())) {
+      presets.push({
+        label: role,
+        type: "keyword",
+        count,
+      });
+      seenLabels.add(role.toLowerCase());
+    }
+  }
+
+  return presets;
 }
 
 /**
@@ -118,6 +221,34 @@ export interface GetPublicJobsOptions {
   page?: number;
 }
 
+const JOB_SCAN_LIMIT = 200;
+const SALARY_VISIBILITY_FIELD = "show_salary_range";
+// Public projection: never select "*", so internal columns (draft status, creator id,
+// moderation fields) stay inside Directus.
+const PUBLIC_JOB_FIELDS = [
+  "job_id",
+  "company_id",
+  "job_title",
+  "job_category",
+  "job_description",
+  "job_type",
+  "work_arrangement",
+  "job_location",
+  "salary_min",
+  "salary_max",
+  "currency",
+  "experience_level",
+  "created_at",
+];
+
+async function fetchActivePostings(fields: string): Promise<Record<string, unknown>[] | null> {
+  const url = `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&sort[]=-created_at&limit=${JOB_SCAN_LIMIT}&fields=${fields}`;
+  const res = await fetch(url, { headers: getDirectusHeaders(), cache: "no-store" });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return (json.data || []) as Record<string, unknown>[];
+}
+
 export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
   if (!DIRECTUS_BASE) {
     throw new Error("Directus API base URL not configured.");
@@ -132,33 +263,24 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
   const page = Math.max(Number(options.page || 1), 1);
   const offset = (page - 1) * limit;
 
-  // Fetch active job postings from Directus
-  const jobsUrl = `${DIRECTUS_BASE}/items/vs_job_posting?filter[status][_eq]=ACTIVE&sort[]=-created_at&limit=200&fields=*`;
-  const jobsRes = await fetch(jobsUrl, { headers: getDirectusHeaders(), cache: "no-store" });
-
-  let rawJobs: Record<string, unknown>[] = [];
-  if (jobsRes.ok) {
-    const jobsJson = await jobsRes.json();
-    rawJobs = jobsJson.data || [];
-  } else {
-    const fallbackUrl = `${DIRECTUS_BASE}/items/vs_job_posting?sort[]=-created_at&limit=200&fields=*`;
-    const fallbackRes = await fetch(fallbackUrl, { headers: getDirectusHeaders(), cache: "no-store" });
-    if (fallbackRes.ok) {
-      const fallbackJson = await fallbackRes.json();
-      rawJobs = fallbackJson.data || [];
-    }
-  }
+  // ACTIVE postings only, including the retry path when the salary-visibility column is unavailable.
+  let rawJobs: Record<string, unknown>[] =
+    (await fetchActivePostings([...PUBLIC_JOB_FIELDS, SALARY_VISIBILITY_FIELD].join(","))) ??
+    (await fetchActivePostings(PUBLIC_JOB_FIELDS.join(","))) ??
+    [];
 
   if (jobId) {
     rawJobs = rawJobs.filter((j) => String(j.job_id || j.id) === jobId);
   }
+
+  const popularPresets = computePopularPresets(rawJobs);
 
   // Fetch company details for master data lookup
   const companyIds = Array.from(new Set(rawJobs.map((j) => Number(j.company_id)).filter(Boolean)));
   const companyMap: Record<number, Record<string, unknown>> = {};
 
   if (companyIds.length > 0) {
-    const compUrl = `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${companyIds.join(",")}&fields=company_id,company_code,company_name,company_logo,company_city,company_province,company_address,company_website,verification_status&limit=-1`;
+    const compUrl = `${DIRECTUS_BASE}/items/vs_company?filter[company_id][_in]=${companyIds.join(",")}&fields=company_id,company_code,company_name,company_logo,company_city,company_province,company_address,verification_status&limit=${companyIds.length}`;
     const compRes = await fetch(compUrl, { headers: getDirectusHeaders(), cache: "no-store" });
     if (compRes.ok) {
       const compJson = await compRes.json();
@@ -225,6 +347,10 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
     const cid = Number(j.company_id);
     const comp = companyMap[cid] || {};
     const logoRaw = (comp.company_logo || j.company_logo) as string | null;
+    // Falsy show_salary_range means the employer did not disclose the range.
+    const salaryVisible = !(
+      j.show_salary_range === false || j.show_salary_range === 0 || j.show_salary_range === "0"
+    );
 
     const logoUrl = logoRaw
       ? logoRaw.startsWith("http") || logoRaw.startsWith("/")
@@ -250,13 +376,12 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
       work_setup: formatWorkSetup(String(j.work_arrangement || j.work_setup || "On-site")),
       location: jobLoc,
 
-      salary_min: j.salary_min != null ? Number(j.salary_min) : null,
-      salary_max: j.salary_max != null ? Number(j.salary_max) : null,
+      salary_min: salaryVisible && j.salary_min != null ? Number(j.salary_min) : null,
+      salary_max: salaryVisible && j.salary_max != null ? Number(j.salary_max) : null,
       salary_currency: String(j.currency || j.salary_currency || "PHP"),
-      show_salary_range: typeof j.show_salary_range === "boolean" ? j.show_salary_range : true,
+      show_salary_range: salaryVisible,
 
       experience_level: String(j.experience_level || "Not Specified"),
-      status: String(j.status || "ACTIVE"),
       created_at: String(j.created_at || j.date_created || new Date().toISOString()),
     };
   });
@@ -268,6 +393,7 @@ export async function getPublicJobs(options: GetPublicJobsOptions = {}) {
       page,
       limit,
       totalPages: Math.ceil(totalCount / limit) || 1,
+      popularPresets,
     },
   };
 }
@@ -288,7 +414,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/public/find-jobs error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

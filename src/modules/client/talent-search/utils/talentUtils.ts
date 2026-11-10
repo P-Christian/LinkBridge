@@ -1,4 +1,5 @@
 import { formatAssetUrl } from "@/lib/utils";
+import { TalentFilters, TalentSort, ExperienceLevel, WorkSetup, EXPERIENCE_LEVEL_LABELS, WORK_SETUP_LABELS, TALENT_SORTS } from "../types";
 
 /**
  * Resolves proxied asset URL for image values
@@ -88,28 +89,89 @@ export function getPlatformIcon(platform: string): string {
 }
 
 /**
- * Builds URLSearchParams for talent search
+ * Builds URLSearchParams for talent search. Multi-value filters are sent as
+ * repeated params so values may themselves contain commas.
  */
 export function buildTalentSearchParams(
-  keyword: string,
-  skills: string[],
-  location: string,
-  experienceLevel: string,
-  availability: string,
-  schoolId: string,
+  filters: TalentFilters,
   page: number,
   limit: number,
-  jobId?: string
+  jobId?: string,
+  sort?: TalentSort
 ): URLSearchParams {
   const params = new URLSearchParams();
-  if (keyword) params.set("keyword", keyword);
-  if (skills.length > 0) params.set("skills", skills.join(","));
-  if (location) params.set("location", location);
-  if (experienceLevel) params.set("experience_level", experienceLevel);
-  if (availability) params.set("availability", availability);
-  if (schoolId) params.set("school_id", schoolId);
+  if (filters.keyword) params.set("keyword", filters.keyword);
+  for (const skill of filters.skills) params.append("skills", skill);
+  for (const location of filters.locations) params.append("location", location);
+  for (const school of filters.schools) {
+    params.append("school_id", school.id !== null ? String(school.id) : school.name);
+  }
+  const expLevels = (filters.experience_levels && filters.experience_levels.length > 0)
+    ? filters.experience_levels
+    : filters.experience_level ? [filters.experience_level] : [];
+  for (const level of expLevels) {
+    params.append("experience_level", level);
+  }
+  for (const ws of filters.work_setups ?? []) {
+    params.append("work_setup", ws);
+  }
   if (jobId) params.set("job_id", jobId);
+  if (sort && sort !== "relevance") params.set("sort", sort);
   params.set("page", String(page));
   params.set("limit", String(limit));
   return params;
 }
+
+/** What one talent-search URL fully describes. */
+export interface TalentSearchQueryState {
+  filters: TalentFilters;
+  page: number;
+  limit: number;
+  sort: TalentSort;
+}
+
+/**
+ * The inverse of `buildTalentSearchParams`, so a shared or reloaded link lands on
+ * the same results. It is deliberately tolerant: an unknown sort or a broken page
+ * number falls back to the default rather than refusing to run, because the route
+ * answers the same values the same way and a stale bookmark still has to work.
+ */
+export function parseTalentSearchQuery(search: string): TalentSearchQueryState {
+  const params = new URLSearchParams(search);
+  const sortParam = params.get("sort") ?? "";
+
+  return {
+    filters: {
+      keyword: params.get("keyword") ?? "",
+      skills: params.getAll("skills"),
+      locations: params.getAll("location"),
+      experience_level: "",
+      experience_levels: params
+        .getAll("experience_level")
+        .filter((l) => l in EXPERIENCE_LEVEL_LABELS) as ExperienceLevel[],
+      schools: params.getAll("school_id").map((value) =>
+        /^\d+$/.test(value)
+          ? { id: Number(value), name: value, campus: null }
+          : { id: null, name: value, campus: null }
+      ),
+      work_setups: params
+        .getAll("work_setup")
+        .filter((w) => w in WORK_SETUP_LABELS) as WorkSetup[],
+    },
+    page: Math.max(1, Number(params.get("page")) || 1),
+    limit: Math.min(50, Math.max(1, Number(params.get("limit")) || 20)),
+    sort: (TALENT_SORTS as string[]).includes(sortParam) ? (sortParam as TalentSort) : "relevance",
+  };
+}
+
+/**
+ * The defaults are left out so a plain browse keeps a clean URL and only a search
+ * worth sharing grows a query string.
+ */
+export function toShareableSearch(params: URLSearchParams): string {
+  const copy = new URLSearchParams(params);
+  if (copy.get("page") === "1") copy.delete("page");
+  if (copy.get("limit") === "20") copy.delete("limit");
+  return copy.toString();
+}
+

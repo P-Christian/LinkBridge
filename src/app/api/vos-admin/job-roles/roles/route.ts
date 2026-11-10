@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,15 +39,22 @@ async function authorizeAdmin(req: NextRequest) {
   return { authorized: true, session };
 }
 
+function toPositiveId(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : null;
+}
+
 export async function GET(req: NextRequest) {
   try {
-    const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
-      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-    }
+    const auth = await authorizeAdmin(req);
+    if (!auth.authorized) return auth.response;
 
     const { searchParams } = new URL(req.url);
-    const categoryId = searchParams.get("category_id");
+    const rawCategoryId = searchParams.get("category_id");
+    const categoryId = rawCategoryId === null ? null : toPositiveId(rawCategoryId);
+    if (rawCategoryId !== null && categoryId === null) {
+      return NextResponse.json({ error: "Invalid category_id." }, { status: 400 });
+    }
     const filterParam = categoryId ? `&filter[category_id][_eq]=${categoryId}` : "";
 
     const [rolesRes, catRes] = await Promise.all([
@@ -54,8 +62,17 @@ export async function GET(req: NextRequest) {
       fetch(`${DIRECTUS_BASE}/items/vs_role_category?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
     ]);
 
-    const rolesJson = rolesRes.ok ? await rolesRes.json() : {};
-    const catJson = catRes.ok ? await catRes.json() : {};
+    // An unreadable roles or categories table used to answer with an empty list,
+    // which is indistinguishable from an administrator having deleted the taxonomy.
+    if (!rolesRes.ok || !catRes.ok) {
+      return NextResponse.json(
+        { error: "The role taxonomy could not be read. Please try again." },
+        { status: 502 }
+      );
+    }
+
+    const rolesJson = await rolesRes.json();
+    const catJson = await catRes.json();
 
     const rawRoles = rolesJson.data ?? [];
     const catList = catJson.data ?? [];
@@ -80,7 +97,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ roles: formatted });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -99,7 +116,7 @@ export async function POST(req: NextRequest) {
     const json = await res.json();
     return NextResponse.json(json.data);
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -110,9 +127,10 @@ export async function PATCH(req: NextRequest) {
 
     const body = await req.json();
     const { role_id, ...updates } = body;
-    if (!role_id) return NextResponse.json({ error: "Role ID required." }, { status: 400 });
+    const roleId = toPositiveId(role_id);
+    if (!roleId) return NextResponse.json({ error: "Role ID required." }, { status: 400 });
 
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_title/${role_id}`, {
+    const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_title/${roleId}`, {
       method: "PATCH",
       headers: getHeaders(),
       body: JSON.stringify(updates),
@@ -121,7 +139,7 @@ export async function PATCH(req: NextRequest) {
     const json = await res.json();
     return NextResponse.json(json.data);
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }
 
@@ -131,8 +149,37 @@ export async function DELETE(req: NextRequest) {
     if (!auth.authorized) return auth.response;
 
     const { searchParams } = new URL(req.url);
-    const id = searchParams.get("id");
+    const id = toPositiveId(searchParams.get("id"));
     if (!id) return NextResponse.json({ error: "Role ID required." }, { status: 400 });
+
+    // Safeguard dependency checks before hard deletion
+    const [skillsCheckRes, aliasCheckRes, jobsCheckRes] = await Promise.all([
+      fetch(`${DIRECTUS_BASE}/items/vs_role_skill_mapping?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_role_title_alias?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+      fetch(`${DIRECTUS_BASE}/items/vs_job_posting?filter[role_id][_eq]=${id}&limit=1`, {
+        headers: getHeaders(),
+        cache: "no-store",
+      }),
+    ]);
+
+    const skillsCount = (await skillsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const aliasCount = (await aliasCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+    const jobsCount = (await jobsCheckRes.json().catch(() => ({})))?.data?.length ?? 0;
+
+    if (skillsCount > 0 || aliasCount > 0 || jobsCount > 0) {
+      return NextResponse.json(
+        {
+          error: `Cannot delete: Standard role has mapped skills, search keywords, or job postings. Deactivate (set to Inactive) instead to preserve data integrity.`,
+        },
+        { status: 409 }
+      );
+    }
 
     const res = await fetch(`${DIRECTUS_BASE}/items/vs_role_title/${id}`, {
       method: "DELETE",
@@ -141,6 +188,6 @@ export async function DELETE(req: NextRequest) {
     if (!res.ok) throw new Error("Failed to delete standard role.");
     return NextResponse.json({ success: true });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Server error" }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Server error") }, { status: 500 });
   }
 }

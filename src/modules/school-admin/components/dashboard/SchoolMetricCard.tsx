@@ -14,6 +14,7 @@ interface SchoolMetricCardProps {
   iconColor: string;
   iconBgColor: string;
   topAccentColor?: string; // e.g. "border-t-blue-500"
+  hoverBorderColor?: string; // e.g. "hover:border-blue-400/60"
   sparklineBars?: number[]; // Values 0 to 100 for mini bar visual, optional
 }
 
@@ -27,11 +28,12 @@ export function SchoolMetricCard({
   iconColor,
   iconBgColor,
   topAccentColor = 'border-t-primary',
+  hoverBorderColor = 'hover:border-primary/50',
   sparklineBars,
 }: SchoolMetricCardProps) {
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border border-border/80 border-t-[3.5px] ${topAccentColor} bg-card p-5 shadow-xs transition-all duration-200 hover:border-slate-300 dark:hover:border-slate-700 hover:shadow-md hover:-translate-y-0.5`}
+      className={`group relative overflow-hidden rounded-2xl border border-border/80 border-t-[3.5px] ${topAccentColor} bg-card p-5 shadow-xs transition-all duration-200 ${hoverBorderColor} hover:shadow-md hover:-translate-y-0.5`}
     >
       <div className="flex items-start justify-between">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</p>

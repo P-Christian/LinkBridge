@@ -31,22 +31,22 @@ function getHeaders(): Record<string, string> {
 
 async function resolveClientCompany(
   userId: string | number
-): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${String(userId)}&fields=company_id&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const json = (await res.json()) as {
-      data?: Array<{ company_id?: number | string }>;
-    };
-    const raw = json.data?.[0]?.company_id ?? null;
-    if (raw === null || raw === undefined) return null;
-    const id = Number(raw);
-    return Number.isSafeInteger(id) && id > 0 ? id : null;
-  } catch {
-    return null;
-  }
+): Promise<{ companyId: number | null; unavailable: boolean }> {
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${String(userId)}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!res.ok) return { companyId: null, unavailable: true };
+  const json = (await res.json()) as {
+    data?: Array<{ company_id?: number | string }>;
+  };
+  const raw = json.data?.[0]?.company_id ?? null;
+  if (raw === null || raw === undefined) return { companyId: null, unavailable: false };
+  const id = Number(raw);
+  return {
+    companyId: Number.isSafeInteger(id) && id > 0 ? id : null,
+    unavailable: false,
+  };
 }
 
 export async function GET(req: NextRequest) {
@@ -59,7 +59,12 @@ export async function GET(req: NextRequest) {
       { status: 403 }
     );
 
-  const companyId = await resolveClientCompany(session.userId);
+  const { companyId, unavailable } = await resolveClientCompany(session.userId);
+  if (unavailable)
+    return NextResponse.json(
+      { error: "Your company association could not be read. Please try again." },
+      { status: 502 }
+    );
   if (!companyId)
     return NextResponse.json(
       { error: "Company association not found." },

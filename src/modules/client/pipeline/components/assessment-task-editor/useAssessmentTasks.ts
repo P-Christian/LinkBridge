@@ -4,6 +4,7 @@
 // UI state (open forms, delete confirmation) stays in the components.
 
 import { useCallback, useState } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import type { CompanyAssessmentTaskRow } from "../../services/assessment-task.service";
 import type { CreateTaskInput } from "@/modules/shared/assessment";
 import { fetchTaskList, readErrorMessage } from "./task-api";
@@ -26,17 +27,38 @@ export function useAssessmentTasks(options: UseAssessmentTasksOptions) {
   const [busyTaskId, setBusyTaskId] = useState<number | null>(null);
   const [isReordering, setIsReordering] = useState(false);
 
+  const abortRead = useRequestAbort();
+
+  /**
+   * Every list read claims a token, so only the newest one writes state. Two
+   * edits to one stage's tasks could otherwise land out of order and leave the
+   * editor showing another stage's rows — which is what its update and delete
+   * URLs would then be aimed at.
+   */
+  const readList = useCallback(
+    async (url: string) => {
+      const signal = abortRead();
+      try {
+        const fresh = await fetchTaskList(url, signal);
+        if (signal.aborted) return;
+        setTasks(fresh);
+      } catch (err: unknown) {
+        if (signal.aborted) return;
+        setError(err instanceof Error ? err.message : "Failed to load tasks.");
+      } finally {
+        if (!signal.aborted) {
+          setLoading(false);
+        }
+      }
+    },
+    [abortRead]
+  );
+
   const loadInitial = useCallback(async () => {
     setLoading(true);
     setError("");
-    try {
-      setTasks(await fetchTaskList(listUrl));
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "Failed to load tasks.");
-    } finally {
-      setLoading(false);
-    }
-  }, [listUrl]);
+    await readList(listUrl);
+  }, [listUrl, readList]);
 
   const createTask = async (
     payload: CreateTaskInput
@@ -49,8 +71,7 @@ export function useAssessmentTasks(options: UseAssessmentTasksOptions) {
         body: JSON.stringify(payload),
       });
       if (!res.ok) return await readErrorMessage(res);
-      const fresh = await fetchTaskList(listUrl);
-      setTasks(fresh);
+      await readList(listUrl);
       return null;
     } catch {
       return "Failed to create the task. Try again.";
@@ -71,8 +92,7 @@ export function useAssessmentTasks(options: UseAssessmentTasksOptions) {
         body: JSON.stringify(toUpdateInput(payload)),
       });
       if (!res.ok) return await readErrorMessage(res);
-      const fresh = await fetchTaskList(listUrl);
-      setTasks(fresh);
+      await readList(listUrl);
       return null;
     } catch {
       return "Failed to save the task. Try again.";

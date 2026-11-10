@@ -192,7 +192,11 @@ function InterviewRow({
                 Awaiting feedback
               </Badge>
             ) : (
-              <InterviewStatusBadge status={item.interview_status} />
+              <InterviewStatusBadge
+                status={item.interview_status}
+                scheduledAt={item.scheduled_at}
+                durationMinutes={item.duration_minutes}
+              />
             )}
             {relative && (
               <Badge variant="outline" className="text-[10px] font-semibold px-2 py-0 rounded-full text-zinc-500">
@@ -282,7 +286,7 @@ function InterviewRow({
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-44">
               <DropdownMenuItem onClick={() => onReschedule(item)} className="gap-2 text-sm md:text-xs">
-                <RefreshCw className="h-3.5 w-3.5 text-amber-500" />
+                <RefreshCw className="h-3.5 w-3.5 text-sky-500" />
                 Reschedule
               </DropdownMenuItem>
               <DropdownMenuSeparator />

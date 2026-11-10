@@ -2,7 +2,6 @@
 "use client";
 
 import React, { useMemo } from "react";
-import { useRouter } from "next/navigation";
 import { HiringOverviewChartData, TimeRangeKey } from "../types";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import {
@@ -17,6 +16,7 @@ import {
 import { TrendingUp, CalendarDays } from "lucide-react";
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
+import { KpiPending } from "@/components/shared/KpiValue";
 
 interface HiringOverviewChartProps {
   chartData?: HiringOverviewChartData;
@@ -38,8 +38,6 @@ export default function HiringOverviewChart({
   onRangeChange,
   isSwitching = false,
 }: HiringOverviewChartProps) {
-  const router = useRouter();
-
   const currentData = useMemo(() => {
     if (!chartData || !chartData[selectedRange]) {
       return [];
@@ -51,23 +49,9 @@ export default function HiringOverviewChart({
     return currentData.reduce((acc, curr) => acc + (curr.applications || 0), 0);
   }, [currentData]);
 
-  // Click on a chart data point navigates to applicants filtered by that period
-  const handleChartClick = (e: unknown) => {
-    const chartEvent = e as {
-      activePayload?: Array<{
-        payload?: {
-          label?: string;
-          date?: string;
-        };
-      }>;
-    } | null | undefined;
-
-    if (chartEvent?.activePayload && chartEvent.activePayload.length > 0) {
-      const payload = chartEvent.activePayload[0]?.payload;
-      const pointLabel = payload?.label || payload?.date || selectedRange;
-      router.push(`/vos-sync/client/applicants?window=${encodeURIComponent(pointLabel)}`);
-    }
-  };
+  // An unloaded range has no rows to sum, so 0 here would be a real-looking
+  // answer to a question the server has not answered yet.
+  const totalPending = isSwitching || !chartData;
 
   return (
     <motion.div
@@ -85,7 +69,11 @@ export default function HiringOverviewChart({
               </span>
             </div>
             <CardDescription className="text-sm md:text-xs text-muted-foreground dark:text-[#8A94AD]">
-              Total of <strong className="text-foreground dark:text-white font-semibold">{totalInPeriod} applications</strong> logged in this window. Click a data point to review applicants.
+              Total of{" "}
+              <strong className="text-foreground dark:text-white font-semibold">
+                {totalPending ? <KpiPending /> : `${totalInPeriod} applications`}
+              </strong>{" "}
+              logged in this window. Click a data point to review applicants.
             </CardDescription>
           </div>
 
@@ -134,8 +122,6 @@ export default function HiringOverviewChart({
                 <AreaChart
                   data={currentData}
                   margin={{ top: 10, right: 12, left: -20, bottom: 0 }}
-                  onClick={handleChartClick}
-                  className="cursor-pointer"
                 >
                   <defs>
                     <linearGradient id="applicationGradient" x1="0" y1="0" x2="0" y2="1">

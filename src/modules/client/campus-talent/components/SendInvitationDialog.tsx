@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import { CampusMatchResult } from "@/modules/matching-engine/campus/types";
 
 interface SendInvitationDialogProps {
@@ -64,11 +65,18 @@ export default function SendInvitationDialog({
       const json = (await res.json()) as {
         success?: boolean;
         error?: string;
+        warnings?: string[];
       };
 
       if (!res.ok || !json.success) {
         throw new Error(json.error ?? "Failed to send invitation.");
       }
+
+      // The invite went out; part of recording it may still have failed, and
+      // the dialog closes on a green check, so the gap has to be said elsewhere.
+      (Array.isArray(json.warnings) ? json.warnings : []).forEach((warning) =>
+        toast.warning(warning)
+      );
 
       setState("SUCCESS");
 
@@ -98,7 +106,7 @@ export default function SendInvitationDialog({
         >
             {/* Dialog */}
             <motion.div
-              className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5"
+              className="bg-background border border-border rounded-xl shadow-2xl w-full max-w-md p-6 space-y-5 wrap-anywhere"
               initial={{
                 opacity: 0,
                 scale: 0.95,
@@ -133,7 +141,7 @@ export default function SendInvitationDialog({
                   <p className="text-sm text-muted-foreground mt-0.5">
                     {jobTitle
                       ? "An email will be sent inviting this student to apply"
-                      : "An email will be sent inviting this student to register on VOS Sync"}
+                      : "An email will be sent inviting this student to register on LinkBridge"}
                   </p>
                 </div>
 

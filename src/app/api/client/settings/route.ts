@@ -2,10 +2,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcrypt";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { revokeOtherUserSessions } from "@/modules/auth/sessions/session.repo";
-import { decodeJwtPayload } from "@/lib/auth-utils";
 import { getPHTimeString } from "@/lib/utils";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,6 +15,14 @@ const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(
   ""
 );
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+/**
+ * The projection the browser is allowed to read back. Both the GET and the
+ * profile PATCH use it so a Directus column that is not listed here (password
+ * hashes, OTP, block flags, role id) can never be echoed to the client.
+ */
+const PROFILE_FIELDS =
+  "user_id,user_email,user_fname,user_mname,user_lname,suffix_name,nickname,user_contact,user_position,user_department,user_province,user_city,user_brgy,gender,user_bday,civil_status,profile_image_url,user_image,role";
 
 function getHeaders(): Record<string, string> {
   const headers: Record<string, string> = {
@@ -35,10 +43,13 @@ export async function GET(req: NextRequest) {
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
     const userId = session.userId;
 
     const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_user/${userId}?fields=user_id,user_email,user_fname,user_mname,user_lname,suffix_name,nickname,user_contact,user_position,user_department,user_province,user_city,user_brgy,gender,user_bday,civil_status,profile_image_url,user_image,role`,
+      `${DIRECTUS_BASE}/items/vs_user/${userId}?fields=${PROFILE_FIELDS}`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
@@ -56,7 +67,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/client/settings error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -69,6 +80,9 @@ export async function PATCH(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
     const userId = session.userId;
 
@@ -100,7 +114,7 @@ export async function PATCH(req: NextRequest) {
       if (payload?.profile_image_url !== undefined) updateData.profile_image_url = cleanVal(payload.profile_image_url);
       if (payload?.user_image !== undefined) updateData.user_image = cleanVal(payload.user_image);
 
-      const res = await fetch(`${DIRECTUS_BASE}/items/vs_user/${userId}`, {
+      const res = await fetch(`${DIRECTUS_BASE}/items/vs_user/${userId}?fields=${PROFILE_FIELDS}`, {
         method: "PATCH",
         headers: getHeaders(),
         body: JSON.stringify(updateData),
@@ -148,14 +162,21 @@ export async function PATCH(req: NextRequest) {
       const storedUser = userJson.data;
       const storedHash = storedUser?.hash_password || storedUser?.user_password;
 
-      if (storedHash) {
-        const matches = await bcrypt.compare(currentPassword, storedHash);
-        if (!matches) {
-          return NextResponse.json(
-            { error: "Current password is incorrect." },
-            { status: 400 }
-          );
-        }
+      // Fail closed: without a stored hash there is nothing to verify, so the
+      // current password can never be proven and the change must be refused.
+      if (!storedHash) {
+        return NextResponse.json(
+          { error: "This account has no password on record. Use the password reset flow." },
+          { status: 403 }
+        );
+      }
+
+      const matches = await bcrypt.compare(currentPassword, storedHash);
+      if (!matches) {
+        return NextResponse.json(
+          { error: "Current password is incorrect." },
+          { status: 400 }
+        );
       }
 
       // Hash new password
@@ -188,11 +209,8 @@ export async function PATCH(req: NextRequest) {
 
       // Revoke all other active sessions in vs_user_sessions
       if (revokeOtherSessions) {
-        const token =
-          req.headers.get("authorization")?.replace("Bearer ", "") ||
-          req.cookies.get("vos_sync_access_token")?.value;
-        const decoded = token ? decodeJwtPayload(token) : null;
-        const currentSid = typeof decoded?.sid === "string" ? decoded.sid : null;
+        const currentSid =
+          typeof session.payload.sid === "string" ? session.payload.sid : null;
         await revokeOtherUserSessions(Number(userId), currentSid, "PASSWORD_RESET");
       }
 
@@ -203,7 +221,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/client/settings error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

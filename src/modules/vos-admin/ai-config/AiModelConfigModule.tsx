@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { motion, AnimatePresence, type Variants } from "framer-motion";
+import { motion, type Variants } from "framer-motion";
+import { toast } from "sonner";
 import {
   AiSystemConfig,
   AiProviderId,
@@ -93,7 +95,6 @@ export function AiModelConfigModule() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("workloads");
-  const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const [modelSearchQuery, setModelSearchQuery] = useState("");
 
   // Provider Credential Edit Dialog
@@ -107,6 +108,7 @@ export function AiModelConfigModule() {
 
   // Model Discovery Dialog
   const [discovering, setDiscovering] = useState(false);
+  const abortDiscovery = useRequestAbort();
   const [discoveredModels, setDiscoveredModels] = useState<DiscoveredModel[]>([]);
   const [showDiscoveryDialog, setShowDiscoveryDialog] = useState(false);
 
@@ -134,10 +136,7 @@ export function AiModelConfigModule() {
       const data: AiSystemConfig = await res.json();
       setConfig(data);
     } catch (err) {
-      setFeedback({
-        type: "error",
-        message: err instanceof Error ? err.message : "Error loading AI config",
-      });
+      toast.error(err instanceof Error ? err.message : "Error loading AI config");
     } finally {
       setLoading(false);
     }
@@ -163,7 +162,6 @@ export function AiModelConfigModule() {
   const handleSaveProvider = useCallback(async () => {
     if (!selectedProvider) return;
     setSaving(true);
-    setFeedback(null);
     try {
       const res = await fetch("/api/vos-admin/ai-config", {
         method: "POST",
@@ -181,15 +179,9 @@ export function AiModelConfigModule() {
 
       setConfig(data.config);
       setSelectedProvider(null);
-      setFeedback({
-        type: "success",
-        message: `${selectedProvider.name} configuration updated successfully.`,
-      });
+      toast.success(`${selectedProvider.name} configuration updated successfully.`);
     } catch (err) {
-      setFeedback({
-        type: "error",
-        message: err instanceof Error ? err.message : "Failed to save provider",
-      });
+      toast.error(err instanceof Error ? err.message : "Failed to save provider");
     } finally {
       setSaving(false);
     }
@@ -236,29 +228,32 @@ export function AiModelConfigModule() {
   const handleDiscoverModels = useCallback(async (providerId: AiProviderId) => {
     setDiscovering(true);
     setDiscoveredModels([]);
+    // Catalog discovery is slow, and the dialog it opens is shared: only the
+    // newest provider's list may be shown, or B's dialog fills with A's models.
+    const signal = abortDiscovery();
     try {
       const res = await fetch("/api/vos-admin/ai-config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           action: "discover_models",
           providerId,
         }),
       });
       const data = await res.json();
+      if (signal.aborted) return;
       if (data.models) {
         setDiscoveredModels(data.models);
         setShowDiscoveryDialog(true);
       }
     } catch (err) {
-      setFeedback({
-        type: "error",
-        message: `Catalog discovery error: ${err instanceof Error ? err.message : String(err)}`,
-      });
+      if (signal.aborted) return;
+      toast.error(`Catalog discovery error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
-      setDiscovering(false);
+      if (!signal.aborted) setDiscovering(false);
     }
-  }, []);
+  }, [abortDiscovery]);
 
   // Register model
   const handleRegisterModel = useCallback(
@@ -277,15 +272,9 @@ export function AiModelConfigModule() {
         if (!res.ok) throw new Error(data.error || "Failed to register model");
         setConfig(data.config);
         setShowAddModelDialog(false);
-        setFeedback({
-          type: "success",
-          message: `${modelToRegister.displayName} successfully registered.`,
-        });
+        toast.success(`${modelToRegister.displayName} successfully registered.`);
       } catch (err) {
-        setFeedback({
-          type: "error",
-          message: err instanceof Error ? err.message : "Error registering model",
-        });
+        toast.error(err instanceof Error ? err.message : "Error registering model");
       } finally {
         setSaving(false);
       }
@@ -322,7 +311,6 @@ export function AiModelConfigModule() {
   const handleSaveRoutingChanges = useCallback(async () => {
     if (!config) return;
     setSaving(true);
-    setFeedback(null);
     try {
       const res = await fetch("/api/vos-admin/ai-config", {
         method: "POST",
@@ -337,15 +325,9 @@ export function AiModelConfigModule() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Save failed");
       setConfig(data.config);
-      setFeedback({
-        type: "success",
-        message: "Workload assignments and failover settings saved successfully.",
-      });
+      toast.success("Workload assignments and failover settings saved successfully.");
     } catch (err) {
-      setFeedback({
-        type: "error",
-        message: err instanceof Error ? err.message : "Save failed",
-      });
+      toast.error(err instanceof Error ? err.message : "Save failed");
     } finally {
       setSaving(false);
     }
@@ -441,31 +423,6 @@ export function AiModelConfigModule() {
         </div>
       </div>
 
-      {/* ── Feedback Notification ─────────────────────────────────────────── */}
-      <AnimatePresence>
-        {feedback && (
-          <motion.div
-            initial={{ opacity: 0, y: -6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            className={`flex items-center justify-between gap-3 p-3.5 rounded-xl border text-xs font-medium ${
-              feedback.type === "success"
-                ? "bg-primary/5 border-primary/20 text-primary"
-                : "bg-destructive/10 border-destructive/20 text-destructive"
-            }`}
-          >
-            <span>{feedback.message}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-6 px-2 text-[11px]"
-              onClick={() => setFeedback(null)}
-            >
-              Dismiss
-            </Button>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* ── KPI Overview Strip (Interactive Motion) ────────────────────────── */}
       <motion.div

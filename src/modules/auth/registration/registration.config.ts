@@ -1,9 +1,17 @@
 import { RegistrationError } from "./registration.errors";
+import { deriveJwtPurposeSecret } from "@/lib/jwt-purpose-secret";
+
+/** HKDF info label for the registration OTP / IP-hash subkey (SEC-019). */
+const OTP_HMAC_PURPOSE = "registration-otp";
 
 export interface RegistrationConfig {
   /** Exactly 32 bytes used only for the registration payload envelope. */
   payloadKey: Uint8Array;
-  /** Independent secret used only for registration OTP HMACs/IP hashes. */
+  /**
+   * Independent secret used only for registration OTP HMACs/IP hashes: the
+   * dedicated `REGISTRATION_OTP_HMAC_SECRET`, else the `registration-otp`
+   * HKDF subkey of `JWT_SECRET` — never `JWT_SECRET` itself.
+   */
   otpHmacSecret: string;
   /** Server-only Turnstile secret (the shared helper reads the same env key). */
   turnstileSecret: string;
@@ -75,18 +83,33 @@ function resolvePayloadKey(rawKey: string): Uint8Array {
 }
 
 export function getRegistrationConfig(): RegistrationConfig {
-  const rawPayloadKey =
-    process.env.REGISTRATION_PAYLOAD_KEY?.trim() ||
-    Buffer.from("01234567890123456789012345678901").toString("base64");
+  // Fail closed: the previous hardcoded 32-byte literal meant every deployment
+  // that forgot the variable shared one publicly-known envelope key.
+  const rawPayloadKey = process.env.REGISTRATION_PAYLOAD_KEY?.trim();
+
+  if (!rawPayloadKey) {
+    throw configurationError(
+      "REGISTRATION_PAYLOAD_KEY must be configured (base64-encoded 32 bytes)."
+    );
+  }
+
   const payloadKey = resolvePayloadKey(rawPayloadKey);
 
+  // A dedicated secret is preferred. Without one we must not hand the raw
+  // `JWT_SECRET` to the OTP HMAC — an access token and an OTP hash used to be
+  // keyed identically — so we take the domain-separated HKDF subkey instead.
+  // `deriveJwtPurposeSecret` fails closed (via `requireJwtSecret`) when
+  // `JWT_SECRET` is missing or shorter than 32 characters.
+  const explicitOtpHmacSecret = process.env.REGISTRATION_OTP_HMAC_SECRET?.trim();
   const otpHmacSecret =
-    process.env.REGISTRATION_OTP_HMAC_SECRET?.trim() ||
-    process.env.JWT_SECRET?.trim();
+    explicitOtpHmacSecret ||
+    (process.env.JWT_SECRET?.trim()
+      ? Buffer.from(deriveJwtPurposeSecret(OTP_HMAC_PURPOSE)).toString("hex")
+      : "");
 
   if (!otpHmacSecret) {
     throw configurationError(
-      "REGISTRATION_OTP_HMAC_SECRET or JWT_SECRET must be configured."
+      "REGISTRATION_OTP_HMAC_SECRET must be configured, or JWT_SECRET so the registration-otp subkey can be derived."
     );
   }
 

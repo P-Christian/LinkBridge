@@ -26,8 +26,8 @@ import { motion } from "framer-motion";
 export function SchoolVerificationModule() {
   const {
     records,
+    allRecords,
     loading,
-    error,
     kpiData,
     statusFilter,
     setStatusFilter,
@@ -116,15 +116,10 @@ export function SchoolVerificationModule() {
       </div>
 
       {/* Error alert banner */}
-      {error && (
-        <div className="p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium mb-4">
-          {error}
-        </div>
-      )}
-
       {/* KPI Stat Cards */}
       <SchoolVerificationKpis
         kpis={kpiData}
+        loading={loading && allRecords.length === 0}
         currentFilter={statusFilter}
         onFilterSelect={(status) => setStatusFilter(status)}
       />
@@ -174,7 +169,7 @@ export function SchoolVerificationModule() {
               Approve School Verification
             </AlertDialogTitle>
             <AlertDialogDescription className="text-xs text-muted-foreground mt-1">
-              Are you sure you want to approve verification for <strong className="text-foreground">{approveConfirmSchool?.school_name}</strong>? This will grant the institution active verified status on VOS Sync.
+              Are you sure you want to approve verification for <strong className="text-foreground">{approveConfirmSchool?.school_name}</strong>? This will grant the institution active verified status on LinkBridge.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="mt-4">

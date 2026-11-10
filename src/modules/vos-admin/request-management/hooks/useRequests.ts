@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from 'react';
+import { useRequestAbort } from '@/hooks/useRequestAbort';
 import { VsSchoolRequest, VsCourseRequest, ReviewAction } from '../types/request.types';
 import type {
   CourseAvailableAction,
@@ -672,6 +673,7 @@ export function useRequests() {
   const [courseRequests, setCourseRequests] = useState<VsCourseRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const abortRead = useRequestAbort();
   const [courseCandidates, setCourseCandidates] = useState<Record<number, CourseRequestCandidate[]>>({});
   const [candidatesLoading, setCandidatesLoading] = useState<Record<number, boolean>>({});
   const [candidatesError, setCandidatesError] = useState<Record<number, string | null>>({});
@@ -687,19 +689,26 @@ export function useRequests() {
   const fetchSchoolRequests = useCallback(async (status: string = 'Pending') => {
     setLoading(true);
     setError(null);
+    // Each status tab starts a new read; only the newest one may write, or the
+    // queue under one tab is filled from another.
+    const signal = abortRead();
     try {
       const q = status !== 'ALL' ? `?status=${status}` : '';
-      const res = await fetch(`/api/vos-admin/school-requests${q}`);
+      const res = await fetch(`/api/vos-admin/school-requests${q}`, { signal });
       const json = await res.json();
+      if (signal.aborted) return;
       if (!res.ok) throw new Error(json.error || 'Failed to fetch school requests');
       setSchoolRequests(json.requests ?? []);
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setError((err as Error).message);
       setSchoolRequests([]);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) {
+        setLoading(false);
+      }
     }
-  }, []);
+  }, [abortRead]);
 
   const fetchCourseRequests = useCallback(async (status: string = 'Pending') => {
     setLoading(true);
@@ -717,24 +726,6 @@ export function useRequests() {
       setLoading(false);
     }
   }, []);
-
-  const createSchoolRequest = async (data: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<boolean> => {
-    try {
-      const res = await fetch('/api/vos-admin/school-requests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const json = await res.json();
-        throw new Error(json.error || 'Failed to create school request');
-      }
-      return true;
-    } catch (err: unknown) {
-      setError((err as Error).message);
-      return false;
-    }
-  };
 
   const generateSchoolInvite = async (schoolId: number, email: string): Promise<SchoolInviteLink | null> => {
     try {
@@ -956,7 +947,6 @@ export function useRequests() {
     error,
     fetchSchoolRequests,
     fetchCourseRequests,
-    createSchoolRequest,
     reviewSchoolRequest,
     generateSchoolInvite,
     reviewCourseRequest,

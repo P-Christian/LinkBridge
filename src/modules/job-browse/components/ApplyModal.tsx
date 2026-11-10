@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect */
 "use client";
+import { toast } from "sonner";
 
 import React, { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -52,6 +53,22 @@ function getInitials(fname?: string | null, lname?: string | null): string {
   return `${f}${l}`.toUpperCase();
 }
 
+function formatDDMMYYYY(dateStr?: string | null): string {
+  if (!dateStr) return "";
+  const clean = dateStr.trim();
+  const parts = clean.split("T")[0].split("-");
+  if (parts.length === 3 && parts[0].length === 4) {
+    const [year, month, day] = parts;
+    return `${day.padStart(2, "0")}-${month.padStart(2, "0")}-${year}`;
+  }
+  const d = new Date(clean);
+  if (isNaN(d.getTime())) return clean;
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
 export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
   const {
     formData,
@@ -86,7 +103,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
   useEffect(() => {
     if (open && job) {
       loadPrefill(job);
-      
+
       // Check for active referral claim
       setReferrerName(null);
       fetch(`/api/freelancer/referrals/check-claim?job_id=${job.job_id}`)
@@ -143,6 +160,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
   const handleSubmit = async () => {
     const ok = await submitApplication(false);
     if (ok) {
+      toast.success("Application submitted successfully!");
       setTimeout(() => {
         reset();
         setCurrentStep(1);
@@ -156,7 +174,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
   if (!job) return null;
 
   const hasScreening = !!(job.screening_questions && job.screening_questions.length > 0);
-  
+
   // Jobstreet style steps
   const steps = [
     { id: "documents", label: "Choose documents" },
@@ -170,9 +188,9 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()} >
-      <DialogContent className="sm:max-w-7xl w-full flex flex-col p-0 gap-0 h-220 max-md:h-auto max-md:max-h-[90dvh] max-md:[&>[data-slot=dialog-close]]:p-3.5 max-md:[&>[data-slot=dialog-close]]:-m-3.5">
+      <DialogContent className="sm:max-w-4xl w-full flex flex-col p-0 gap-0 h-[85vh] max-h-[85vh] bg-white dark:bg-zinc-950 border shadow-2xl overflow-hidden max-md:max-w-[calc(100vw-2rem)] max-md:h-[90dvh] max-md:max-h-[90dvh] max-md:[&>[data-slot=dialog-close]]:p-3.5 max-md:[&>[data-slot=dialog-close]]:-m-3.5">
         {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0">
+        <DialogHeader className="px-6 pt-6 pb-4 border-b shrink-0 bg-white dark:bg-zinc-950">
           <DialogTitle className="text-base font-bold">Apply for Position</DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             <span className="font-medium text-foreground">{job.job_title}</span>
@@ -181,7 +199,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
         </DialogHeader>
 
         {/* Seek/Jobstreet Style Horizontal Stepper */}
-        <div className="px-6 py-4 border-b bg-muted/10 shrink-0">
+        <div className="px-6 py-4 border-b bg-zinc-50/80 dark:bg-zinc-900/80 shrink-0">
           <div className="flex items-center justify-between relative">
             {/* Background progress line */}
             <div className="absolute top-3 left-3 right-3 h-0.5 bg-zinc-200 dark:bg-zinc-800 -z-10" />
@@ -198,20 +216,18 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
               return (
                 <div key={step.id} className="flex flex-col items-center gap-1.5 flex-1">
                   <div
-                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border-2 transition-all ${
-                      isCompleted
+                    className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold border-2 transition-all ${isCompleted
                         ? "bg-primary border-primary text-white"
                         : isActive
-                        ? "bg-background border-primary text-primary"
-                        : "bg-background border-zinc-300 dark:border-zinc-700 text-zinc-400"
-                    }`}
+                          ? "bg-white dark:bg-zinc-900 border-primary text-primary"
+                          : "bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-400"
+                      }`}
                   >
                     {isCompleted ? "✓" : stepNum}
                   </div>
                   <span
-                    className={`text-[8px] font-semibold text-center hidden sm:block ${
-                      isActive ? "text-primary font-bold" : "text-muted-foreground"
-                    }`}
+                    className={`text-[8px] font-semibold text-center hidden sm:block ${isActive ? "text-primary font-bold" : "text-muted-foreground"
+                      }`}
                   >
                     {step.label}
                   </span>
@@ -222,8 +238,8 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
         </div>
 
         {/* Body */}
-        <ScrollArea className="flex-1 overflow-y-auto">
-          <div className="px-6 py-5 space-y-5">
+        <ScrollArea className="flex-1 overflow-y-auto overflow-x-hidden bg-white dark:bg-zinc-950 w-full min-w-0 max-w-full">
+          <div className="px-6 py-5 space-y-5 w-full min-w-0 max-w-full overflow-hidden">
             {prefillLoading && (
               <div className="flex items-center gap-2 text-sm md:text-xs text-zinc-400 animate-pulse">
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
@@ -257,7 +273,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
 
             {/* STEP 1: Documents */}
             {stepInfo.id === "documents" && (
-              <div className="space-y-6">
+              <div className="space-y-6 w-full min-w-0">
                 {/* User card matching image */}
                 <div className="p-4 bg-[#0a192f] text-white rounded-2xl flex items-center gap-4 relative overflow-hidden shadow-md">
                   <div className="w-14 h-14 bg-rose-200 text-[#0a192f] rounded-2xl flex items-center justify-center text-xl font-bold font-mono overflow-hidden shrink-0 relative border border-white/20">
@@ -299,7 +315,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                 </div>
 
                 {/* Resumé */}
-                <div className="space-y-2">
+                <div className="space-y-2 w-full min-w-0">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-foreground">Resumé</h3>
                     <input
@@ -362,7 +378,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                 </div>
 
                 {/* Cover Letter */}
-                <div className="space-y-2">
+                <div className="space-y-2 w-full min-w-0">
                   <div className="flex items-center justify-between">
                     <h3 className="text-sm font-bold text-foreground">Cover letter</h3>
                     <input
@@ -389,14 +405,14 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                     </Button>
                   </div>
 
-                  <div className="space-y-2">
+                  <div className="space-y-2 w-full min-w-0">
                     <Textarea
                       id="apply-cover-letter"
                       placeholder="Tell the employer why you're a great fit for this role..."
                       value={formData.cover_letter}
                       onChange={(e) => handleFieldChange("cover_letter", e.target.value)}
                       rows={5}
-                      className="resize-none text-base md:text-sm rounded-xl"
+                      className="resize-none text-base md:text-sm rounded-xl w-full min-w-0 max-w-full break-words break-all [overflow-wrap:anywhere] whitespace-pre-wrap overflow-x-hidden"
                       disabled={saving}
                     />
 
@@ -433,11 +449,11 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
 
             {/* STEP 2: Screening Questions */}
             {stepInfo.id === "questions" && (
-              <div className="space-y-4">
+              <div className="space-y-4 w-full min-w-0">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm md:text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    <HelpCircle className="h-4 w-4 text-primary" />
-                    Employer Screening Questions
+                    <HelpCircle className="h-4 w-4 text-primary shrink-0" />
+                    <span>Employer Screening Questions</span>
                   </div>
                   {hasScreening && (
                     <Badge variant="outline" className="text-[11px] font-normal border-primary/30 text-primary">
@@ -448,7 +464,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                 </div>
 
                 {hasScreening ? (
-                  <div className="space-y-4">
+                  <div className="space-y-4 w-full min-w-0">
                     <p className="text-sm md:text-xs text-muted-foreground">
                       Please answer the following question{job.screening_questions!.length > 1 ? "s" : ""} from the employer to help them evaluate your application.
                     </p>
@@ -461,15 +477,15 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                       return (
                         <div
                           key={i}
-                          className="space-y-2 p-4 border rounded-xl bg-card transition-colors focus-within:border-primary/50 shadow-sm"
+                          className="space-y-2 p-4 border rounded-xl bg-card transition-colors focus-within:border-primary/50 shadow-sm w-full min-w-0 overflow-hidden"
                         >
-                          <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="text-primary font-bold shrink-0">{i + 1}.</span>
                             <Label
                               htmlFor={`screening-answer-${i}`}
-                              className="text-sm font-semibold leading-snug text-foreground flex gap-2"
+                              className="text-sm font-semibold leading-snug text-foreground break-words min-w-0 cursor-pointer"
                             >
-                              <span className="text-primary font-bold">{i + 1}.</span>
-                              <span>{qText}</span>
+                              {qText}
                             </Label>
                           </div>
                           <Textarea
@@ -478,7 +494,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                             value={currentAnswer}
                             onChange={(e) => handleAnswerChange(i, e.target.value)}
                             rows={3}
-                            className="resize-none text-base md:text-sm rounded-xl bg-background border-muted"
+                            className="resize-none text-base md:text-sm rounded-xl bg-background border-muted w-full min-w-0 max-w-full break-words break-all [overflow-wrap:anywhere] whitespace-pre-wrap overflow-x-hidden"
                             disabled={saving}
                           />
                         </div>
@@ -504,13 +520,13 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
               <div className="space-y-5">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="apply-salary" className="text-sm font-semibold">Expected Salary (PHP/mo)</Label>
+                    <div className="flex items-center justify-between"><Label htmlFor="apply-salary" className="text-sm font-semibold">Expected Salary (PHP/mo)</Label></div>
                     <Input
                       id="apply-salary"
                       type="number"
                       placeholder="e.g. 50000"
                       value={formData.expected_salary}
-                      onChange={(e) => handleFieldChange("expected_salary", e.target.value)}
+                      min={0} max={99999999.99} step="any" onChange={(e) => { const val = e.target.value; if (val === "" || /^\d{0,8}(\.\d{0,2})?$/.test(val)) { handleFieldChange("expected_salary", val); } }}
                       className="text-base md:text-sm rounded-xl h-11 md:h-10"
                       disabled={saving}
                     />
@@ -531,25 +547,27 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
 
                 <Separator />
 
-                <div className="space-y-4">
+                <div className="space-y-4 w-full min-w-0">
                   <h4 className="text-sm md:text-xs font-bold uppercase tracking-wider text-muted-foreground">My Profile Preview</h4>
-                  
+
                   {/* Summary */}
-                  <div className="space-y-1">
+                  <div className="space-y-1 w-full min-w-0">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase">Professional Summary</span>
-                    <p className="text-sm md:text-xs text-foreground/80 leading-relaxed bg-muted/30 p-3 rounded-xl border whitespace-pre-line">
+                    <p className="text-sm md:text-xs text-foreground/80 leading-relaxed bg-muted/30 p-3 rounded-xl border whitespace-pre-line w-full min-w-0 max-w-full break-words [overflow-wrap:anywhere]">
                       {profileData?.job_seeker_profile?.[0]?.professional_summary || profileData?.job_seeker_profile?.professional_summary || "No professional summary added yet."}
                     </p>
                   </div>
 
                   {/* Skills */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 w-full min-w-0">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase block">Core Skills</span>
                     {profileData?.skills && profileData.skills.length > 0 ? (
-                      <div className="flex flex-wrap gap-1.5">
+                      <div className="flex flex-wrap gap-1.5 w-full min-w-0">
                         {profileData.skills.map((s: any, i: number) => (
-                          <Badge key={i} variant="secondary" className="text-[10px] font-normal px-2 py-0.5 rounded-full">
-                            {s.skill?.skill_name || s.skill_name}
+                          <Badge key={i} variant="secondary" className="text-[10px] font-normal px-2.5 py-1 rounded-full max-w-full inline-flex items-center">
+                            <span className="truncate max-w-[280px]">
+                              {s.skill?.skill_name || s.skill_name}
+                            </span>
                           </Badge>
                         ))}
                       </div>
@@ -559,16 +577,21 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
 
                   {/* Experience */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 w-full min-w-0">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase block">Work Experience</span>
                     {profileData?.work_experience && profileData.work_experience.length > 0 ? (
                       <div className="space-y-2">
-                        {profileData.work_experience.map((exp: any, i: number) => (
-                          <div key={i} className="text-sm md:text-xs border-l-2 border-zinc-200 dark:border-zinc-800 pl-3 py-0.5">
-                            <p className="font-semibold text-foreground">{exp.job_title}</p>
-                            <p className="text-muted-foreground text-[10px]">{exp.company_name} &bull; {exp.start_date} - {exp.is_current_role ? "Present" : exp.end_date}</p>
-                          </div>
-                        ))}
+                        {profileData.work_experience.map((exp: any, i: number) => {
+                          const endDisplay = exp.is_current_role || !exp.end_date || exp.end_date.trim() === ""
+                            ? "Present"
+                            : formatDDMMYYYY(exp.end_date);
+                          return (
+                            <div key={i} className="text-sm md:text-xs border-l-2 border-zinc-200 dark:border-zinc-800 pl-3 py-0.5">
+                              <p className="font-semibold text-foreground break-words [overflow-wrap:anywhere]">{exp.job_title}</p>
+                              <p className="text-muted-foreground text-[10px] break-words [overflow-wrap:anywhere]">{exp.company_name} &bull; {formatDDMMYYYY(exp.start_date)} - {endDisplay}</p>
+                            </div>
+                          );
+                        })}
                       </div>
                     ) : (
                       <p className="text-sm md:text-xs text-muted-foreground italic">No work experience added yet.</p>
@@ -576,14 +599,14 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
 
                   {/* Education */}
-                  <div className="space-y-1.5">
+                  <div className="space-y-1.5 w-full min-w-0">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase block">Educational Background</span>
                     {profileData?.education && profileData.education.length > 0 ? (
                       <div className="space-y-2">
                         {profileData.education.map((edu: any, i: number) => (
                           <div key={i} className="text-sm md:text-xs border-l-2 border-zinc-200 dark:border-zinc-800 pl-3 py-0.5">
-                            <p className="font-semibold text-foreground">{edu.course_name || "Course Not Specified"}</p>
-                            <p className="text-muted-foreground text-[10px]">{edu.school_name} &bull; {edu.start_date} - {edu.end_date}</p>
+                            <p className="font-semibold text-foreground break-words [overflow-wrap:anywhere]">{edu.course_name || "Course Not Specified"}</p>
+                            <p className="text-muted-foreground text-[10px] break-words [overflow-wrap:anywhere]">{edu.school_name} &bull; {formatDDMMYYYY(edu.start_date)} - {formatDDMMYYYY(edu.end_date)}</p>
                           </div>
                         ))}
                       </div>
@@ -597,17 +620,17 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
 
             {/* STEP 4: Review and submit */}
             {stepInfo.id === "review" && (
-              <div className="space-y-5">
-                <div className="p-4 bg-[#14a800]/5 border border-[#14a800]/25 rounded-xl space-y-1">
+              <div className="space-y-5 w-full min-w-0 max-w-full overflow-hidden">
+                <div className="p-4 bg-[#14a800]/5 border border-[#14a800]/25 rounded-xl space-y-1 w-full min-w-0 max-w-full overflow-hidden">
                   <h4 className="text-sm md:text-xs font-bold text-[#14a800] uppercase tracking-wider">Review Your Application</h4>
                   <p className="text-[11px] text-muted-foreground">
                     Ensure all your application details are accurate before submitting.
                   </p>
                 </div>
 
-                <div className="space-y-4 text-sm md:text-xs border rounded-2xl divide-y bg-muted/10 overflow-hidden">
+                <div className="space-y-4 text-sm md:text-xs border rounded-2xl divide-y bg-muted/10 overflow-hidden w-full min-w-0 max-w-full">
                   {/* Applicant Details */}
-                  <div className="p-4 flex items-center gap-3 bg-background">
+                  <div className="p-4 flex items-center gap-3 bg-white dark:bg-zinc-900 w-full min-w-0 max-w-full overflow-hidden">
                     <div className="w-10 h-10 rounded-xl overflow-hidden shrink-0 bg-rose-200 text-[#0a192f] flex items-center justify-center font-bold font-mono text-sm border border-border relative">
                       {avatarSrc ? (
                         <Image
@@ -623,7 +646,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                         <span>{profileData ? getInitials(profileData.user_fname, profileData.user_lname) : "?"}</span>
                       )}
                     </div>
-                    <div className="space-y-0.5 min-w-0">
+                    <div className="space-y-0.5 min-w-0 flex-1 overflow-hidden">
                       <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Applicant</span>
                       <p className="font-bold text-sm text-foreground truncate">
                         {profileData?.user_fname} {profileData?.user_lname}
@@ -635,33 +658,33 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
 
                   {/* Resume & Cover letter */}
-                  <div className="p-4 space-y-3 bg-background">
+                  <div className="p-4 space-y-3 bg-white dark:bg-zinc-900 w-full min-w-0 max-w-full overflow-hidden">
                     <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Documents</span>
-                    <div className="flex items-center gap-2">
-                      <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-bold text-[9px] rounded-md border border-emerald-200">
+                    <div className="flex items-center gap-2 flex-wrap max-w-full">
+                      <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300 font-bold text-[9px] rounded-md border border-emerald-200 shrink-0">
                         RESUMÉ
                       </Badge>
-                      <span className="text-foreground text-sm md:text-xs font-medium">
+                      <span className="text-foreground text-sm md:text-xs font-medium truncate max-w-full">
                         {formData.custom_resume?.file_name || profileData?.resumes?.[0]?.file_name || "Primary Profile Resume.pdf"}
                       </span>
                       {formData.custom_resume && (
-                        <Badge variant="outline" className="text-[9px] border-indigo-200 text-indigo-600">
+                        <Badge variant="outline" className="text-[9px] border-indigo-200 text-indigo-600 shrink-0">
                           Custom
                         </Badge>
                       )}
                     </div>
                     {(formData.cover_letter || formData.cover_letter_file) && (
-                      <div className="space-y-1 mt-1.5">
+                      <div className="space-y-1 mt-1.5 w-full min-w-0 max-w-full overflow-hidden">
                         <span className="text-[9px] font-semibold text-muted-foreground block">Cover Letter</span>
                         {formData.cover_letter && (
-                          <p className="text-zinc-600 dark:text-zinc-400 italic bg-muted/40 p-3 rounded-xl border line-clamp-4 whitespace-pre-line text-[11px]">
+                          <p className="text-zinc-600 dark:text-zinc-400 italic bg-muted/40 px-4 py-3 rounded-xl border max-h-36 overflow-y-auto overflow-x-hidden whitespace-pre-wrap text-[11px] leading-relaxed w-full min-w-0 max-w-full break-words break-all [word-break:break-all] [overflow-wrap:anywhere]">
                             {formData.cover_letter}
                           </p>
                         )}
                         {formData.cover_letter_file && (
-                          <div className="flex items-center gap-2 text-sm md:text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-1">
+                          <div className="flex items-center gap-2 text-sm md:text-xs text-emerald-600 dark:text-emerald-400 font-medium pt-1 max-w-full overflow-hidden">
                             <FileText className="h-3.5 w-3.5 shrink-0" />
-                            <span>Attached document: {formData.cover_letter_file.file_name}</span>
+                            <span className="truncate">Attached document: {formData.cover_letter_file.file_name}</span>
                           </div>
                         )}
                       </div>
@@ -669,14 +692,14 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
 
                   {/* Compensation & Links */}
-                  <div className="p-4 grid grid-cols-2 gap-4 bg-background">
-                    <div>
+                  <div className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white dark:bg-zinc-900 w-full min-w-0 max-w-full overflow-hidden">
+                    <div className="min-w-0 max-w-full overflow-hidden">
                       <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Expected Salary</span>
-                      <p className="font-semibold text-foreground text-sm md:text-xs mt-0.5">
-                        {formData.expected_salary ? `PHP ${Number(formData.expected_salary).toLocaleString()} / mo` : "Not disclosed"}
+                      <p className="font-semibold text-foreground text-sm md:text-xs mt-0.5 truncate">
+                        {formData.expected_salary && !isNaN(Number(formData.expected_salary)) ? `PHP ${Number(formData.expected_salary).toLocaleString("en-US", { maximumFractionDigits: 2 })} / mo` : "Not disclosed"}
                       </p>
                     </div>
-                    <div>
+                    <div className="min-w-0 max-w-full overflow-hidden">
                       <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">Portfolio URL</span>
                       <p className="font-semibold text-foreground text-sm md:text-xs mt-0.5 truncate">
                         {formData.portfolio_url || "Not specified"}
@@ -685,7 +708,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
 
                   {/* Screening answers */}
-                  <div className="p-4 space-y-3 bg-background">
+                  <div className="p-4 space-y-3 bg-white dark:bg-zinc-900 w-full min-w-0 max-w-full overflow-hidden">
                     <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider block">
                       Employer Screening Questions
                     </span>
@@ -697,11 +720,11 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                             : String(question);
                         const aText = formData.screening_answers[i]?.answer_text;
                         return (
-                          <div key={i} className="space-y-1 bg-muted/30 p-3 rounded-xl border">
-                            <p className="font-semibold text-foreground text-sm md:text-xs">
+                          <div key={i} className="space-y-1 bg-muted/30 p-3 rounded-xl border w-full min-w-0 max-w-full overflow-hidden">
+                            <p className="font-semibold text-foreground text-sm md:text-xs break-all [word-break:break-all] [overflow-wrap:anywhere]">
                               {i + 1}. {qText}
                             </p>
-                            <p className="text-muted-foreground text-sm md:text-xs whitespace-pre-wrap mt-0.5">
+                            <p className="text-muted-foreground text-sm md:text-xs whitespace-pre-wrap mt-0.5 break-all [word-break:break-all] [overflow-wrap:anywhere] overflow-hidden">
                               {aText ? (
                                 aText
                               ) : (
@@ -719,13 +742,13 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
                   </div>
                 </div>
                 {/* Explicit Consent Checkbox */}
-                <div className="flex items-start gap-2.5 p-4 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-background mt-3">
+                <div className="flex items-start gap-2.5 p-4 border border-zinc-200 dark:border-zinc-800 rounded-xl bg-white dark:bg-zinc-900 mt-3 w-full min-w-0 max-w-full overflow-hidden">
                   <input
                     id="consent-checkbox"
                     type="checkbox"
                     checked={consentAccepted}
                     onChange={(e) => setConsentAccepted(e.target.checked)}
-                    className="h-4.5 w-4.5 rounded border-zinc-300 dark:border-zinc-700 text-primary focus:ring-primary mt-0.5 cursor-pointer"
+                    className="h-4.5 w-4.5 rounded border-zinc-300 dark:border-zinc-700 text-primary focus:ring-primary mt-0.5 cursor-pointer shrink-0"
                   />
                   <Label htmlFor="consent-checkbox" className="text-sm md:text-xs text-foreground/80 leading-normal font-normal cursor-pointer select-none">
                     I confirm that the information provided in this application is true and complete to the best of my knowledge. I understand that any false statement or omission may result in my disqualification or the withdrawal of any offer.
@@ -737,7 +760,7 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
         </ScrollArea>
 
         {/* Footer */}
-        <DialogFooter className="px-6 py-4 border-t shrink-0 flex gap-2 sm:justify-between items-center bg-background">
+        <DialogFooter className="px-6 py-4 border-t shrink-0 flex flex-col sm:flex-row gap-2 sm:justify-between items-stretch sm:items-center bg-white dark:bg-zinc-950">
           <div>
             {currentStep > 1 ? (
               <Button
@@ -761,17 +784,12 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
             )}
           </div>
 
-          <div className="flex gap-2">
-            {/* {!successMessage && (
-              <Button
-                variant="outline"
-                onClick={handleSaveDraft}
-                disabled={saving}
-                className="h-9 text-sm rounded-xl px-4 border-zinc-200 text-zinc-600 font-medium"
-              >
-                Save Draft
-              </Button>
-            )} */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+            {currentStep === totalSteps && !consentAccepted && !saving && (
+              <span className="text-[11px] text-amber-600 dark:text-amber-400 font-medium text-center sm:text-right">
+                Please check the confirmation box above to submit
+              </span>
+            )}
             {currentStep < totalSteps ? (
               <Button
                 onClick={() => setCurrentStep(currentStep + 1)}
@@ -784,8 +802,9 @@ export function ApplyModal({ job, open, onClose, onSuccess }: Props) {
               <Button
                 id="apply-submit-btn"
                 onClick={handleSubmit}
-                disabled={saving || !consentAccepted || !!successMessage}
-                className="h-9 text-sm rounded-xl gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground border-0 font-medium px-5 max-md:min-h-11"
+                disabled={saving || !consentAccepted || !!successMessage || (!!error && error.includes("suspended"))}
+                title={!consentAccepted ? "Please confirm the declaration above to submit" : undefined}
+                className="h-9 text-sm rounded-xl gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground border-0 font-medium px-5 max-md:min-h-11 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {saving ? (
                   <>

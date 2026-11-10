@@ -2,11 +2,13 @@
 
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { Search, Plus, Loader2, Check, ShieldAlert, Pencil, Trash2,    X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { useSearchKeywords } from "../hooks/useSearchKeywords";
 import { useStandardRoles } from "../hooks/useStandardRoles";
 import { normalizeKeyword, validateKeywordInput } from "../validators";
@@ -16,13 +18,13 @@ import type { AiSuggestResult, AiSuggestedKeyword } from "@/app/api/vos-admin/jo
 export function SearchKeywordManager() {
   const { roles } = useStandardRoles();
   const [selectedRoleId, setSelectedRoleId] = useState<number | undefined>(undefined);
-  const { keywords, loading, error, addKeyword, editKeyword, removeKeyword } = useSearchKeywords(selectedRoleId);
+  const { keywords, loading, addKeyword, editKeyword, removeKeyword } = useSearchKeywords(selectedRoleId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingKeyword, setEditingKeyword] = useState<SearchKeyword | null>(null);
 
   const [aliasName, setAliasName] = useState("");
-  const [targetRoleId, setTargetRoleId] = useState<number>(1);
+  const [targetRoleId, setTargetRoleId] = useState<number>(0);
   const [weight, setWeight] = useState<number>(1.0);
   const [isPrimary, setIsPrimary] = useState(false);
   const [formError, setFormError] = useState("");
@@ -30,9 +32,10 @@ export function SearchKeywordManager() {
 
   // AI Suggest state
   const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiTargetRoleId, setAiTargetRoleId] = useState<number>(1);
+  const [aiTargetRoleId, setAiTargetRoleId] = useState<number>(0);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const abortAi = useRequestAbort();
   const [aiSuggestions, setAiSuggestions] = useState<AiSuggestedKeyword[]>([]);
   const [aiGovernance, setAiGovernance] = useState<AiSuggestResult["governance"] | undefined>(undefined);
   const [aiCached, setAiCached] = useState(false);
@@ -42,7 +45,7 @@ export function SearchKeywordManager() {
   const openCreateModal = () => {
     setEditingKeyword(null);
     setAliasName("");
-    setTargetRoleId(roles[0]?.role_id || 1);
+    setTargetRoleId(roles[0]?.role_id ?? 0);
     setWeight(1.0);
     setIsPrimary(false);
     setFormError("");
@@ -101,43 +104,67 @@ export function SearchKeywordManager() {
     }
   };
 
-  const selectedRole = roles.find((r) => r.role_id === selectedRoleId);
+  // The generator writes to whichever role the panel targets, which is not
+  // always the one selected in the toolbar — the heading has to name the former.
+  const aiTargetRole = roles.find((r) => r.role_id === (aiTargetRoleId || selectedRoleId));
 
   const handleAiSuggest = useCallback(async (overrideRoleId?: number) => {
-    const roleIdToUse = overrideRoleId ?? aiTargetRoleId ?? selectedRoleId ?? roles[0]?.role_id;
+    const roleIdToUse = overrideRoleId || selectedRoleId || roles[0]?.role_id;
     const targetRoleObj = roles.find((r) => r.role_id === roleIdToUse);
-    if (!targetRoleObj) return;
+    if (!targetRoleObj) {
+      setAiError("No standard role is available to generate for. Reload this page once the role list is readable.");
+      return;
+    }
     setAiLoading(true);
     setAiError("");
     setAiSuggestions([]);
     setSelectedAliases(new Set());
+    // The aliases are written to whichever role is selected when Add is clicked,
+    // so only the read for the role still selected may fill this list.
+    const signal = abortAi();
     try {
       const res = await fetch("/api/vos-admin/job-roles/ai-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           role_name: targetRoleObj.role_name,
           category_name: targetRoleObj.category_name ?? "",
         }),
       });
+      if (signal.aborted) return;
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || "AI suggestion failed.");
       }
       const data: AiSuggestResult = await res.json();
+      if (signal.aborted) return;
       setAiSuggestions(data.keywords);
       setAiGovernance(data.governance);
       setAiCached(data.cached);
       setSelectedAliases(new Set(data.keywords.map((k) => k.alias)));
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setAiError((err as Error).message || "AI suggestion failed.");
     } finally {
-      setAiLoading(false);
+      if (!signal.aborted) setAiLoading(false);
     }
-  }, [aiTargetRoleId, selectedRoleId, roles]);
+  }, [selectedRoleId, roles, abortAi]);
+
+  /** Switching the target role invalidates anything generated for the old one. */
+  const changeAiTargetRole = useCallback((roleId: number) => {
+    abortAi();
+    setAiTargetRoleId(roleId);
+    setAiSuggestions([]);
+    setSelectedAliases(new Set());
+    setAiGovernance(undefined);
+    setAiCached(false);
+    setAiError("");
+  }, [abortAi]);
 
   const openAiModal = () => {
-    const defaultRole = selectedRoleId ?? roles[0]?.role_id ?? 1;
+    const defaultRole = selectedRoleId ?? roles[0]?.role_id ?? 0;
+    abortAi();
     setAiTargetRoleId(defaultRole);
     setAiSuggestions([]);
     setSelectedAliases(new Set());
@@ -154,41 +181,53 @@ export function SearchKeywordManager() {
     });
   };
 
+  // The loaded aliases belong to the role selected in the toolbar, so they only
+  // answer "already mapped?" for that role. Comparing another role's suggestions
+  // against them dropped aliases the target role had never had.
+  const dedupeMatchesTarget = selectedRoleId === undefined || selectedRoleId === aiTargetRoleId;
+  const aliasesForTarget = useMemo(() => {
+    const target = aiTargetRoleId || selectedRoleId;
+    return new Set(
+      keywords
+        .filter((k) => k.role_id === target)
+        .map((k) => k.normalized_alias || normalizeKeyword(k.alias_name))
+    );
+  }, [keywords, aiTargetRoleId, selectedRoleId]);
+
   const handleBulkAdd = async () => {
     const targetId = aiTargetRoleId || selectedRoleId;
-    if (!targetId || selectedAliases.size === 0) return;
+    if (!targetId) {
+      setAiError("Choose the role these keywords belong to before adding them.");
+      return;
+    }
+    if (selectedAliases.size === 0) return;
     setBulkAdding(true);
     const toAdd = aiSuggestions.filter((k) => selectedAliases.has(k.alias));
 
-    // Filter out keywords that ALREADY exist in DB to prevent unnecessary POST requests & RECORD_NOT_UNIQUE errors
-    const newOnly = toAdd.filter((k) => {
-      const norm = normalizeKeyword(k.alias);
-      const exists = keywords.some(
-        (ex) => ex.normalized_alias === norm || ex.alias_name.trim().toLowerCase() === norm
-      );
-      if (exists) {
-        console.log(`[SearchKeywordManager] ⏭️ Skipping "${k.alias}" — already exists in DB.`);
-      }
-      return !exists;
-    });
+    const newOnly = dedupeMatchesTarget
+      ? toAdd.filter((k) => !aliasesForTarget.has(normalizeKeyword(k.alias)))
+      : toAdd;
 
-    console.log(`[SearchKeywordManager] 💾 Posting ${newOnly.length} new keywords to Database for role_id=${targetId}:`, newOnly);
-
+    const notSaved: string[] = [];
     for (const k of newOnly) {
-      const created = await addKeyword({
+      const ok = await addKeyword({
         alias_name: k.alias,
         normalized_alias: normalizeKeyword(k.alias),
         role_id: targetId,
         match_weight: k.weight,
         is_primary: false,
       });
-      console.log(`[SearchKeywordManager] ✅ DB Created keyword alias "${k.alias}" (weight: ${k.weight}) → result:`, created);
+      if (!ok) notSaved.push(k.alias);
     }
 
     setBulkAdding(false);
+    abortAi();
     setAiSuggestions([]);
     setSelectedAliases(new Set());
     setAiModalOpen(false);
+    if (notSaved.length > 0) {
+      toast.error(`${notSaved.length} of ${newOnly.length} suggested keyword(s) were not saved: ${notSaved.join(", ")}.`);
+    }
   };
 
 
@@ -231,13 +270,6 @@ export function SearchKeywordManager() {
         </div>
       </div>
 
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-
       {/* AI Suggest Error */}
       {aiError && (
         <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
@@ -253,7 +285,7 @@ export function SearchKeywordManager() {
             <div className="flex items-center gap-2">
  
               <span className="text-sm font-bold text-violet-800 dark:text-violet-200">
-                AI Suggestions for &ldquo;{selectedRole?.role_name}&rdquo;
+                AI Suggestions for &ldquo;{aiTargetRole?.role_name ?? "no role selected"}&rdquo;
               </span>
               {aiCached && (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-200 dark:bg-violet-900 text-violet-700 dark:text-violet-300">
@@ -458,7 +490,7 @@ export function SearchKeywordManager() {
               <div className="flex gap-2">
                 <select
                   value={aiTargetRoleId}
-                  onChange={(e) => setAiTargetRoleId(Number(e.target.value))}
+                  onChange={(e) => changeAiTargetRole(Number(e.target.value))}
                   className="flex-1 h-10 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 font-semibold text-zinc-900 dark:text-zinc-100"
                 >
                   {roles.map((r) => (
@@ -544,10 +576,7 @@ export function SearchKeywordManager() {
 
                 <div className="flex flex-wrap gap-2.5 max-h-72 overflow-y-auto p-1.5 border border-zinc-100 dark:border-zinc-800 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/50">
                   {aiSuggestions.map((k) => {
-                    const norm = k.alias.trim().toLowerCase();
-                    const isInDb = keywords.some(
-                      (ex) => ex.normalized_alias === norm || ex.alias_name.trim().toLowerCase() === norm
-                    );
+                    const isInDb = dedupeMatchesTarget && aliasesForTarget.has(normalizeKeyword(k.alias));
                     const isSelected = selectedAliases.has(k.alias);
 
                     return (

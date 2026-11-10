@@ -137,7 +137,7 @@ export function CancelledClientContent() {
 
   const description = useMemo(() => {
     if (flowType === "link") {
-      return `You cancelled linking your ${providerMeta.name} account. Your existing VoSync profile and credentials remain unchanged.`;
+      return `You cancelled linking your ${providerMeta.name} account. Your existing LinkBridge profile and credentials remain unchanged.`;
     }
     if (flowType === "signup") {
       return `You cancelled sign-up with ${providerMeta.name}. No account was created and no personal data was saved.`;

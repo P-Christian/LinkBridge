@@ -4,6 +4,9 @@ import { VsUser, IdentityVerification } from '../types/user.types';
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
 
+const DEFAULT_PAGE_SIZE = 10;
+const MAX_PAGE_SIZE = 200;
+
 function getHeaders(): Record<string, string> {
   const h: Record<string, string> = {
     "Content-Type": "application/json",
@@ -13,48 +16,49 @@ function getHeaders(): Record<string, string> {
   return h;
 }
 
+function toSafePositiveInt(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+}
+
 export async function fetchUsersRepo(
   roleId?: number,
   search?: string,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _page: number = 1,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _limit: number = 10
+  page: number = 1,
+  limit: number = DEFAULT_PAGE_SIZE
 ): Promise<{ users: VsUser[]; total: number }> {
+  const safePage = toSafePositiveInt(page, 1);
+  const safeLimit = Math.min(toSafePositiveInt(limit, DEFAULT_PAGE_SIZE), MAX_PAGE_SIZE);
+
   const queries: string[] = [];
 
-  // Fetch all matching users for client-side pagination & KPI calculation
-  queries.push('limit=-1');
+  // Server-side pagination; the filtered total comes from Directus meta.
+  queries.push(`limit=${safeLimit}`);
+  queries.push(`page=${safePage}`);
+  queries.push('meta=filter_count');
   queries.push('fields=*,job_seeker_profile.*,vs_job_seeker_profile.*,job_preferences.*,vs_job_preferences.*');
   queries.push('sort=-user_id');
 
   // Filter conditions
-  const filterParams: string[] = [];
-
-  // Exclude client accounts (role_id === 2) and school accounts (role_id === 4)
-  filterParams.push(`"role_id":{"_nin":[2,4]}`);
-
-  // Filter by role_id if specifically requested
-  if (roleId && roleId !== 0) {
-    filterParams.push(`"role_id":{"_eq":${roleId}}`);
-  }
+  const filter: Record<string, unknown> = {
+    // Exclude client accounts (role_id === 2) and school accounts (role_id === 4)
+    // unless a specific role bucket was requested.
+    role_id: roleId ? { _eq: roleId } : { _nin: [2, 4] },
+  };
 
   // Filter by search query (first name, last name, or email)
   if (search && search.trim()) {
     const cleanSearch = search.trim();
-    filterParams.push(`"_or":[
-      {"user_fname":{"_icontains":"${cleanSearch}"}},
-      {"user_lname":{"_icontains":"${cleanSearch}"}},
-      {"user_email":{"_icontains":"${cleanSearch}"}}
-    ]`);
+    filter._or = [
+      { user_fname: { _icontains: cleanSearch } },
+      { user_lname: { _icontains: cleanSearch } },
+      { user_email: { _icontains: cleanSearch } },
+    ];
   }
 
-  if (filterParams.length > 0) {
-    queries.push(`filter={${filterParams.join(',')}}`);
-  }
+  queries.push(`filter=${encodeURIComponent(JSON.stringify(filter))}`);
 
-  const queryString = queries.length > 0 ? `?${queries.join('&')}` : '';
-  const url = `${DIRECTUS_BASE}/items/vs_user${queryString}`;
+  const url = `${DIRECTUS_BASE}/items/vs_user?${queries.join('&')}`;
 
   const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
   if (!res.ok) {
@@ -63,10 +67,12 @@ export async function fetchUsersRepo(
 
   const json = await res.json();
   const users = json.data || [];
-  const total = users.length;
+  const total = Number(json.meta?.filter_count ?? users.length);
 
   // Let's also fetch verification status summaries for these users to display in the table
-  const userIds = users.map((u: VsUser) => u.user_id);
+  const userIds = users
+    .map((u: VsUser) => Number(u.user_id))
+    .filter((id: number) => Number.isSafeInteger(id) && id > 0);
   const verificationsMap: Record<number, IdentityVerification[]> = {};
   const preferencesMap: Record<number, unknown> = {};
 

@@ -1,9 +1,10 @@
 // src/app/api/client/talent-search/explain/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
-import { generateMatchExplanation, ExplainCandidate } from "@/lib/gemini/matchExplainer";
+import { generateMatchExplanation, generateCandidateSuitability, ExplainCandidate } from "@/lib/gemini/matchExplainer";
+import { getCachedExplanation, setCachedExplanation } from "../search-ranking-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -13,6 +14,9 @@ export async function POST(req: NextRequest) {
     const session = await authenticateRequest(req);
     if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
     }
 
     const userId = Number(session.userId);
@@ -27,15 +31,28 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { keyword, candidate } = body as {
       keyword?: string;
-      candidate?: ExplainCandidate;
+      candidate?: ExplainCandidate & { id?: number | string };
     };
 
-    if (!keyword || typeof keyword !== "string" || !candidate || typeof candidate !== "object") {
+    if (!candidate || typeof candidate !== "object") {
       return NextResponse.json({ explanation: null });
     }
 
     // Input sanitization & bounds enforcement to prevent prompt injection and cost drain
-    const sanitizedKeyword = keyword.trim().slice(0, 120);
+    const sanitizedKeyword = typeof keyword === "string" ? keyword.trim().slice(0, 120) : "";
+    const candidateCacheKey = candidate.id ?? candidate.name;
+    const cacheLookupKey = sanitizedKeyword || "__suitability__";
+
+    // Check backend in-memory cache first (shared across recruiters/sessions)
+    const cachedExplanation = getCachedExplanation(candidateCacheKey, cacheLookupKey);
+    if (cachedExplanation) {
+      return NextResponse.json({
+        explanation: cachedExplanation,
+        cached: true,
+        type: sanitizedKeyword ? "match" : "suitability",
+      });
+    }
+
     const sanitizedCandidate: ExplainCandidate = {
       name: String(candidate.name || "Candidate").trim().slice(0, 100),
       title: candidate.title ? String(candidate.title).trim().slice(0, 100) : null,
@@ -48,12 +65,27 @@ export async function POST(req: NextRequest) {
         : 0,
     };
 
-    const explanation = await generateMatchExplanation(sanitizedKeyword, sanitizedCandidate, {
-      userId: userId ?? undefined,
-      companyId: companyId ?? undefined,
-    });
+    let explanation: string | null = null;
+    if (sanitizedKeyword) {
+      explanation = await generateMatchExplanation(sanitizedKeyword, sanitizedCandidate, {
+        userId: userId ?? undefined,
+        companyId: companyId ?? undefined,
+      });
+    } else {
+      explanation = await generateCandidateSuitability(sanitizedCandidate, {
+        userId: userId ?? undefined,
+        companyId: companyId ?? undefined,
+      });
+    }
 
-    return NextResponse.json({ explanation });
+    if (explanation) {
+      setCachedExplanation(candidateCacheKey, cacheLookupKey, explanation);
+    }
+
+    return NextResponse.json({
+      explanation,
+      type: sanitizedKeyword ? "match" : "suitability",
+    });
   } catch (err: unknown) {
     console.error("[talent-search/explain POST] Error:", err);
     return NextResponse.json({ explanation: null });

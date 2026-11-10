@@ -1,5 +1,5 @@
+import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
 import { NextRequest, NextResponse } from "next/server";
-import { jwtVerify } from "jose";
 import { z, ZodError } from "zod";
 import {
   SCHOOL_SEARCH_LIMIT,
@@ -8,40 +8,6 @@ import {
   schoolRouteCandidateSchema,
   searchClassifiedSchools,
 } from "@/modules/vos-admin/school-verification/services/schoolRouteSearch.repo";
-
-import { cookies } from "next/headers";
-import { getJwtVerificationSecret } from "@/modules/auth/registration/registration.session";
-
-async function verifyAdminRole(
-  req: NextRequest
-): Promise<{ adminId: number; roleId: number } | null> {
-  if (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_AUTH_DISABLED === "true") {
-    return { adminId: 1, roleId: 3 };
-  }
-  // Prefer the Authorization header so handler-level verification works
-  // outside a Next request scope; fall back to the session cookie.
-  const headerToken =
-    req.headers.get("authorization")?.replace("Bearer ", "") || null;
-  let token = headerToken;
-  if (!token) {
-    try {
-      const cookieStore = await cookies();
-      token = cookieStore.get("vos_sync_access_token")?.value ?? null;
-    } catch {
-      token = null;
-    }
-  }
-  if (!token) return null;
-
-  try {
-    const { payload } = await jwtVerify(token, getJwtVerificationSecret());
-    const adminId = Number(payload.sub || payload.user_id || payload.id);
-    const roleId = Number(payload.role_id ?? payload.role ?? 0);
-    return { adminId, roleId };
-  } catch {
-    return null;
-  }
-}
 
 // LOCKED Todo 4 search-term contract: trimmed, capped at 100 characters,
 // never silently truncated. Blank returns an empty array (never a dump).
@@ -53,22 +19,11 @@ const searchTermSchema = z
 
 export async function GET(req: NextRequest) {
   try {
-    const auth = await verifyAdminRole(req);
-    if (!auth) {
+    const session = await authenticateRequest(req);
+    if (!session || !isAdministratorSession(session)) {
       return NextResponse.json(
-        { error: "Unauthorized: Invalid or missing token" },
-        { status: 401 }
-      );
-    }
-
-    // Role restriction: VOS Admin only
-    if (
-      auth.roleId !== 3 &&
-      process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true"
-    ) {
-      return NextResponse.json(
-        { error: "Forbidden: Access restricted to administrators" },
-        { status: 403 }
+        { error: session ? "Forbidden: Access restricted to administrators" : "Unauthorized: Invalid or missing token" },
+        { status: session ? 403 : 401 }
       );
     }
 
@@ -178,24 +133,14 @@ function normalizeKey(value: string | null | undefined): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await verifyAdminRole(req);
-    if (!auth) {
+    const session = await authenticateRequest(req);
+    if (!session || !isAdministratorSession(session)) {
       return NextResponse.json(
-        { error: "Unauthorized: Invalid or missing token" },
-        { status: 401 }
+        { error: session ? "Forbidden: Access restricted to administrators" : "Unauthorized: Invalid or missing token" },
+        { status: session ? 403 : 401 }
       );
     }
-
-    // Role restriction: VOS Admin only
-    if (
-      auth.roleId !== 3 &&
-      process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true"
-    ) {
-      return NextResponse.json(
-        { error: "Forbidden: Access restricted to administrators" },
-        { status: 403 }
-      );
-    }
+    const adminId = Number(session.userId);
 
     const raw = (await req.json()) as unknown;
     const parsed = placeholderBodySchema.safeParse(raw);
@@ -318,7 +263,7 @@ export async function POST(req: NextRequest) {
     // school_status 'Draft' + verification_status 'DRAFT' with NO
     // vs_school_admin link is the placeholder identity (spec: Placeholder
     // creation and ownership). is_active is set so the row classifies as
-    // AWAITING_REGISTRATION; created_by records the VOS Admin actor.
+    // AWAITING_REGISTRATION; created_by records the Admin Portal actor.
     //
     // vs_school requires non-null school_type/city_municipality/province, and
     // school_type is an enum (University | College | Technical/Vocational |
@@ -336,7 +281,7 @@ export async function POST(req: NextRequest) {
         verification_status: "DRAFT",
         is_active: true,
         profile_completion_percent: 0,
-        created_by: auth.adminId,
+        created_by: adminId,
       }),
     });
     const createJson = (await createRes.json()) as unknown;

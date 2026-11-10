@@ -77,6 +77,17 @@ export function WorkExperienceModal({ isOpen, onClose, userId, experienceToEdit 
             return;
         }
 
+        const today = new Date().toISOString().split("T")[0];
+        if (startDate > today) {
+            setError("Start date cannot be in the future.");
+            return;
+        }
+
+        if (!isCurrentRole && endDate && endDate < startDate) {
+            setError("End date cannot be earlier than start date.");
+            return;
+        }
+
         setError(null);
         
         const payload = {
@@ -215,7 +226,14 @@ export function WorkExperienceModal({ isOpen, onClose, userId, experienceToEdit 
                             <input
                                 type="date"
                                 value={startDate}
-                                onChange={(e) => setStartDate(e.target.value)}
+                                max={new Date().toISOString().split("T")[0]}
+                                min="1960-01-01"
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const yearPart = val.split("-")[0];
+                                    if (yearPart && yearPart.length > 4) return;
+                                    setStartDate(val);
+                                }}
                                 className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                             />
                         </div>
@@ -225,7 +243,14 @@ export function WorkExperienceModal({ isOpen, onClose, userId, experienceToEdit 
                             <input
                                 type="date"
                                 value={endDate}
-                                onChange={(e) => setEndDate(e.target.value)}
+                                min={startDate || "1960-01-01"}
+                                max="2099-12-31"
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    const yearPart = val.split("-")[0];
+                                    if (yearPart && yearPart.length > 4) return;
+                                    setEndDate(val);
+                                }}
                                 className="flex h-11 md:h-10 w-full rounded-md border border-input bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                                 disabled={isCurrentRole}
                             />

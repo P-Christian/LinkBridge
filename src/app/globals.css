@@ -238,7 +238,7 @@
     @apply bg-background text-foreground font-sans;
     /* Geist is used via font-sans; keep fallbacks safe */
     font-family: var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, "Noto Sans",
-    "Apple Color Emoji", "Segoe UI Emoji";
+      "Apple Color Emoji", "Segoe UI Emoji";
   }
 }
 
@@ -249,6 +249,7 @@
    - Density helpers (comfortable/compact)
 ============================================================ */
 @layer components {
+
   /* ----- Data table / grid styling helpers ----- */
   .data-grid {
     @apply w-full overflow-hidden rounded-lg border bg-card text-card-foreground;
@@ -326,6 +327,7 @@ html.theme-switching * {
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {
+
   html.theme-switching,
   html.theme-switching * {
     transition: none !important;
@@ -336,6 +338,7 @@ html.theme-switching * {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }
@@ -348,6 +351,7 @@ html.theme-switching * {
   from {
     transform: translateX(0);
   }
+
   to {
     transform: translateX(-50%);
   }
@@ -357,6 +361,7 @@ html.theme-switching * {
   from {
     transform: translateX(-50%);
   }
+
   to {
     transform: translateX(0);
   }
@@ -372,15 +377,18 @@ html.theme-switching * {
 
 /* Reduced motion accessibility */
 @media (prefers-reduced-motion: reduce) {
+
   .animate-marquee-ltr,
   .animate-marquee-rtl {
     animation: none !important;
     transform: none !important;
   }
+
   .company-marquee-track {
     overflow-x: auto;
     scroll-snap-type: x mandatory;
   }
+
   .company-marquee-item {
     scroll-snap-align: start;
   }
@@ -399,9 +407,98 @@ html.theme-switching * {
     radial-gradient(48rem 34rem at 100% 2%, hsl(199 89% 55% / 0.10), transparent 58%),
     radial-gradient(46rem 38rem at 72% 108%, hsl(262 83% 62% / 0.07), transparent 62%);
 }
+
 .dark .client-canvas {
   background-image:
     radial-gradient(60rem 38rem at 6% -8%, hsl(var(--primary) / 0.16), transparent 62%),
     radial-gradient(48rem 34rem at 100% 2%, hsl(199 89% 55% / 0.10), transparent 58%),
     radial-gradient(46rem 38rem at 72% 108%, hsl(262 83% 62% / 0.10), transparent 62%);
+}
+
+/* ============================================================
+   SONNER TOAST THEMING (LIGHT & DARK)
+   Enforces solid, non-transparent surfaces with proper HSL
+   tokens and glowing elevation shadows matching the LinkBridge design system.
+============================================================ */
+[data-sonner-toaster] {
+  --normal-bg: hsl(var(--card)) !important;
+  --normal-text: hsl(var(--card-foreground)) !important;
+  --normal-border: hsl(var(--primary) / 0.15) !important;
+  --border-radius: var(--radius, 0.75rem) !important;
+}
+
+[data-sonner-toast] {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border: 1px solid hsl(var(--primary) / 0.15) !important;
+
+  border-radius: var(--radius, 0.75rem) !important;
+}
+
+[data-sonner-toast] [data-title] {
+  color: hsl(var(--card-foreground)) !important;
+  font-weight: 600 !important;
+}
+
+[data-sonner-toast] [data-description] {
+  color: hsl(var(--muted-foreground)) !important;
+}
+
+/* Status variants with semantic tokens */
+[data-sonner-toast][data-type="success"] {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--success) / 0.3) !important;
+
+}
+
+[data-sonner-toast][data-type="error"] {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--destructive) / 0.3) !important;
+
+}
+
+[data-sonner-toast][data-type="info"] {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--info) / 0.3) !important;
+
+}
+
+[data-sonner-toast][data-type="warning"] {
+  background-color: hsl(var(--card)) !important;
+  border-color: hsl(var(--warning) / 0.3) !important;
+
+}
+
+.dark [data-sonner-toast] {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border-color: hsl(var(--primary) / 0.25) !important;
+}
+
+/* ============================================================
+   CUSTOM SCROLLBARS
+   Thin, sleek frosted theme scrollbar using semantic tokens
+============================================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 9999px;
+  transition: background 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--primary) / 0.45);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.25) transparent;
 }

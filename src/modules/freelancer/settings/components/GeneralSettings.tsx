@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { useTheme } from "next-themes";
 import { useThemeSettings } from "@/components/theme/useThemeSettings";
 import { useThemeCurtain } from "@/components/theme/useThemeCurtain";
@@ -11,11 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Slider } from "@/components/ui/slider";
-import { Switch } from "@/components/ui/switch";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { cn } from "@/lib/utils";
-import { Check, Monitor, Moon, Sun, Loader2, Save, RefreshCw, Palette, Globe, Accessibility } from "lucide-react";
-import { toast } from "sonner";
+import { Check, Monitor, Moon, Sun, RefreshCw, Palette } from "lucide-react";
 
 function AccentSwatch({ hsl }: { hsl: string }) {
   return (
@@ -27,121 +24,10 @@ function AccentSwatch({ hsl }: { hsl: string }) {
   );
 }
 
-const TIMEZONES = [
-  { value: "Asia/Manila", label: "Manila (UTC+8)" },
-  { value: "Asia/Singapore", label: "Singapore (UTC+8)" },
-  { value: "Asia/Tokyo", label: "Tokyo (UTC+9)" },
-  { value: "America/New_York", label: "Eastern Time (UTC-5/UTC-4)" },
-  { value: "America/Los_Angeles", label: "Pacific Time (UTC-8/UTC-7)" },
-  { value: "UTC", label: "UTC" },
-];
-
-const LANGUAGES = [
-  { value: "en-US", label: "English (US)" },
-  { value: "fil-PH", label: "Filipino (Philippines)" },
-  { value: "ja-JP", label: "日本語 (Japanese)" },
-];
-
-const DATE_FORMATS = [
-  { value: "YYYY-MM-DD", label: "YYYY-MM-DD (e.g. 2026-07-25)" },
-  { value: "MM/DD/YYYY", label: "MM/DD/YYYY (e.g. 07/25/2026)" },
-  { value: "DD/MM/YYYY", label: "DD/MM/YYYY (e.g. 25/07/2026)" },
-];
-
 export default function GeneralSettings() {
   const { theme } = useTheme();
   const { switchTheme } = useThemeCurtain();
   const { settings: themeSettings, updateSettings: updateThemeSettings, resetSettings: resetThemeSettings } = useThemeSettings();
-
-  // Settings state
-  const [locale, setLocale] = useState("en-US");
-  const [timezone, setTimezone] = useState("Asia/Manila");
-  const [dateFormat, setDateFormat] = useState("YYYY-MM-DD");
-  const [textSize, setTextSize] = useState<"small" | "medium" | "large">("medium");
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [version, setVersion] = useState(1);
-
-  const applyTextSize = React.useCallback((size: "small" | "medium" | "large") => {
-    if (typeof document === "undefined") return;
-    const root = document.documentElement;
-    root.classList.remove("text-sm", "text-base", "text-lg");
-    if (size === "small") root.classList.add("text-sm");
-    else if (size === "medium") root.classList.add("text-base");
-    else if (size === "large") root.classList.add("text-lg");
-  }, []);
-
-  // Status
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  // Load preferences from DB
-  const loadPreferences = React.useCallback(async () => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/freelancer/settings/general");
-      if (!res.ok) throw new Error("Failed to load settings from server.");
-      const data = await res.json();
-      
-      setLocale(data.locale);
-      setTimezone(data.timezone);
-      setDateFormat(data.date_time_format);
-      setTextSize(data.text_size);
-      setReducedMotion(data.reduced_motion === 1);
-      setVersion(data.settings_version);
-
-      // Apply text size to root
-      applyTextSize(data.text_size);
-    } catch (err: unknown) {
-      console.error(err);
-      toast.error((err as Error).message || "Failed to load preferences.");
-    } finally {
-      setLoading(false);
-    }
-  }, [applyTextSize]);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    loadPreferences();
-  }, [loadPreferences]);
-
-
-  const handleSave = async () => {
-    try {
-      setSaving(true);
-      const payload = {
-        locale,
-        timezone,
-        date_time_format: dateFormat,
-        text_size: textSize,
-        reduced_motion: reducedMotion,
-        settings_version: version,
-      };
-
-      const res = await fetch("/api/freelancer/settings/general", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (res.status === 409) {
-        toast.error("Version conflict: settings updated elsewhere. Reloading...");
-        loadPreferences();
-        return;
-      }
-
-      if (!res.ok) throw new Error("Failed to save settings.");
-      const json = await res.json();
-
-      setVersion(json.settings.settings_version);
-      applyTextSize(textSize);
-      toast.success("General preferences saved successfully.");
-    } catch (err: unknown) {
-      console.error(err);
-      toast.error((err as Error).message || "Failed to save settings.");
-    } finally {
-      setSaving(false);
-    }
-  };
 
   const previewTripletByAccent = React.useMemo(() => {
     return new Map(ACCENTS.map((a) => [a.key, `${a.hue} ${a.sat}% 48%`]));
@@ -149,111 +35,9 @@ export default function GeneralSettings() {
 
   const radiusPx = Math.round(themeSettings.radiusRem * 16);
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 gap-3">
-        <Loader2 className="h-7 w-7 animate-spin text-primary" />
-        <span className="text-sm text-zinc-400">Loading settings & preferences...</span>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-6">
-      {/* 1. General Preferences Section */}
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-3">
-          <div className="p-2 bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-500 rounded-xl">
-            <Globe className="h-5 w-5" />
-          </div>
-          <div>
-            <CardTitle>General & Regional Preferences</CardTitle>
-            <CardDescription>Configure language options, date format preferences, and IANA timezone parameters.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="space-y-2">
-              <Label htmlFor="lang-select">Language / Locale</Label>
-              <SearchableSelect
-                options={LANGUAGES}
-                value={locale}
-                onValueChange={setLocale}
-                placeholder="Select Language"
-                className="max-md:min-h-11"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="tz-select">Timezone</Label>
-              <SearchableSelect
-                options={TIMEZONES}
-                value={timezone}
-                onValueChange={setTimezone}
-                placeholder="Select Timezone"
-                className="max-md:min-h-11"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="date-format-select">Date/Time Format</Label>
-              <SearchableSelect
-                options={DATE_FORMATS}
-                value={dateFormat}
-                onValueChange={setDateFormat}
-                placeholder="Select Date Format"
-                className="max-md:min-h-11"
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 2. Accessibility Section */}
-      <Card>
-        <CardHeader className="flex flex-row items-center gap-3">
-          <div className="p-2 bg-indigo-500/10 dark:bg-indigo-500/20 text-indigo-500 rounded-xl">
-            <Accessibility className="h-5 w-5" />
-          </div>
-          <div>
-            <CardTitle>Accessibility Settings</CardTitle>
-            <CardDescription>Tailor display text sizing and transition effects to enhance visibility and usability.</CardDescription>
-          </div>
-        </CardHeader>
-        <CardContent className="grid gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <Label>Text Sizing Scale</Label>
-              <ToggleGroup
-                type="single"
-                value={textSize}
-                onValueChange={(val) => {
-                  if (val) setTextSize(val as "small" | "medium" | "large");
-                }}
-                className="justify-start"
-              >
-                <ToggleGroupItem value="small" className="max-md:min-h-11">Small</ToggleGroupItem>
-                <ToggleGroupItem value="medium" className="max-md:min-h-11">Medium (Default)</ToggleGroupItem>
-                <ToggleGroupItem value="large" className="max-md:min-h-11">Large</ToggleGroupItem>
-              </ToggleGroup>
-            </div>
-
-            <div className="flex items-center justify-between p-4 rounded-xl border bg-zinc-50/50 dark:bg-zinc-900/10">
-              <div className="space-y-0.5">
-                <Label htmlFor="reduced-motion-switch" className="text-sm font-semibold">Reduced Motion</Label>
-                <p className="text-sm md:text-xs text-zinc-500 dark:text-zinc-400">Minimize animations and slide transitions.</p>
-              </div>
-              <Switch
-                id="reduced-motion-switch"
-                checked={reducedMotion}
-                onCheckedChange={setReducedMotion}
-              />
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 3. Appearance Section (VOS Style Settings) */}
+      {/* Appearance Section (VOS Style Settings) */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-3">
           <div className="p-2 bg-pink-500/10 dark:bg-pink-500/20 text-pink-500 rounded-xl">
@@ -365,32 +149,10 @@ export default function GeneralSettings() {
           variant="outline"
           onClick={() => {
             resetThemeSettings();
-            setLocale("en-US");
-            setTimezone("Asia/Manila");
-            setDateFormat("YYYY-MM-DD");
-            setTextSize("medium");
-            setReducedMotion(false);
           }}
-          disabled={saving}
           className="rounded-xl max-md:min-h-11"
         >
-          <RefreshCw className="h-4 w-4 mr-2" /> Reset all defaults
-        </Button>
-
-        <Button
-          onClick={handleSave}
-          disabled={saving}
-          className="rounded-xl px-6 bg-primary hover:bg-primary/95 text-primary-foreground font-semibold shadow-sm max-md:min-h-11"
-        >
-          {saving ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin mr-2" /> Saving settings...
-            </>
-          ) : (
-            <>
-              <Save className="h-4 w-4 mr-2" /> Save Preferences
-            </>
-          )}
+          <RefreshCw className="h-4 w-4 mr-2" /> Reset theme defaults
         </Button>
       </div>
     </div>

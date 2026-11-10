@@ -5,6 +5,7 @@ import React from "react";
 import { Search, MapPin, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import type { PopularPreset } from "../types";
 
 interface Props {
   searchQuery: string;
@@ -13,7 +14,12 @@ interface Props {
   onLocationChange: (loc: string) => void;
   onSearchSubmit: (e: React.FormEvent) => void;
   totalJobs: number;
-  onQuickCategoryClick: (cat: string) => void;
+  popularPresets?: PopularPreset[];
+  selectedJobType?: string;
+  selectedWorkSetup?: string;
+  appliedSearchQuery?: string;
+  onQuickPresetClick?: (preset: PopularPreset) => void;
+  onQuickCategoryClick?: (cat: string) => void;
   isLoading?: boolean;
 }
 
@@ -23,9 +29,23 @@ export function JobHeroBanner({
   onSearchChange,
   onLocationChange,
   onSearchSubmit,
+  popularPresets = [],
+  selectedJobType = "All",
+  selectedWorkSetup = "All",
+  appliedSearchQuery = "",
+  onQuickPresetClick,
   onQuickCategoryClick,
   isLoading = false,
 }: Props) {
+  const handleTagClick = (preset: PopularPreset) => {
+    if (onQuickPresetClick) {
+      onQuickPresetClick(preset);
+    } else if (onQuickCategoryClick) {
+      onQuickCategoryClick(preset.label);
+    }
+  };
+
+  const isSearchEmpty = !searchQuery.trim() && !locationQuery.trim();
 
   return (
     <div className="relative overflow-hidden border-b border-border/60 pt-4 pb-16 md:pt-22 px-4 sm:px-6 lg:px-8">
@@ -44,7 +64,13 @@ export function JobHeroBanner({
 
         {/* Hero Search Bar Box */}
         <form
-          onSubmit={onSearchSubmit}
+          onSubmit={(e) => {
+            if (isSearchEmpty) {
+              e.preventDefault();
+              return;
+            }
+            onSearchSubmit(e);
+          }}
           className="bg-white/90 dark:bg-card/75 border border-border/80 rounded-2xl shadow-[0_8px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.4)] p-3 max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-12 gap-3 backdrop-blur-xl"
         >
           {/* Keyword Search Input */}
@@ -76,8 +102,8 @@ export function JobHeroBanner({
             <Button
               type="submit"
               size="lg"
-              disabled={isLoading}
-              className="w-full h-12 text-sm font-bold gap-2 shadow-md hover:shadow-lg transition-all"
+              disabled={isLoading || isSearchEmpty}
+              className="w-full h-12 text-sm font-bold gap-2 shadow-md hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
               {isLoading ? "Searching..." : "Search Jobs"}
@@ -86,22 +112,36 @@ export function JobHeroBanner({
           </div>
         </form>
 
-        {/* Popular Quick Search Tags */}
-        <div className="flex flex-wrap items-center justify-center gap-2 pt-2 text-xs text-muted-foreground">
-          <span className="font-semibold">Popular:</span>
-          {["Software Engineer", "Customer Service", "Virtual Assistant", "Graphic Designer"].map(
-            (tag) => (
-              <button
-                key={tag}
-                type="button"
-                onClick={() => onQuickCategoryClick(tag)}
-                className="px-3 py-1 rounded-lg border bg-card hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-colors text-[11px] font-medium"
-              >
-                {tag}
-              </button>
-            )
-          )}
-        </div>
+        {/* Popular Quick Search Tags - 100% dynamic from database */}
+        {popularPresets.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2 text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground/80">Popular:</span>
+            {popularPresets.map((preset) => {
+              const isActive =
+                preset.type === "work_setup"
+                  ? selectedWorkSetup.toLowerCase() === preset.label.toLowerCase()
+                  : preset.type === "job_type"
+                  ? selectedJobType.toLowerCase() === preset.label.toLowerCase()
+                  : appliedSearchQuery.trim().toLowerCase() === preset.label.trim().toLowerCase();
+
+              return (
+                <button
+                  key={`${preset.type}-${preset.label}`}
+                  type="button"
+                  onClick={() => handleTagClick(preset)}
+                  aria-pressed={isActive}
+                  className={
+                    isActive
+                      ? "px-3 py-1 rounded-full border border-primary bg-primary text-primary-foreground font-semibold shadow-xs shadow-primary/25 transition-all text-[11px]"
+                      : "px-3 py-1 rounded-full border border-primary/15 bg-card/80 hover:bg-primary/10 hover:text-primary hover:border-primary/30 text-muted-foreground transition-all text-[11px] font-medium"
+                  }
+                >
+                  {preset.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

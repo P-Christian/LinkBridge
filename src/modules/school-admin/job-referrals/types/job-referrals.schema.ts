@@ -3,8 +3,10 @@ import { z } from 'zod';
 
 export const createReferralsSchema = z.object({
   job_id: z.number().int().positive({ message: "Valid Job ID is required" }),
+  // No array cap: the wizard's "select all" sends the caller's whole eligible roster,
+  // and createBatchReferralsService rejects any id outside that school.
   student_ids: z.array(z.number().int().positive()).min(1, { message: "Select at least one student to refer" }),
-  referral_letter: z.string().optional(),
+  referral_letter: z.string().max(20000, { message: "Referral letter is too long" }).optional(),
   expires_in_days: z.number().int().min(1).max(90).default(30),
 });
 
@@ -37,10 +39,12 @@ export const generateLetterSchema = z.object({
         })
       ).default([]),
     })
-  ).min(1, { message: "At least one candidate is required for generation" }),
+  ).min(1, { message: "At least one candidate is required for generation" })
+   .max(50, { message: "Too many candidates in one generation request" }),
   tone: z.enum(['professional', 'academic', 'enthusiastic', 'concise']).default('professional'),
-  schoolName: z.string().optional(),
-  adminName: z.string().optional(),
+  // Ignored by the handler: the endorsing identity always comes from the session.
+  schoolName: z.string().max(200).optional(),
+  adminName: z.string().max(200).optional(),
 });
 
 export type CreateReferralsSchemaInput = z.infer<typeof createReferralsSchema>;

@@ -2,7 +2,7 @@
 
 import React from "react";
 import Image from "next/image";
-import { MapPin, Briefcase, Clock, Building2, ChevronRight, Wifi, Users, Bookmark } from "lucide-react";
+import { MapPin, Briefcase, Clock, Building2, ChevronRight, Wifi, Users, Bookmark, UserCheck } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { PublicJobPosting, JOB_TYPE_LABELS } from "../types";
@@ -12,6 +12,7 @@ interface Props {
   onViewDetail: (job: PublicJobPosting) => void;
   isBookmarked: boolean;
   onToggleBookmark: (jobId: number) => void;
+  referralInfo?: { referrer_name: string; expires_at: string | null } | null;
 }
 
 function formatSalary(job: PublicJobPosting): string {
@@ -64,11 +65,23 @@ function getImageUrl(value: string | null | undefined): string {
   return `/api/client/assets/${value}`;
 }
 
-export function JobBrowseCard({ job, onViewDetail, isBookmarked, onToggleBookmark }: Props) {
+export function JobBrowseCard({ job, onViewDetail, isBookmarked, onToggleBookmark, referralInfo }: Props) {
+  const [now] = React.useState(() => Date.now());
   const ArrangeIcon = arrangementIcon[job.work_arrangement] ?? Briefcase;
   const companyUrl = job.company_code
     ? `/companies/${job.company_code}`
     : `/companies?search=${encodeURIComponent(job.company_name ?? "")}`;
+
+  const expiresAt = referralInfo?.expires_at;
+  const countdown = React.useMemo(() => {
+    if (!expiresAt) return null;
+    const diff = new Date(expiresAt).getTime() - now;
+    const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
+    if (days <= 0) return { label: "Expired", isUrgent: true };
+    if (days === 1) return { label: "Expires tomorrow", isUrgent: true };
+    if (days <= 3) return { label: `${days}d left`, isUrgent: true };
+    return { label: `${days}d left`, isUrgent: false };
+  }, [expiresAt, now]);
 
   return (
     <div
@@ -135,6 +148,20 @@ export function JobBrowseCard({ job, onViewDetail, isBookmarked, onToggleBookmar
 
         {/* Meta pills */}
         <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          {referralInfo && (
+            <Badge
+              variant="outline"
+              className="bg-primary/10 text-primary border-primary/25 text-[11px] font-semibold px-2 py-0.5 gap-1 rounded-md"
+            >
+              <UserCheck className="h-3 w-3" />
+              <span>{referralInfo.referrer_name ? `Referred by ${referralInfo.referrer_name}` : "Referred"}</span>
+              {countdown && (
+                <span className={countdown.isUrgent ? "text-amber-600 dark:text-amber-400 font-bold ml-1" : "text-muted-foreground ml-1"}>
+                  · ⏳ {countdown.label}
+                </span>
+              )}
+            </Badge>
+          )}
           {job.job_location && (
             <span
               className="inline-flex items-center gap-1 text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md max-w-[150px]"
@@ -168,16 +195,16 @@ export function JobBrowseCard({ job, onViewDetail, isBookmarked, onToggleBookmar
                 <Badge
                   key={s.id}
                   variant="secondary"
-                  className="text-[10px] px-2 py-0 h-5 rounded-md font-normal max-w-[120px] truncate"
+                  className="text-[10px] px-2 py-0.5 h-auto rounded-md font-normal max-w-[130px] inline-flex items-center"
                   title={s.skill_name}
                 >
-                  {s.skill_name}
+                  <span className="truncate">{s.skill_name}</span>
                 </Badge>
               ))}
               {job.skills.length > 3 && (
                 <Badge
                   variant="outline"
-                  className="text-[10px] px-1.5 py-0 h-5 rounded-md font-normal text-muted-foreground"
+                  className="text-[10px] px-1.5 py-0.5 h-auto rounded-md font-normal text-muted-foreground shrink-0"
                 >
                   +{job.skills.length - 3} more
                 </Badge>

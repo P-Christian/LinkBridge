@@ -17,7 +17,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
-import { formatSalary, stripHtmlTags } from '../services/job-referrals.helpers';
+import { formatSalary, stripHtmlTags } from '../utils/formatting';
 import { sanitizeHtml } from '@/lib/sanitize-html';
 
 interface JobReferralCardProps {

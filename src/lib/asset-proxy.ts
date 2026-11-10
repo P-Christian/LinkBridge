@@ -10,6 +10,16 @@ function getDirectusConfig(): { baseUrl: string; token: string } | null {
   return baseUrl && token ? { baseUrl, token } : null;
 }
 
+/**
+ * Inline-render allowlist (SEC-011). Anything the browser could execute or
+ * parse as markup — and any type not imagined when this list was written — is
+ * forced to download instead. `image/svg+xml` is excluded on purpose: it is an
+ * XML document that runs script inline, and `application/xhtml+xml` was the
+ * gap in the previous denylist.
+ */
+const INLINE_SAFE_CONTENT_TYPES =
+  /^image\/(?:png|jpeg|jpg|gif|webp|avif|bmp|x-icon|vnd\.microsoft\.icon)|^application\/pdf/i;
+
 /** Shared protected/public asset proxy used by the legacy URL aliases. */
 export async function proxyDirectusAsset(
   req: NextRequest,
@@ -43,7 +53,7 @@ export async function proxyDirectusAsset(
     if (!response.ok) return new NextResponse(null, { status: response.status });
 
     const contentType = response.headers.get("content-type") || "application/octet-stream";
-    const isDangerousInline = /^(image\/svg\+xml|text\/html|text\/xml|application\/javascript|text\/javascript)/i.test(contentType);
+    const isSafeInline = INLINE_SAFE_CONTENT_TYPES.test(contentType);
 
     const responseHeaders: Record<string, string> = {
       "Content-Type": contentType,
@@ -52,7 +62,7 @@ export async function proxyDirectusAsset(
         ? "private, no-store"
         : response.headers.get("cache-control") || "public, max-age=31536000",
     };
-    if (isDangerousInline) {
+    if (!isSafeInline) {
       responseHeaders["Content-Disposition"] = "attachment";
     }
     const contentLength = response.headers.get("content-length");

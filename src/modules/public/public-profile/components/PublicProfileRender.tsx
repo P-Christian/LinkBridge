@@ -1,6 +1,7 @@
 import React from "react";
 import { User, Globe, Briefcase, Mail, GraduationCap, Award, MapPin, Calendar, ExternalLink, Link2 } from "lucide-react";
 import { PublicFreelancerProfile } from "../services/public-profile.service";
+import { safeUrl } from "@/lib/safe-url";
 
 interface Props {
   profile: PublicFreelancerProfile;
@@ -25,6 +26,7 @@ function formatSalary(amount?: number | string | null) {
 }
 
 export function PublicProfileRender({ profile }: Props) {
+  const portfolioHref = safeUrl(profile.portfolio_url);
   return (
     <div className="mx-auto w-full max-w-[85%] 2xl:max-w-7xl space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header Section */}
@@ -168,7 +170,9 @@ export function PublicProfileRender({ profile }: Props) {
             </h2>
             {profile.certifications && profile.certifications.length > 0 ? (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {profile.certifications.map((cert, i) => (
+                {profile.certifications.map((cert, i) => {
+                  const credentialHref = safeUrl(cert.credential_url);
+                  return (
                   <div key={i} className="p-4 rounded-xl border bg-card/50 space-y-2">
                     <div>
                       <h3 className="font-semibold text-sm leading-snug">{cert.certificate_name}</h3>
@@ -181,19 +185,26 @@ export function PublicProfileRender({ profile }: Props) {
                           Issued {formatDate(cert.issue_date)}
                         </span>
                       )}
-                      {cert.credential_url && (
+                      {credentialHref ? (
                         <a
-                          href={cert.credential_url}
+                          href={credentialHref}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="text-[11px] text-primary hover:underline flex items-center gap-1 font-medium ml-auto"
                         >
                           Credential <ExternalLink className="h-3 w-3" />
                         </a>
+                      ) : (
+                        cert.credential_url && (
+                          <span className="text-[11px] text-muted-foreground break-all ml-auto">
+                            {cert.credential_url}
+                          </span>
+                        )
                       )}
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <p className="text-muted-foreground italic text-sm">No certifications listed.</p>
@@ -207,22 +218,28 @@ export function PublicProfileRender({ profile }: Props) {
             <h3 className="font-semibold text-lg border-b pb-2">Details</h3>
             
             <div className="space-y-4 text-sm">
-              <div className="flex items-center gap-3 text-muted-foreground">
-                <Mail className="h-4 w-4 shrink-0 text-primary" />
-                <span className="truncate">{profile.user_email}</span>
-              </div>
+              {profile.user_email && (
+                <div className="flex items-center gap-3 text-muted-foreground">
+                  <Mail className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="truncate">{profile.user_email}</span>
+                </div>
+              )}
               
               {profile.portfolio_url && (
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <Globe className="h-4 w-4 shrink-0 text-primary" />
-                  <a 
-                    href={profile.portfolio_url} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="truncate hover:text-primary hover:underline transition-colors flex items-center gap-1"
-                  >
-                    Portfolio <ExternalLink className="h-3.5 w-3.5" />
-                  </a>
+                  {portfolioHref ? (
+                    <a 
+                      href={portfolioHref} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="truncate hover:text-primary hover:underline transition-colors flex items-center gap-1"
+                    >
+                      Portfolio <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  ) : (
+                    <span className="truncate">Portfolio</span>
+                  )}
                 </div>
               )}
             </div>
@@ -289,19 +306,22 @@ export function PublicProfileRender({ profile }: Props) {
               <h3 className="font-semibold text-lg border-b pb-2">Social Profiles</h3>
               
               <div className="space-y-3">
-                {profile.social_links.map((link, i) => (
+                {profile.social_links.map((link, i) => {
+                  const profileHref = safeUrl(link.profile_url);
+                  return (
                   <a
                     key={i}
-                    href={link.profile_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href={profileHref ?? undefined}
+                    target={profileHref ? "_blank" : undefined}
+                    rel={profileHref ? "noopener noreferrer" : undefined}
                     className="flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
                   >
                     <Link2 className="h-4 w-4 text-primary" />
                     <span className="font-medium">{link.platform_name}</span>
-                    <ExternalLink className="h-3 w-3 ml-auto opacity-50" />
+                    {profileHref && <ExternalLink className="h-3 w-3 ml-auto opacity-50" />}
                   </a>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}

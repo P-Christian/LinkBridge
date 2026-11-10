@@ -19,6 +19,9 @@ import {
 import { resolveAssetUrl, getPHTimestampForDB } from "./schoolVerification.helpers";
 
 // --- Server-Side Domain Orchestration ---
+//
+// Browser callers live in ./schoolVerification.api.ts. Importing this file from
+// client code trips the @/lib/server guard.
 
 export async function getSchoolVerifications(
   status?: string,
@@ -176,9 +179,10 @@ export async function processVerificationDecision(
   adminId: number,
   clientIp?: string,
   userAgent?: string
-): Promise<{ success: boolean; message: string; verification_status: string }> {
+): Promise<{ success: boolean; message: string; verification_status: string; warnings: string[] }> {
   const { schoolId, action, rejectionReason, internalNotes } = payload;
   const nowPH = getPHTimestampForDB();
+  const warnings: string[] = [];
 
   let verificationStatus = "PENDING_VERIFICATION";
   let schoolStatus = "Pending";
@@ -202,8 +206,6 @@ export async function processVerificationDecision(
   const patchData: Record<string, unknown> = {
     verification_status: verificationStatus,
     school_status: schoolStatus,
-    rejection_reason: rejectionReason || null,
-    internal_notes: internalNotes || null,
     updated_by: adminId,
     updated_at: nowPH,
   };
@@ -228,101 +230,103 @@ export async function processVerificationDecision(
       .filter((id) => id > 0);
 
     if (uids.length > 0) {
-      const userStatus = action === "approve" ? "Active" : action === "reject" || action === "suspend" ? "Inactive" : "Pending";
-      const userVerifStatus = action === "approve" ? "VERIFIED" : action === "reject" ? "REJECTED" : action === "suspend" ? "SUSPENDED" : "PENDING";
-      const idVerStatus = action === "approve" ? "approved" : action === "reject" ? "rejected" : "pending";
+      // `vs_user` has one lifecycle column, `status`, and `canAuthenticate()`
+      // reads it verbatim: anything outside ACTIVE/VERIFIED/PENDING_VERIFICATION/
+      // LIMITED is denied. The names below are the values that module already
+      // writes, so a suspended school cannot keep signing in.
+      const userStatus =
+        action === "approve"
+          ? "VERIFIED"
+          : action === "reject"
+            ? "INACTIVE"
+            : action === "suspend"
+              ? "SUSPENDED"
+              : "PENDING_VERIFICATION";
+      const idVerStatus =
+        action === "approve"
+          ? "approved"
+          : action === "reject"
+            ? "rejected"
+            : action === "suspend"
+              ? "suspended"
+              : "pending";
 
+      const idVerPayload: Record<string, unknown> = {
+        status: idVerStatus,
+        reviewed_at: nowPH,
+        reviewed_by: adminId,
+      };
+      // Only overwrite the note when this decision carries one. A suspend never
+      // does, and writing null there erased the note that explained the
+      // rejection the school was suspended over.
+      if (rejectionReason) idVerPayload.rejection_note = rejectionReason;
+
+      const failed: number[] = [];
       await Promise.all(
         uids.map(async (uid) => {
-          await patchUserRepo(uid, {
-            user_status: userStatus,
-            verification_status: userVerifStatus,
-            updated_at: nowPH,
-          });
-          await patchIdentityVerificationsRepo(uid, {
-            status: idVerStatus,
-            reviewed_at: nowPH,
-            reviewed_by: adminId,
-            rejection_note: rejectionReason || null,
-          });
+          try {
+            await patchUserRepo(uid, {
+              status: userStatus,
+              // Same convention as the account-status module: an account moved
+              // out of good standing has its live tokens invalidated.
+              ...(userStatus === "INACTIVE" || userStatus === "SUSPENDED"
+                ? { session_epoch: nowPH }
+                : {}),
+              update_at: nowPH,
+            });
+            await patchIdentityVerificationsRepo(uid, idVerPayload);
+          } catch {
+            failed.push(uid);
+          }
         })
       );
+      if (failed.length > 0) {
+        warnings.push(
+          `The school status changed, but ${failed.length} school administrator account${failed.length > 1 ? "s" : ""} (ID ${failed.join(", ")}) could not be updated to ${userStatus}.`
+        );
+      }
     }
   } catch (cascadeErr) {
-    console.warn("Non-fatal: failed cascading school verification status to admins:", cascadeErr);
+    console.warn("Failed cascading school verification status to admins:", cascadeErr);
+    warnings.push(
+      "The school status changed, but its administrators could not be looked up, so none of their accounts were updated."
+    );
   }
 
   // 3. Log audit trail
-  await createAuditTrailRepo({
-    event_category: "VERIFICATION",
-    event_type: `SCHOOL_VERIFICATION_${action.toUpperCase()}`,
-    action: action.toUpperCase(),
-    status: "SUCCESS",
-    actor_type: "ADMIN",
-    actor_user_id: adminId,
-    resource_type: "SCHOOL",
-    resource_id: String(schoolId),
-    ip_address: clientIp || "127.0.0.1",
-    user_agent: userAgent || null,
-    correlation_id: `school-verif-${schoolId}-${Date.now()}`,
-    reason: rejectionReason || `School verification status updated to ${verificationStatus}`,
-    created_at: nowPH,
-  });
+  try {
+    await createAuditTrailRepo({
+      event_category: "VERIFICATION",
+      event_type: `SCHOOL_VERIFICATION_${action.toUpperCase()}`,
+      action: action.toUpperCase(),
+      status: "SUCCESS",
+      actor_type: "ADMIN",
+      actor_user_id: adminId,
+      resource_type: "SCHOOL",
+      resource_id: String(schoolId),
+      ip_address: clientIp || "127.0.0.1",
+      user_agent: userAgent || null,
+      correlation_id: `school-verif-${schoolId}-${Date.now()}`,
+      reason: rejectionReason || `School verification status updated to ${verificationStatus}`,
+      // `vs_school` has no note columns, so the reviewer's note only survives
+      // here — otherwise the decision's rationale is written and then dropped.
+      new_values: {
+        verification_status: verificationStatus,
+        school_status: schoolStatus,
+        internal_notes: internalNotes || null,
+      },
+      created_at: nowPH,
+    });
+  } catch (auditErr) {
+    console.warn("Could not write to vs_audit_trail:", auditErr);
+    warnings.push("This decision was not recorded in the audit trail.");
+  }
 
   return {
     success: true,
     message: `School ID ${schoolId} status updated to ${verificationStatus}`,
     verification_status: verificationStatus,
+    warnings,
   };
 }
 
-// --- Client-Side API Fetchers ---
-
-export async function fetchSchoolVerifications(
-  status?: string,
-  search?: string
-): Promise<SchoolVerificationRecord[]> {
-  const params = new URLSearchParams();
-  if (status && status !== "ALL") params.append("status", status);
-  if (search && search.trim()) params.append("search", search.trim());
-
-  const queryString = params.toString() ? `?${params.toString()}` : "";
-  const response = await fetch(`/api/vos-admin/school-verification${queryString}`, {
-    method: "GET",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    let errMsg = "Failed to fetch school verifications";
-    try {
-      const parsed = JSON.parse(errText);
-      if (parsed.error) errMsg = parsed.error;
-    } catch {
-      /* ignore */
-    }
-    throw new Error(errMsg);
-  }
-
-  const data = await response.json();
-  return Array.isArray(data) ? (data as SchoolVerificationRecord[]) : [];
-}
-
-export async function submitSchoolVerificationDecision(
-  payload: VerificationDecisionPayload
-): Promise<{ success: boolean; message?: string }> {
-  const response = await fetch("/api/vos-admin/school-verification", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error || "Failed to submit verification decision");
-  }
-
-  const result = await response.json();
-  return { success: true, message: result.message };
-}

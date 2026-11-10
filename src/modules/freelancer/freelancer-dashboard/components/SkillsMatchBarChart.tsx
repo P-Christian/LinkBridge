@@ -4,6 +4,9 @@ import React, { useMemo } from "react";
 import { TrendingUp, CheckCircle2 } from "lucide-react";
 import type { RecommendedJob } from "./AIJobRecommendations";
 
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+
 interface SkillsMatchBarChartProps {
     recommendations?: RecommendedJob[];
     loading?: boolean;
@@ -19,16 +22,13 @@ interface SkillMatchItem {
 export function SkillsMatchBarChart({ recommendations = [], loading = false }: SkillsMatchBarChartProps) {
     const skillsList = useMemo(() => {
         if (!recommendations || recommendations.length === 0) {
-            return [
-                { skill: "Full-Stack Development", percentage: 95, color: "bg-emerald-500", demandLevel: "High" },
-                { skill: "TypeScript / React", percentage: 90, color: "bg-blue-500", demandLevel: "High" },
-                { skill: "API Integration", percentage: 85, color: "bg-indigo-500", demandLevel: "Medium" },
-                { skill: "Cloud Deployment", percentage: 70, color: "bg-amber-500", demandLevel: "Medium" },
-            ];
+            return [];
         }
 
         // Dynamically compute match indicators from top AI recommendations
-        const baseScore = recommendations[0]?.match_percentage || 95;
+        const baseScore = recommendations[0]?.match_percentage || 0;
+        if (baseScore <= 0) return [];
+
         const items: SkillMatchItem[] = [
             {
                 skill: recommendations[0]?.job_title || "Primary Role Fit",
@@ -38,13 +38,13 @@ export function SkillsMatchBarChart({ recommendations = [], loading = false }: S
             },
             {
                 skill: recommendations[1]?.job_title || "Secondary Match",
-                percentage: Math.min(100, Math.max(65, (recommendations[1]?.match_percentage || baseScore - 7))),
+                percentage: Math.min(100, Math.max(0, (recommendations[1]?.match_percentage || baseScore - 7))),
                 color: "bg-blue-500",
                 demandLevel: "High",
             },
             {
                 skill: recommendations[2]?.job_title || "Complementary Match",
-                percentage: Math.min(100, Math.max(55, (recommendations[2]?.match_percentage || baseScore - 12))),
+                percentage: Math.min(100, Math.max(0, (recommendations[2]?.match_percentage || baseScore - 12))),
                 color: "bg-indigo-500",
                 demandLevel: "High",
             },
@@ -74,6 +74,37 @@ export function SkillsMatchBarChart({ recommendations = [], loading = false }: S
                         </div>
                     ))}
                 </div>
+            </div>
+        );
+    }
+
+    if (skillsList.length === 0) {
+        return (
+            <div className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-blue-500 rounded-3xl p-5 sm:p-6 shadow-sm flex flex-col justify-between h-full transition-all duration-200 ease-out hover:border-blue-300 dark:hover:border-blue-800/60 hover:shadow-md">
+                <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-border">
+                    <div className="flex items-center gap-2">
+                        <span className="w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 flex items-center justify-center">
+                            <TrendingUp className="w-4 h-4" />
+                        </span>
+                        <div>
+                            <h3 className="text-sm font-bold text-slate-900 dark:text-foreground">In-Demand Skills Fit</h3>
+                            <p className="text-[11px] text-slate-500 dark:text-muted-foreground">Market demand alignment</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="my-auto py-6 text-center space-y-3">
+                    <p className="text-xs text-slate-500 dark:text-muted-foreground max-w-xs mx-auto">
+                        No skill match data available. Add skills to your profile to see your alignment with active jobs.
+                    </p>
+                    <Button variant="outline" size="sm" asChild className="text-xs">
+                        <Link href="/linkbridge/freelancer/profile">Update Skills & Profile</Link>
+                    </Button>
+                </div>
+
+                <p className="text-[11px] text-slate-400 dark:text-muted-foreground pt-2 border-t border-slate-100 dark:border-border">
+                    Based on active job requirements matched against your skills and summary.
+                </p>
             </div>
         );
     }

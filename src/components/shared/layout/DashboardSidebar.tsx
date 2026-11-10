@@ -16,6 +16,7 @@ import {
 import { motion } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useThemeCurtain } from "@/components/theme/useThemeCurtain";
+import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 import {
@@ -171,6 +172,7 @@ export function DashboardSidebar({
     const { switchTheme } = useThemeCurtain();
     const [unreadMessages, setUnreadMessages] = React.useState(0);
     const [unreadNotifications, setUnreadNotifications] = React.useState(0);
+    const [unreadContactMessages, setUnreadContactMessages] = React.useState(0);
     const loggingOut = React.useRef(false);
 
     const currentTheme = theme === "system" ? systemTheme : theme;
@@ -202,38 +204,102 @@ export function DashboardSidebar({
     React.useEffect(() => {
         const hasMessagesItem = config.navItems.some((item) => item.label === "Messages");
         const hasNotificationsItem = config.navItems.some((item) => item.label === "Notifications");
+        const hasContactMessagesItem = config.navItems.some((item) => item.label === "Contact Messages");
+
+        let isCircuitBroken = false;
+        let controller: AbortController | null = null;
+        let inFlight = false;
 
         const fetchCounts = async () => {
-            if (hasMessagesItem) {
-                try {
-                    const res = await fetch("/api/shared/messaging/unread-count");
-                    if (res.ok) {
-                        const data = await res.json();
-                        setUnreadMessages(data.unreadCount || 0);
-                    }
-                } catch (err) {
-                    console.error("Failed to fetch unread message count:", err);
-                }
-            }
+            // Upstream reads can take many seconds; without this a slow tick
+            // would stack a second full poll on top of it every 30s.
+            if (inFlight) return;
+            inFlight = true;
 
-            if (hasNotificationsItem) {
-                try {
-                    const res = await fetch("/api/client/notifications?unread_only=true&limit=100");
-                    if (res.ok) {
-                        const data = await res.json();
-                        setUnreadNotifications(data.notifications?.length || 0);
+            controller?.abort();
+            controller = new AbortController();
+            const signal = controller.signal;
+
+            try {
+                if (hasMessagesItem) {
+                    try {
+                        const res = await fetch("/api/shared/messaging/unread-count", { signal });
+                        if (res.ok) {
+                            const data = await res.json();
+                            setUnreadMessages(data.unreadCount || 0);
+                        }
+                    } catch {
+                        if (signal.aborted) return;
+                        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+                        toast.error("Something went wrong", {
+                            id: "sidebar-fetch-error",
+                            duration: 3000,
+                        });
                     }
-                } catch {
-                    // Silently ignore if not client route or endpoint unavailable
                 }
+
+                if (hasContactMessagesItem) {
+                    try {
+                        const res = await fetch("/api/vos-admin/contact-messages/unread-count", { signal });
+                        if (res.ok) {
+                            const data = await res.json();
+                            setUnreadContactMessages(data.unreadCount || 0);
+                        }
+                    } catch {
+                        if (signal.aborted) return;
+                        if (typeof navigator !== "undefined" && !navigator.onLine) return;
+                        toast.error("Something went wrong", {
+                            id: "sidebar-fetch-error",
+                            duration: 3000,
+                        });
+                    }
+                }
+
+                if (hasNotificationsItem && !isCircuitBroken) {
+                    const isFreelancer = pathname?.startsWith("/linkbridge/freelancer") || pathname?.startsWith("/freelancer");
+                    const isClient = pathname?.startsWith("/linkbridge/client") || pathname?.startsWith("/client");
+
+                    const endpoint = isFreelancer
+                        ? "/api/freelancer/notifications?unread_only=true"
+                        : isClient
+                        ? "/api/client/notifications?unread_only=true&limit=100"
+                        : null;
+
+                    if (endpoint) {
+                        try {
+                            const res = await fetch(endpoint, { signal });
+                            if (res.status === 401 || res.status === 403) {
+                                // Trip circuit breaker to avoid infinite 403 / 401 polling flood
+                                isCircuitBroken = true;
+                                return;
+                            }
+                            if (res.ok) {
+                                const data = await res.json();
+                                setUnreadNotifications(data.unreadCount ?? data.notifications?.length ?? 0);
+                            }
+                        } catch {
+                            if (signal.aborted) return;
+                            if (typeof navigator !== "undefined" && !navigator.onLine) return;
+                            toast.error("Something went wrong", {
+                                id: "sidebar-fetch-error",
+                                duration: 3000,
+                            });
+                        }
+                    }
+                }
+            } finally {
+                inFlight = false;
             }
         };
 
         fetchCounts();
 
         const interval = setInterval(fetchCounts, 30000);
-        return () => clearInterval(interval);
-    }, [config.navItems]);
+        return () => {
+            clearInterval(interval);
+            controller?.abort();
+        };
+    }, [config.navItems, pathname]);
 
     const handleFooterClick = async (e: React.MouseEvent<HTMLAnchorElement | HTMLDivElement>, href: string) => {
         if (href !== "/logout") return;
@@ -245,7 +311,8 @@ export function DashboardSidebar({
         } catch (err) {
             console.error("Logout error:", err);
         } finally {
-            document.cookie = "vos_sync_access_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT;";
+            // PRIV-017: the logout route already cleared the HttpOnly auth
+            // cookie; a client-side expire write cannot touch it.
             document.body.style.display = "none";
             window.location.href = "/login";
         }
@@ -253,18 +320,55 @@ export function DashboardSidebar({
 
     const showUserCard = !!user?.name && user.email !== "guest@example.com";
 
+    const verificationInfo = React.useMemo(() => {
+        const rawStatus = (user.verification_status || user.status || "UNVERIFIED").toUpperCase();
+        if (rawStatus === "VERIFIED" || rawStatus === "ACTIVE") {
+            return {
+                label: "Verified",
+                badgeClass: "bg-success/10 text-success ring-success/20",
+                dotClass: "bg-success",
+            };
+        }
+        if (rawStatus === "PENDING" || rawStatus === "PENDING_VERIFICATION") {
+            return {
+                label: "Pending Verification",
+                badgeClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
+                dotClass: "bg-amber-500",
+            };
+        }
+        if (rawStatus === "SUSPENDED" || rawStatus === "BLOCKED") {
+            return {
+                label: "Suspended",
+                badgeClass: "bg-destructive/10 text-destructive ring-destructive/20",
+                dotClass: "bg-destructive",
+            };
+        }
+        if (rawStatus === "LIMITED") {
+            return {
+                label: "Limited",
+                badgeClass: "bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-amber-500/20",
+                dotClass: "bg-amber-500",
+            };
+        }
+        return {
+            label: "Unverified",
+            badgeClass: "bg-muted text-muted-foreground ring-border",
+            dotClass: "bg-muted-foreground",
+        };
+    }, [user.verification_status, user.status]);
+
     const profileUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/company-profile";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/profile";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/profile";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/company-profile";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/profile";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/profile";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     const settingsUrl = React.useMemo(() => {
-        if (config.homeUrl?.includes("/client")) return "/vos-sync/client/settings";
-        if (config.homeUrl?.includes("/freelancer")) return "/vos-sync/freelancer/settings";
-        if (config.homeUrl?.includes("/school-admin")) return "/vos-sync/school-admin/settings";
-        return "/vos-sync/vos-admin/settings";
+        if (config.homeUrl?.includes("/client")) return "/linkbridge/client/settings";
+        if (config.homeUrl?.includes("/freelancer")) return "/linkbridge/freelancer/settings";
+        if (config.homeUrl?.includes("/school-admin")) return "/linkbridge/school-admin/settings";
+        return "/linkbridge/admin/settings";
     }, [config.homeUrl]);
 
     return (
@@ -295,15 +399,19 @@ export function DashboardSidebar({
                                     "group-data-[collapsible=icon]:!gap-0"
                                 )}
                             >
-                                <div className="flex aspect-square size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:rounded-lg">
+                                <div
+                                    className="flex aspect-square items-center justify-center overflow-hidden shrink-0"
+                                    style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
+                                >
                                     <Image
-                                        src="/vertex_logo_black.png"
-                                        alt="VOS Logo"
-                                        width={40}
-                                        height={40}
-                                        style={{ width: "auto", height: "auto" }}
-                                        className="max-h-8 max-w-9 object-contain group-data-[collapsible=icon]:max-h-6 group-data-[collapsible=icon]:max-w-6 dark:invert"
+                                        src="/Link-Bridge-logo.png"
+                                        alt="LinkBridge Logo"
+                                        width={32}
+                                        height={32}
+                                        unoptimized
                                         priority
+                                        className="object-contain shrink-0"
+                                        style={{ width: 32, height: 32, minWidth: 32, minHeight: 32 }}
                                     />
                                 </div>
 
@@ -361,10 +469,13 @@ export function DashboardSidebar({
                                         const isActive = !!activeHref && normalizePath(item.href) === activeHref;
                                         const isMessages = item.label === "Messages";
                                         const isNotifications = item.label === "Notifications";
+                                        const isContactMessages = item.label === "Contact Messages";
                                         const badgeCount = isMessages
                                             ? unreadMessages
                                             : isNotifications
                                             ? unreadNotifications
+                                            : isContactMessages
+                                            ? unreadContactMessages
                                             : 0;
 
                                         return (
@@ -476,17 +587,23 @@ export function DashboardSidebar({
                                         >
                                             <div className="relative">
                                                 <SidebarAvatar name={user.name} src={user.avatar} />
-                                                {/* Verified dot: only meaningful once the text pill is gone */}
+                                                {/* Verification dot: only meaningful once the text pill is gone */}
                                                 <span
                                                     aria-hidden="true"
-                                                    className="absolute bottom-0 right-0 size-3 rounded-full bg-success opacity-0 ring-2 ring-sidebar transition-opacity duration-150 motion-reduce:transition-none group-data-[collapsible=icon]:opacity-100 group-data-[collapsible=icon]:delay-150"
+                                                    className={cn(
+                                                        "absolute bottom-0 right-0 size-3 rounded-full opacity-0 ring-2 ring-sidebar transition-opacity duration-150 motion-reduce:transition-none group-data-[collapsible=icon]:opacity-100 group-data-[collapsible=icon]:delay-150",
+                                                        verificationInfo.dotClass
+                                                    )}
                                                 />
                                             </div>
                                             <div className={cn("min-w-0 flex-1", LABEL_FADE)}>
                                                 <div className="flex items-center justify-between gap-1">
                                                     <p className="truncate text-xs font-semibold leading-tight text-foreground">{user.name}</p>
-                                                    <span className="inline-flex items-center rounded-full bg-success/10 px-1.5 py-0.2 text-[9px] font-medium text-success ring-1 ring-inset ring-success/20 shrink-0">
-                                                        Verified
+                                                    <span className={cn(
+                                                        "inline-flex items-center rounded-full px-1.5 py-0.2 text-[9px] font-medium ring-1 ring-inset shrink-0",
+                                                        verificationInfo.badgeClass
+                                                    )}>
+                                                        {verificationInfo.label}
                                                     </span>
                                                 </div>
                                                 <p className="truncate text-[11px] text-muted-foreground mt-0.5">{user.email}</p>
@@ -502,7 +619,7 @@ export function DashboardSidebar({
                                     </DropdownMenuTrigger>
                                 </TooltipTrigger>
                                 <TooltipContent side="right">
-                                    {user.name} · Verified
+                                    {user.name} · {verificationInfo.label}
                                 </TooltipContent>
                             </Tooltip>
                             <DropdownMenuContent

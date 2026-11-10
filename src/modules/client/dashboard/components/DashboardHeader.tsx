@@ -94,7 +94,7 @@ export default function DashboardHeader({ company, userName }: DashboardHeaderPr
               asChild
               className="h-11 max-md:h-10 rounded-xl bg-white px-6 max-md:px-4 text-sm font-semibold text-indigo-700 shadow-lg shadow-black/10 transition-all duration-200 hover:bg-white/90 hover:-translate-y-0.5 active:scale-95 max-md:w-full"
             >
-              <Link href="/vos-sync/client/jobs" className="flex items-center justify-center gap-2">
+              <Link href="/linkbridge/client/jobs" className="flex items-center justify-center gap-2">
                 <Plus className="h-4.5 w-4.5" aria-hidden="true" />
                 Post a Job
               </Link>

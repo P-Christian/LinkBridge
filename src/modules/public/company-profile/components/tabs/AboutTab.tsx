@@ -1,4 +1,4 @@
-import { ReactElement, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Globe,
   Mail,
@@ -24,6 +24,7 @@ import {
 import { PublicCompanyProfile, CompanyJob, CompanyReview } from "../../types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { safeUrl } from "@/lib/safe-url";
 
 interface AboutTabProps {
   company: PublicCompanyProfile;
@@ -54,6 +55,8 @@ export function AboutTab({ company, onTabChange }: AboutTabProps) {
     company_code,
   } = company;
 
+  const websiteHref = safeUrl(company_website);
+
   // Social Links List builder
   const socialLinks = [
     { url: company_facebook, icon: <Facebook className="w-5 h-5" />, label: "Facebook" },
@@ -69,7 +72,11 @@ export function AboutTab({ company, onTabChange }: AboutTabProps) {
       ),
       label: "X",
     },
-  ].filter((link): link is { url: string; icon: ReactElement; label: string } => !!link.url);
+  ].flatMap((link) => {
+    // Scheme allowlist: a stored javascript:/data: value must not become an href.
+    const href = safeUrl(link.url);
+    return href ? [{ ...link, href }] : [];
+  });
 
   // Parse tags (CSV or spaces)
   const tagsList = company_tags
@@ -430,9 +437,9 @@ export function AboutTab({ company, onTabChange }: AboutTabProps) {
           <div className="space-y-4 mb-6">
             {company_website && (
               <a
-                href={company_website}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={websiteHref ?? undefined}
+                target={websiteHref ? "_blank" : undefined}
+                rel={websiteHref ? "noopener noreferrer" : undefined}
                 className="flex items-center gap-3 text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
               >
                 <Globe className="w-4 h-4 shrink-0" />
@@ -464,7 +471,7 @@ export function AboutTab({ company, onTabChange }: AboutTabProps) {
               {socialLinks.map((link) => (
                 <a
                   key={link.label}
-                  href={link.url}
+                  href={link.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-11 h-11 md:w-9 md:h-9 rounded-xl bg-muted/60 text-muted-foreground hover:text-primary hover:bg-muted transition-all flex items-center justify-center border border-border/80"

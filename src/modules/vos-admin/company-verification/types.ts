@@ -80,6 +80,9 @@ export interface CompanyVerificationRecord {
   industry_id?: number | null;
   company_size_id?: number | null;
   organization_type_id?: number | null;
+  industry_name?: string | null;
+  company_size_name?: string | null;
+  organization_type_name?: string | null;
   company_tags?: string | null;
   company_facebook?: string | null;
   company_linkedin?: string | null;
@@ -114,11 +117,13 @@ export interface CompanyVerificationKPIs {
   pendingCount: number;
   verifiedCount: number;
   rejectedCount: number;
+  needsRevisionCount: number;
+  draftCount: number;
 }
 
 export interface VerificationDecisionPayload {
   companyId: number;
-  action: "approve" | "reject" | "request_correction" | "suspend";
+  action: "approve" | "request_revision" | "suspend";
   rejectionReason?: string;
   internalNotes?: string;
 }

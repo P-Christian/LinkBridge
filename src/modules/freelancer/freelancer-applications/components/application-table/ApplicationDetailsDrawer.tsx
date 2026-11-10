@@ -7,9 +7,14 @@ import {
   ExternalLink,
   FileText,
   Link as LinkIcon,
+  HelpCircle,
+  User,
+  Briefcase,
+  GraduationCap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Drawer,
   DrawerContent,
@@ -242,7 +247,7 @@ export function ApplicationDetailsDrawer({ application, onClose, onSelectCompany
                       ) : (
                         <div className="space-y-3">
                           {parsed.text && (
-                            <div className="bg-muted/30 p-4 rounded-lg text-sm whitespace-pre-wrap border border-border/50 text-foreground leading-relaxed">
+                            <div className="bg-muted/30 p-4 rounded-lg text-sm whitespace-pre-wrap break-words [overflow-wrap:anywhere] min-w-0 max-w-full overflow-hidden border border-border/50 text-foreground leading-relaxed">
                               {parsed.text}
                             </div>
                           )}
@@ -314,6 +319,121 @@ export function ApplicationDetailsDrawer({ application, onClose, onSelectCompany
                         {application.resume.file_name || "Resume Document"}
                       </span>
                     </a>
+                  </div>
+                )}
+
+                {/* Screening Question Answers */}
+                {application.screening_answers && application.screening_answers.length > 0 && (
+                  <div className="space-y-3">
+                    <p className="text-sm md:text-xs text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <HelpCircle className="w-3.5 h-3.5 text-primary" /> Employer Questionnaire Responses
+                    </p>
+                    <div className="space-y-3">
+                      {application.screening_answers.map((ans, idx) => (
+                        <div
+                          key={ans.question_id || idx}
+                          className="bg-muted/20 border border-border/60 rounded-xl p-4 space-y-2"
+                        >
+                          <div className="flex items-start gap-2">
+                            <span className="text-primary font-bold text-xs shrink-0 mt-0.5">
+                              {idx + 1}.
+                            </span>
+                            <p className="text-xs font-semibold text-foreground/90 break-words">
+                              {ans.question_text}
+                            </p>
+                          </div>
+                          <div className="bg-background/80 rounded-lg p-3 text-sm text-foreground whitespace-pre-wrap break-words [overflow-wrap:anywhere] border border-border/40">
+                            {ans.answer_text || <span className="text-muted-foreground italic">No response provided</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Profile Snapshot Submitted with Application */}
+                {application.profile_snapshot && (
+                  <div className="space-y-3 border-t border-border/50 pt-5">
+                    <p className="text-sm md:text-xs text-muted-foreground uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-primary" /> Submitted Profile Details
+                    </p>
+
+                    <div className="space-y-3 bg-muted/15 border border-border/60 rounded-xl p-4">
+                      {/* Professional Summary */}
+                      {application.profile_snapshot.professional_summary && (
+                        <div className="space-y-1">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Professional Summary
+                          </span>
+                          <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere] bg-background/60 p-3 rounded-lg border border-border/40">
+                            {application.profile_snapshot.professional_summary}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Submitted Skills */}
+                      {application.profile_snapshot.skills && application.profile_snapshot.skills.length > 0 && (
+                        <div className="space-y-1.5">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Skills
+                          </span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {application.profile_snapshot.skills.map((s, idx) => {
+                              const sName = s.skill?.skill_name || s.skill_name;
+                              if (!sName) return null;
+                              return (
+                                <Badge key={idx} variant="secondary" className="text-xs font-normal">
+                                  {sName}
+                                </Badge>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Submitted Work Experience */}
+                      {application.profile_snapshot.work_experience && application.profile_snapshot.work_experience.length > 0 && (
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                            <Briefcase className="w-3 h-3 text-muted-foreground" /> Work Experience
+                          </span>
+                          <div className="space-y-2">
+                            {application.profile_snapshot.work_experience.map((exp, idx) => (
+                              <div key={idx} className="text-xs border-l-2 border-primary/40 pl-3 py-1 bg-background/40 rounded-r-lg">
+                                <p className="font-semibold text-foreground">{exp.job_title}</p>
+                                <p className="text-muted-foreground">
+                                  {exp.company_name}
+                                  {(exp.start_date || exp.end_date) && (
+                                    <span> • {exp.start_date || ""} - {exp.is_current_role ? "Present" : exp.end_date || ""}</span>
+                                  )}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Submitted Education */}
+                      {application.profile_snapshot.education && application.profile_snapshot.education.length > 0 && (
+                        <div className="space-y-2 pt-1">
+                          <span className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1">
+                            <GraduationCap className="w-3 h-3 text-muted-foreground" /> Education
+                          </span>
+                          <div className="space-y-2">
+                            {application.profile_snapshot.education.map((edu, idx) => (
+                              <div key={idx} className="text-xs border-l-2 border-primary/40 pl-3 py-1 bg-background/40 rounded-r-lg">
+                                <p className="font-semibold text-foreground">{edu.school_name}</p>
+                                {(edu.degree || edu.field_of_study) && (
+                                  <p className="text-muted-foreground">
+                                    {[edu.degree, edu.field_of_study].filter(Boolean).join(" in ")}
+                                  </p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 )}
 

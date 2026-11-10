@@ -17,7 +17,7 @@ export interface VsUserSkillMap {
 export interface VsUserSocialLink {
     id: number;
     user_id: number;
-    platform_name: 'Github' | 'LinkedIn' | 'X (Twitter)' | 'Personal Portfolio';
+    platform_name: 'Github' | 'GitLab' | 'LinkedIn' | 'X (Twitter)' | 'YouTube' | 'Facebook' | 'Personal Portfolio' | 'Other' | (string & {});
     profile_url: string;
 }
 

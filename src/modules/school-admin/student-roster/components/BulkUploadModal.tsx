@@ -4,7 +4,8 @@ import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
 import { CreateStudentInput, createStudentSchema } from '../types/student-roster.schema';
 import { Button } from '@/components/ui/button';
-import { Download, FileSpreadsheet, Upload, X } from 'lucide-react';
+import { SearchableSelect } from '@/components/ui/searchable-select';
+import { Download, Upload, X } from 'lucide-react';
 
 interface BulkUploadModalProps {
   isOpen: boolean;
@@ -25,29 +26,15 @@ const TEMPLATE_HEADERS = [
   'middle_name',
   'last_name',
   'email',
+  'course_code',
+  'course_name',
   'school_year',
   'gpa',
 ];
 
-const SAMPLE_TEMPLATE_ROWS = [
-  {
-    student_number: '2025-00101',
-    first_name: 'John',
-    middle_name: 'David',
-    last_name: 'Doe',
-    email: 'john.doe@university.edu.ph',
-    school_year: '2025-2026',
-    gpa: 3.5,
-  },
-  {
-    student_number: '2025-00102',
-    first_name: 'Jane',
-    middle_name: 'Marie',
-    last_name: 'Smith',
-    email: 'jane.smith@university.edu.ph',
-    school_year: '2025-2026',
-    gpa: 3.75,
-  },
+const TEMPLATE_OPTIONS = [
+  { value: 'csv', label: 'CSV (.csv)' },
+  { value: 'xlsx', label: 'Excel (.xlsx)' },
 ];
 
 export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
@@ -65,11 +52,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
 
   const downloadTemplate = (format: 'csv' | 'xlsx') => {
     if (format === 'csv') {
-      const headerLine = TEMPLATE_HEADERS.join(',');
-      const rowLines = SAMPLE_TEMPLATE_ROWS.map((r) =>
-        [r.student_number, r.first_name, r.middle_name, r.last_name, r.email, r.school_year, r.gpa].join(',')
-      );
-      const csvString = [headerLine, ...rowLines].join('\n');
+      const csvString = TEMPLATE_HEADERS.join(',') + '\n';
       const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -80,9 +63,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } else {
-      const ws = XLSX.utils.json_to_sheet(SAMPLE_TEMPLATE_ROWS, {
-        header: TEMPLATE_HEADERS,
-      });
+      const ws = XLSX.utils.aoa_to_sheet([TEMPLATE_HEADERS]);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Student Roster');
       XLSX.writeFile(wb, 'student_roster_template.xlsx');
@@ -146,16 +127,41 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
         if (!isNaN(parsedGpa)) gpa = parsedGpa;
       }
 
+      const courseCode = String(
+        normalizedRow['course_code'] ||
+          normalizedRow['coursecode'] ||
+          normalizedRow['code'] ||
+          ''
+      ).trim();
+      const courseName = String(
+        normalizedRow['course_name'] ||
+          normalizedRow['coursename'] ||
+          normalizedRow['course'] ||
+          ''
+      ).trim();
+
       const rawRow: CreateStudentInput = {
         first_name: firstName,
         middle_name: middleName,
         last_name: lastName,
         email: email,
         student_number: studentNumber,
+        course_code: courseCode || null,
+        course_name: courseName || null,
         school_year: schoolYear,
         gpa: gpa,
         school_course_id: null,
       };
+
+      if (!courseCode && !courseName) {
+        rows.push({
+          rowNumber: idx + 1,
+          data: rawRow,
+          isValid: false,
+          error: 'Course information (course_code or course_name) is required',
+        });
+        return;
+      }
 
       const val = createStudentSchema.safeParse(rawRow);
       if (val.success) {
@@ -248,30 +254,22 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                 Download Formatted Template
               </div>
               <p className="text-xs text-muted-foreground">
-                Headers: student_number, first_name, middle_name, last_name, email, school_year, gpa
+                Headers: student_number, first_name, middle_name, last_name, email, course_code, course_name, school_year, gpa
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => downloadTemplate('csv')}
-                className="text-xs h-8 bg-background border-border"
-              >
-                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5 text-emerald-500" />
-                CSV (.csv)
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => downloadTemplate('xlsx')}
-                className="text-xs h-8 bg-background border-border"
-              >
-                <FileSpreadsheet className="mr-1.5 h-3.5 w-3.5 text-blue-500" />
-                Excel (.xlsx)
-              </Button>
+            <div className="w-full sm:w-[190px]">
+              <SearchableSelect
+                options={TEMPLATE_OPTIONS}
+                value=""
+                onValueChange={(val) => {
+                  if (val === 'csv' || val === 'xlsx') {
+                    downloadTemplate(val);
+                  }
+                }}
+                placeholder="Download Template..."
+                searchPlaceholder="Search format..."
+                triggerClassName="h-8 text-xs bg-background border-border"
+              />
             </div>
           </div>
 
@@ -309,6 +307,7 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                       <th className="p-2">Row</th>
                       <th className="p-2">Name</th>
                       <th className="p-2">Email</th>
+                      <th className="p-2">Course</th>
                       <th className="p-2">Status</th>
                     </tr>
                   </thead>
@@ -320,6 +319,9 @@ export const BulkUploadModal: React.FC<BulkUploadModalProps> = ({
                           {r.data.first_name} {r.data.last_name}
                         </td>
                         <td className="p-2 text-muted-foreground">{r.data.email}</td>
+                        <td className="p-2 text-muted-foreground">
+                          {r.data.course_code || r.data.course_name || '—'}
+                        </td>
                         <td className="p-2">
                           {r.isValid ? (
                             <span className="px-2 py-0.5 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 rounded-full font-medium">

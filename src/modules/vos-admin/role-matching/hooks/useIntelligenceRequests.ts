@@ -3,6 +3,7 @@
 // src/modules/vos-admin/role-matching/hooks/useIntelligenceRequests.ts
 
 import { useState, useCallback, useEffect } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   IntelligenceRequest,
   IntelligenceRequestStatus,
@@ -13,30 +14,35 @@ import {
   fetchIntelligenceRequests,
   reviewIntelligenceRequest,
 } from "../services/roleMatchingService";
+import { toast } from "sonner";
 
-export function useIntelligenceRequests(initialStatus?: IntelligenceRequestStatus) {
+export function useIntelligenceRequests(status?: IntelligenceRequestStatus) {
   const [requests, setRequests] = useState<IntelligenceRequest[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [activeStatus, setActiveStatus] = useState<IntelligenceRequestStatus | undefined>(
-    initialStatus
-  );
+
+  const abortRead = useRequestAbort();
 
   const loadRequests = useCallback(
-    async (status?: IntelligenceRequestStatus) => {
+    async (requestStatus?: IntelligenceRequestStatus) => {
       setLoading(true);
-      setError("");
+      // Switching tabs starts a new read; this one must then stay out of state,
+      // or a slow queue for the previous tab lands on top of the tab now shown
+      // and approveRequest/rejectRequest are aimed at the wrong suggestions.
+      const signal = abortRead();
       try {
-        const data = await fetchIntelligenceRequests(status);
+        const data = await fetchIntelligenceRequests(requestStatus);
+        if (signal.aborted) return;
         setRequests(data);
-        setActiveStatus(status);
       } catch (err: unknown) {
-        setError((err as Error).message || "Failed to load intelligence requests.");
+        if (signal.aborted) return;
+        toast.error((err as Error).message || "Failed to load intelligence requests.");
       } finally {
-        setLoading(false);
+        if (!signal.aborted) {
+          setLoading(false);
+        }
       }
     },
-    []
+    [abortRead]
   );
 
   const approveRequest = useCallback(
@@ -45,7 +51,11 @@ export function useIntelligenceRequests(initialStatus?: IntelligenceRequestStatu
       payload: Omit<ReviewRequestPayload, "action">
     ): Promise<boolean> => {
       try {
-        await reviewIntelligenceRequest(suggestionId, "APPROVE" as IntelligenceRequestAction, payload);
+        const warnings = await reviewIntelligenceRequest(
+          suggestionId,
+          "APPROVE" as IntelligenceRequestAction,
+          payload
+        );
         // Update local state — mark as APPROVED with resolution type
         setRequests((prev) =>
           prev.map((r) =>
@@ -60,9 +70,10 @@ export function useIntelligenceRequests(initialStatus?: IntelligenceRequestStatu
               : r
           )
         );
+        warnings.forEach((warning) => toast.warning(warning));
         return true;
       } catch (err: unknown) {
-        setError((err as Error).message || "Failed to approve request.");
+        toast.error((err as Error).message || "Failed to approve request.");
         return false;
       }
     },
@@ -91,7 +102,7 @@ export function useIntelligenceRequests(initialStatus?: IntelligenceRequestStatu
         );
         return true;
       } catch (err: unknown) {
-        setError((err as Error).message || "Failed to reject request.");
+        toast.error((err as Error).message || "Failed to reject request.");
         return false;
       }
     },
@@ -99,21 +110,15 @@ export function useIntelligenceRequests(initialStatus?: IntelligenceRequestStatu
   );
 
   useEffect(() => {
-    let isMounted = true;
-    void (async () => {
-      await loadRequests(activeStatus);
-      if (!isMounted) return;
-    })();
-    return () => {
-      isMounted = false;
-    };
-  }, [loadRequests, activeStatus]);
+    // The caller owns the tab, so `status` is the only trigger here. Mirroring
+    // it into hook state as well used to re-run this effect after every load.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadRequests(status);
+  }, [loadRequests, status]);
 
   return {
     requests,
     loading,
-    error,
-    activeStatus,
     loadRequests,
     approveRequest,
     rejectRequest,

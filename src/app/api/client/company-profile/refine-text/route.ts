@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { callGeminiMonitored } from "@/lib/gemini/geminiMonitoring";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -9,15 +10,15 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   try {
     const session = await authenticateRequest(req);
-    if (!session && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (!session) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
 
-    if (session && !isClientSession(session) && process.env.NEXT_PUBLIC_AUTH_DISABLED !== "true") {
+    if (session && !isClientSession(session)) {
       return NextResponse.json({ error: "Forbidden: employer access required." }, { status: 403 });
     }
 
-    const userId = session?.userId ? Number(session.userId) : 1;
+    const userId = Number(session.userId);
 
     const body = await req.json().catch(() => ({}));
     const text = (body.text || "").trim();
@@ -67,6 +68,7 @@ Your task is to refine or generate the ${fieldLabel} for "${companyName}".
 2. Strict Grounding: DO NOT invent regulatory facts or ungrounded employee perks (e.g. free housing, unlimited leave) unless already in the text.
 3. Plain text output only. Do not output markdown fences or code blocks.
 4. Output should be ready to paste directly into a profile form.
+${fieldType === "company_tags" ? "5. CRITICAL: For company_tags, output only 5 to 8 concise, comma-separated keywords/skills. Total length MUST be strictly under 200 characters. Never exceed 200 characters." : ""}
 
 ==================== INSTRUCTION ====================
 ${instructionDetails}
@@ -97,13 +99,23 @@ ${text || "(Empty — generate from scratch)"}
       cleaned = cleaned.replace(/^```(?:text|markdown)?\n?/, "").replace(/\n?```$/, "");
     }
 
+    if (fieldType === "company_tags" && cleaned.length > 250) {
+      // Safely truncate at the last comma within 240 characters
+      const commaIdx = cleaned.lastIndexOf(",", 240);
+      if (commaIdx > 0) {
+        cleaned = cleaned.substring(0, commaIdx).trim();
+      } else {
+        cleaned = cleaned.substring(0, 240).trim();
+      }
+    }
+
     return NextResponse.json({
       success: true,
       refined_text: cleaned,
     });
   } catch (err: unknown) {
     return NextResponse.json(
-      { error: (err as Error).message || "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

@@ -2,6 +2,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   Dialog,
   DialogContent,
@@ -25,8 +26,7 @@ import {
   HeartHandshake,
   Gift,
   Tag,
-  Target,
-  Compass,
+ 
   RefreshCw,
   SlidersHorizontal,
 } from "lucide-react";
@@ -58,7 +58,7 @@ interface AIProfileAssistantModalProps {
 const GENERATION_STEPS = [
   "Analyzing company identity & existing notes",
   "Formulating compelling candidate-facing description",
-  "Synthesizing mission, vision & authentic culture pillars",
+  "Structuring culture pillars & working environment",
   "Structuring grounded perks & benefits summary",
   "Classifying industry & org type against taxonomy",
   "Extracting high-value search & matching tags",
@@ -75,12 +75,11 @@ export default function AIProfileAssistantModal({
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<AISuggestionsData | null>(null);
+  const abortGenerate = useRequestAbort();
 
-  // Field selection toggles (default all true)
+  // Field selection toggles (default all true, mission & vision omitted)
   const [selectedFields, setSelectedFields] = useState<Record<string, boolean>>({
     company_description: true,
-    company_mission: true,
-    company_vision: true,
     company_culture: true,
     company_benefits: true,
     company_tags: true,
@@ -112,38 +111,44 @@ export default function AIProfileAssistantModal({
     setError(null);
     setSuggestions(null);
 
+    // Two clicks can both start a read before the button state commits, so only
+    // the newest one may own the spinner and the panel — otherwise its proposals
+    // land under a client who is already ticking boxes against the first set.
+    const signal = abortGenerate();
     try {
       const res = await fetch("/api/client/company-profile/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           company_name: currentCompany.company_name,
           website: currentCompany.company_website,
           prompt: promptNotes.trim(),
           current_description: currentCompany.company_description,
-          current_mission: currentCompany.company_mission,
-          current_vision: currentCompany.company_vision,
           current_culture: currentCompany.company_culture,
           current_benefits: currentCompany.company_benefits,
         }),
       });
 
+      if (signal.aborted) return;
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.error || "Failed to generate AI profile suggestions.");
       }
 
       const json = await res.json();
+      if (signal.aborted) return;
       if (json.data) {
         setSuggestions(json.data);
       } else {
         throw new Error("Invalid response format from AI service.");
       }
     } catch (err: unknown) {
+      if (signal.aborted) return;
       console.error(err);
       setError(err instanceof Error ? err.message : "Failed to generate profile suggestions.");
     } finally {
-      setIsGenerating(false);
+      if (!signal.aborted) setIsGenerating(false);
     }
   };
 
@@ -158,12 +163,6 @@ export default function AIProfileAssistantModal({
 
     if (selectedFields.company_description && suggestions.company_description) {
       updates.company_description = suggestions.company_description;
-    }
-    if (selectedFields.company_mission && suggestions.company_mission) {
-      updates.company_mission = suggestions.company_mission;
-    }
-    if (selectedFields.company_vision && suggestions.company_vision) {
-      updates.company_vision = suggestions.company_vision;
     }
     if (selectedFields.company_culture && suggestions.company_culture) {
       updates.company_culture = suggestions.company_culture;
@@ -323,48 +322,7 @@ export default function AIProfileAssistantModal({
                   </div>
                 )}
 
-                {/* 2. Mission & Vision Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {suggestions.company_mission && (
-                    <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 space-y-2 bg-white dark:bg-zinc-900">
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 cursor-pointer select-none max-md:min-h-10 max-md:items-center">
-                          <Checkbox
-                            checked={selectedFields.company_mission}
-                            onCheckedChange={() => toggleField("company_mission")}
-                          />
-                          <span className="text-sm md:text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                            <Target className="h-3.5 w-3.5 text-blue-600" />
-                            Mission Statement
-                          </span>
-                        </label>
-                      </div>
-                      <p className="text-sm md:text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed pl-6">
-                        {suggestions.company_mission}
-                      </p>
-                    </div>
-                  )}
 
-                  {suggestions.company_vision && (
-                    <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 space-y-2 bg-white dark:bg-zinc-900">
-                      <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 cursor-pointer select-none max-md:min-h-10 max-md:items-center">
-                          <Checkbox
-                            checked={selectedFields.company_vision}
-                            onCheckedChange={() => toggleField("company_vision")}
-                          />
-                          <span className="text-sm md:text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-1.5">
-                            <Compass className="h-3.5 w-3.5 text-purple-600" />
-                            Vision Statement
-                          </span>
-                        </label>
-                      </div>
-                      <p className="text-sm md:text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed pl-6">
-                        {suggestions.company_vision}
-                      </p>
-                    </div>
-                  )}
-                </div>
 
                 {/* 3. Culture & Values */}
                 {suggestions.company_culture && (

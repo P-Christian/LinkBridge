@@ -2,10 +2,12 @@
 
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { CheckCircle2, Plus, Loader2, ShieldAlert, Star, Pencil, Trash2, Sparkles, Check } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import { useRoleSkills } from "../hooks/useRoleSkills";
 import { useStandardRoles } from "../hooks/useStandardRoles";
 import { RoleSkillMapping } from "../types";
@@ -14,13 +16,13 @@ import type { AiSuggestResult, AiSuggestedSkill } from "@/app/api/vos-admin/job-
 export function RoleSkillManager() {
   const { roles } = useStandardRoles();
   const [selectedRoleId, setSelectedRoleId] = useState<number | undefined>(undefined);
-  const { roleSkills, masterSkills, loading, error, addRoleSkill, editRoleSkill, removeRoleSkill } = useRoleSkills(selectedRoleId);
+  const { roleSkills, masterSkills, loading, addRoleSkill, editRoleSkill, removeRoleSkill } = useRoleSkills(selectedRoleId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingSkill, setEditingSkill] = useState<RoleSkillMapping | null>(null);
 
-  const [targetRoleId, setTargetRoleId] = useState<number>(1);
-  const [skillId, setSkillId] = useState<number>(1);
+  const [targetRoleId, setTargetRoleId] = useState<number>(0);
+  const [skillId, setSkillId] = useState<number>(0);
   const [weight, setWeight] = useState<number>(1.0);
   const [isRequired, setIsRequired] = useState(true);
   const [formError, setFormError] = useState("");
@@ -28,9 +30,10 @@ export function RoleSkillManager() {
 
   // AI Suggest state
   const [aiModalOpen, setAiModalOpen] = useState(false);
-  const [aiTargetRoleId, setAiTargetRoleId] = useState<number>(1);
+  const [aiTargetRoleId, setAiTargetRoleId] = useState<number>(0);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState("");
+  const abortAi = useRequestAbort();
   const [aiSkillSuggestions, setAiSkillSuggestions] = useState<AiSuggestedSkill[]>([]);
   const [aiCached, setAiCached] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
@@ -38,8 +41,8 @@ export function RoleSkillManager() {
 
   const openCreateModal = () => {
     setEditingSkill(null);
-    setTargetRoleId(roles[0]?.role_id || 1);
-    setSkillId(masterSkills[0]?.id || 1);
+    setTargetRoleId(roles[0]?.role_id ?? 0);
+    setSkillId(masterSkills[0]?.id ?? 0);
     setWeight(1.0);
     setIsRequired(true);
     setFormError("");
@@ -58,7 +61,11 @@ export function RoleSkillManager() {
 
   const handleSave = async () => {
     if (!targetRoleId || !skillId) {
-      setFormError("Standard Role and Skill selection are required.");
+      setFormError(
+        masterSkills.length === 0
+          ? "No master skills are loaded, so there is nothing to map. Reload this page once the skill list is readable."
+          : "Standard Role and Skill selection are required."
+      );
       return;
     }
 
@@ -96,39 +103,60 @@ export function RoleSkillManager() {
   };
 
   const handleAiSuggest = useCallback(async (overrideRoleId?: number) => {
-    const roleIdToUse = overrideRoleId ?? aiTargetRoleId ?? selectedRoleId ?? roles[0]?.role_id;
+    const roleIdToUse = overrideRoleId || selectedRoleId || roles[0]?.role_id;
     const targetRoleObj = roles.find((r) => r.role_id === roleIdToUse);
-    if (!targetRoleObj) return;
+    if (!targetRoleObj) {
+      setAiError("No standard role is available to generate for. Reload this page once the role list is readable.");
+      return;
+    }
     setAiLoading(true);
     setAiError("");
     setAiSkillSuggestions([]);
     setSelectedSkills(new Set());
+    // A generation is posted against whatever role is selected when Add is
+    // clicked, so only the read for the role still selected may fill the list.
+    const signal = abortAi();
     try {
       const res = await fetch("/api/vos-admin/job-roles/ai-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal,
         body: JSON.stringify({
           role_name: targetRoleObj.role_name,
           category_name: targetRoleObj.category_name ?? "",
         }),
       });
+      if (signal.aborted) return;
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || "AI suggestion failed.");
       }
       const data: AiSuggestResult = await res.json();
+      if (signal.aborted) return;
       setAiSkillSuggestions(data.skills);
       setAiCached(data.cached);
       setSelectedSkills(new Set(data.skills.map((s) => s.skill_name)));
     } catch (err: unknown) {
+      if (signal.aborted) return;
       setAiError((err as Error).message || "AI skill suggestion failed.");
     } finally {
-      setAiLoading(false);
+      if (!signal.aborted) setAiLoading(false);
     }
-  }, [aiTargetRoleId, selectedRoleId, roles]);
+  }, [selectedRoleId, roles, abortAi]);
+
+  /** Switching the target role invalidates anything generated for the old one. */
+  const changeAiTargetRole = useCallback((roleId: number) => {
+    abortAi();
+    setAiTargetRoleId(roleId);
+    setAiSkillSuggestions([]);
+    setSelectedSkills(new Set());
+    setAiCached(false);
+    setAiError("");
+  }, [abortAi]);
 
   const openAiModal = () => {
-    const defaultRole = selectedRoleId ?? roles[0]?.role_id ?? 1;
+    const defaultRole = selectedRoleId ?? roles[0]?.role_id ?? 0;
+    abortAi();
     setAiTargetRoleId(defaultRole);
     setAiSkillSuggestions([]);
     setSelectedSkills(new Set());
@@ -145,43 +173,60 @@ export function RoleSkillManager() {
     });
   };
 
+  // The loaded mappings belong to the role selected in the toolbar, so they only
+  // answer "already mapped?" for that role. Comparing another role's suggestions
+  // against them marked a skill as already existing because a different role had
+  // it, and the bulk add then silently skipped it.
+  const dedupeMatchesTarget = selectedRoleId === undefined || selectedRoleId === aiTargetRoleId;
+  const mappedNamesForTarget = useMemo(() => {
+    const target = aiTargetRoleId || selectedRoleId;
+    return new Set(
+      roleSkills
+        .filter((s) => s.role_id === target)
+        .map((s) => (s.skill_name || "").trim().toLowerCase())
+        .filter(Boolean)
+    );
+  }, [roleSkills, aiTargetRoleId, selectedRoleId]);
+
   const handleBulkAdd = async () => {
     const targetId = aiTargetRoleId || selectedRoleId;
-    if (!targetId || selectedSkills.size === 0) return;
+    if (!targetId) {
+      setAiError("Choose the role these skills belong to before adding them.");
+      return;
+    }
+    if (selectedSkills.size === 0) return;
     setBulkAdding(true);
     const toAdd = aiSkillSuggestions.filter((s) => selectedSkills.has(s.skill_name));
 
-    // Filter out skills that ALREADY exist in DB mapping to prevent duplicate POST requests & 400 errors
-    const newOnly = toAdd.filter((s) => {
-      const norm = s.skill_name.trim().toLowerCase();
-      const exists = roleSkills.some(
-        (ex) => (ex.skill_name && ex.skill_name.trim().toLowerCase() === norm)
-      );
-      if (exists) {
-        console.log(`[RoleSkillManager] ⏭️ Skipping "${s.skill_name}" — already mapped in DB.`);
-      }
-      return !exists;
-    });
+    const newOnly = dedupeMatchesTarget
+      ? toAdd.filter((s) => !mappedNamesForTarget.has(s.skill_name.trim().toLowerCase()))
+      : toAdd;
 
-    console.log(`[RoleSkillManager] 💾 Posting ${newOnly.length} new skill mappings to Database for role_id=${targetId}:`, newOnly);
-
+    const failed: string[] = [];
     for (const s of newOnly) {
-      // Find matching master skill ID if it exists, or fallback to first masterSkill
       const matchedMaster = masterSkills.find(
         (m) => m.skill_name.toLowerCase() === s.skill_name.toLowerCase()
       );
-      const targetSkillId = matchedMaster ? matchedMaster.id : (masterSkills[0]?.id || 1);
-
-      const created = await addRoleSkill({
+      // Unmatched suggestions used to fall back to masterSkills[0], so a
+      // generated "Kubernetes" was stored as whichever skill happened to be
+      // first — usually React. Sending the name lets the route match or create
+      // the master skill and refuse to guess when it cannot.
+      const ok = await addRoleSkill({
         role_id: targetId,
-        skill_id: targetSkillId,
+        ...(matchedMaster ? { skill_id: matchedMaster.id } : { skill_name: s.skill_name }),
         importance_weight: s.importance_weight,
         is_required: s.is_required,
       });
-      console.log(`[RoleSkillManager] ✅ DB Created role skill mapping "${s.skill_name}" (skill_id: ${targetSkillId}) → result:`, created);
+      if (!ok) failed.push(s.skill_name);
     }
 
     setBulkAdding(false);
+    abortAi();
+    if (failed.length > 0) {
+      toast.error(
+        `${failed.length} of ${newOnly.length} suggested skill(s) were not mapped: ${failed.join(", ")}.`
+      );
+    }
     setAiSkillSuggestions([]);
     setSelectedSkills(new Set());
     setAiModalOpen(false);
@@ -224,13 +269,6 @@ export function RoleSkillManager() {
           </Button>
         </div>
       </div>
-
-      {error && (
-        <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
 
       {/* Table */}
       <div className="bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden shadow-xs">
@@ -333,13 +371,11 @@ export function RoleSkillManager() {
                     <option key={m.id} value={m.id}>{m.skill_name}</option>
                   ))
                 ) : (
-                  <>
-                    <option value={1}>React</option>
-                    <option value={2}>Next.js</option>
-                    <option value={3}>TypeScript</option>
-                    <option value={4}>Tailwind CSS</option>
-                    <option value={5}>Node.js</option>
-                  </>
+                  // A hard-coded React/Node.js list used to fill this picker when
+                  // the master-skill read failed, so the admin could map a real
+                  // role onto ids 1-5 belonging to whatever rows those happened
+                  // to be.
+                  <option value={0}>No skills available to map</option>
                 )}
               </select>
             </div>
@@ -396,7 +432,7 @@ export function RoleSkillManager() {
               <div className="flex gap-2">
                 <select
                   value={aiTargetRoleId}
-                  onChange={(e) => setAiTargetRoleId(Number(e.target.value))}
+                  onChange={(e) => changeAiTargetRole(Number(e.target.value))}
                   className="flex-1 h-10 text-xs rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 font-semibold text-zinc-900 dark:text-zinc-100"
                 >
                   {roles.map((r) => (
@@ -462,9 +498,7 @@ export function RoleSkillManager() {
                 <div className="flex flex-wrap gap-2.5 max-h-72 overflow-y-auto p-1.5 border border-zinc-100 dark:border-zinc-800 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/50">
                   {aiSkillSuggestions.map((s) => {
                     const norm = s.skill_name.trim().toLowerCase();
-                    const isInDb = roleSkills.some(
-                      (ex) => (ex.skill_name && ex.skill_name.trim().toLowerCase() === norm)
-                    );
+                    const isInDb = dedupeMatchesTarget && mappedNamesForTarget.has(norm);
                     const isSelected = selectedSkills.has(s.skill_name);
 
                     return (

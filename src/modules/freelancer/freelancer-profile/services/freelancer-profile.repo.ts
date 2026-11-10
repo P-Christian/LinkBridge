@@ -609,7 +609,14 @@ export async function addCertificationToDirectus(payload: any) {
     });
 
     if (!res.ok) {
-        throw new Error(`Failed to add certification: HTTP ${res.status}`);
+        let detail = `HTTP ${res.status}`;
+        try {
+            const errJson = await res.json();
+            detail = errJson?.errors?.[0]?.message || detail;
+        } catch {
+            try { detail = await res.text(); } catch {}
+        }
+        throw new Error(`Failed to add certification: ${detail}`);
     }
 
     const json = await res.json();
@@ -637,7 +644,14 @@ export async function updateCertificationInDirectus(id: number, payload: any) {
     });
 
     if (!res.ok) {
-        throw new Error(`Failed to update certification: HTTP ${res.status}`);
+        let detail = `HTTP ${res.status}`;
+        try {
+            const errJson = await res.json();
+            detail = errJson?.errors?.[0]?.message || detail;
+        } catch {
+            try { detail = await res.text(); } catch {}
+        }
+        throw new Error(`Failed to update certification: ${detail}`);
     }
 
     const json = await res.json();

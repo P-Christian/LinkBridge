@@ -3,6 +3,7 @@
 export type VerificationStatus =
   | "DRAFT"
   | "PENDING_VERIFICATION"
+  | "CORRECTION_REQUIRED"
   | "VERIFIED"
   | "REJECTED"
   | "INACTIVE"
@@ -41,6 +42,7 @@ export interface CompanyProfile {
   company_youtube?: string | null;
   company_tags?: string | null;
   verification_status: VerificationStatus;
+  verification_workflow_status?: string | null;
   rejection_reason?: string | null;
   public_rejection_reason?: string | null;
   verification_remarks?: string | null;

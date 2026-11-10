@@ -1,6 +1,7 @@
 // src/app/api/freelancer/notifications/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
+import { safeErrorMessage } from "@/lib/api-error";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,7 +48,12 @@ export async function GET(req: NextRequest) {
       );
     } catch (fetchErr: unknown) {
       console.warn("[Freelancer notifications] Upstream socket/network error:", fetchErr instanceof Error ? fetchErr.message : fetchErr);
-      return NextResponse.json({ notifications: [], unreadCount: 0 }, { status: 200 });
+      // An unreachable Directus is not "no notifications and nothing unread";
+      // the bell keeps its last count rather than showing an empty list.
+      return NextResponse.json(
+        { error: "Notifications could not be loaded right now." },
+        { status: 502 }
+      );
     }
 
     if (!res.ok) {
@@ -78,7 +84,7 @@ export async function GET(req: NextRequest) {
   } catch (err: unknown) {
     console.error("GET /api/freelancer/notifications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }
@@ -152,7 +158,7 @@ export async function PATCH(req: NextRequest) {
   } catch (err: unknown) {
     console.error("PATCH /api/freelancer/notifications error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: safeErrorMessage(err, "Internal server error") },
       { status: 500 }
     );
   }

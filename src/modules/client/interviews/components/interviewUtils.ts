@@ -9,6 +9,23 @@ export function isActiveInterview(interview: Interview): boolean {
   return (ACTIVE_STATUSES as readonly string[]).includes(interview.interview_status);
 }
 
+/** Returns true if an active interview has passed its scheduled end time. */
+export function isInterviewConcluded(
+  status?: string | null,
+  scheduledAt?: string | null,
+  durationMinutes: number = 60
+): boolean {
+  if (!status) return false;
+  const upper = status.toUpperCase();
+  if (!ACTIVE_STATUSES.includes(upper as (typeof ACTIVE_STATUSES)[number])) {
+    return false;
+  }
+  const d = parseScheduled(scheduledAt);
+  if (!d) return false;
+  const end = d.getTime() + durationMinutes * 60_000;
+  return end <= Date.now();
+}
+
 /** scheduled_at may arrive as "YYYY-MM-DD HH:mm:ss"; normalise so every browser parses it. */
 export function parseScheduled(value?: string | null): Date | null {
   if (!value) return null;

@@ -76,9 +76,10 @@ const STATUSES = [
 
 const ACTOR_TYPES = [
   { value: "ALL", label: "All Actors" },
-  { value: "USER", label: "User" },
   { value: "ADMIN", label: "Admin" },
-  { value: "SERVICE", label: "Service" },
+  { value: "SCH_ADMIN", label: "School Admin" },
+  { value: "CLIENT", label: "Client" },
+  { value: "FREELANCER", label: "Freelancer" },
   { value: "SYSTEM", label: "System" },
 ];
 
@@ -163,7 +164,7 @@ export function AuditFilters({
       </div>
 
       {/* Bottom Row: Filter Selectors & Date Range */}
-      <div className="flex flex-wrap items-center justify-end gap-2 pt-2 border-t border-border/40">
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border/40">
         {/* Category */}
         <SearchableSelect
           value={filters.event_category || "ALL"}

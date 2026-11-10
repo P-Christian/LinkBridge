@@ -2,12 +2,13 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
-import { X, Loader2, Search } from "lucide-react";
+import { X, Loader2, Search, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useFreelancerProfileContext } from "../providers/FreelancerProfileProvider";
-import { searchMasterSkillsAction } from "../services/freelancer-profile.actions";
+import { searchMasterSkillsAction, addCustomMasterSkillAction } from "../services/freelancer-profile.actions";
 import { VsUserSkillMap } from "../types/freelancer-profile.types";
+import { toast } from "sonner";
 
 interface CoreSkillsModalProps {
     isOpen: boolean;
@@ -21,6 +22,7 @@ export function CoreSkillsModal({ isOpen, onClose, userId, initialSkills }: Core
     const [searchQuery, setSearchQuery] = useState("");
     const [searchResults, setSearchResults] = useState<{ id: number; skill_name: string }[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+    const [isCreatingCustom, setIsCreatingCustom] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
@@ -79,6 +81,29 @@ export function CoreSkillsModal({ isOpen, onClose, userId, initialSkills }: Core
         setSearchResults([]);
     };
 
+    const handleCreateCustomSkill = async () => {
+        const trimmed = searchQuery.trim();
+        if (!trimmed) return;
+
+        setIsCreatingCustom(true);
+        setError(null);
+        try {
+            const skill = await addCustomMasterSkillAction(trimmed);
+            if (!selectedSkills.some(s => s.id === skill.id)) {
+                setSelectedSkills(prev => [...prev, skill]);
+            }
+            setSearchQuery("");
+            setSearchResults([]);
+            toast.success(`Added "${skill.skill_name}" as a skill.`);
+        } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : "Failed to create custom skill.";
+            setError(msg);
+            toast.error(msg);
+        } finally {
+            setIsCreatingCustom(false);
+        }
+    };
+
     const handleRemoveSkill = (skillId: number) => {
         setSelectedSkills(prev => prev.filter(s => s.id !== skillId));
     };
@@ -103,12 +128,16 @@ export function CoreSkillsModal({ isOpen, onClose, userId, initialSkills }: Core
         }
     };
 
+    const hasExactMatch = searchResults.some(
+        s => s.skill_name.toLowerCase() === searchQuery.trim().toLowerCase()
+    );
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
             <div className="w-full max-w-2xl bg-background rounded-xl shadow-lg flex flex-col max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between p-6 border-b shrink-0">
                     <h2 className="text-xl font-semibold text-foreground">Manage Core Skills</h2>
-                    <Button variant="ghost" size="icon" onClick={onClose} disabled={isSaving} className="max-md:size-11">
+                    <Button variant="ghost" size="icon" onClick={onClose} disabled={isSaving || isCreatingCustom} className="max-md:size-11">
                         <X className="h-5 w-5" />
                     </Button>
                 </div>
@@ -130,20 +159,21 @@ export function CoreSkillsModal({ isOpen, onClose, userId, initialSkills }: Core
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="w-full pl-9 pr-4 py-2 rounded-md border border-input bg-transparent text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                                placeholder="Type at least 2 characters to search..."
-                                disabled={isSaving}
+                                placeholder="Type to search or add custom skill..."
+                                disabled={isSaving || isCreatingCustom}
                             />
-                            {isSearching && (
+                            {(isSearching || isCreatingCustom) && (
                                 <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin text-muted-foreground" />
                             )}
                         </div>
 
                         {/* Search Results Dropdown */}
-                        {searchResults.length > 0 && searchQuery.length >= 2 && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-popover text-popover-foreground border rounded-md shadow-md z-10 max-h-60 overflow-y-auto">
+                        {searchQuery.trim().length >= 2 && !isSearching && (
+                            <div className="absolute top-full left-0 right-0 mt-1 bg-popover text-popover-foreground border rounded-md shadow-md z-10 max-h-60 overflow-y-auto divide-y divide-border">
                                 {searchResults.map((skill) => (
                                     <button
                                         key={skill.id}
+                                        type="button"
                                         className="w-full text-left px-4 py-2 text-sm hover:bg-muted focus:bg-muted transition-colors disabled:opacity-50 flex items-center justify-between"
                                         onClick={() => handleSelectSkill(skill)}
                                         disabled={selectedSkills.some(s => s.id === skill.id)}
@@ -154,11 +184,18 @@ export function CoreSkillsModal({ isOpen, onClose, userId, initialSkills }: Core
                                         )}
                                     </button>
                                 ))}
-                            </div>
-                        )}
-                        {searchResults.length === 0 && searchQuery.length >= 2 && !isSearching && (
-                            <div className="absolute top-full left-0 right-0 mt-1 bg-popover text-popover-foreground border rounded-md shadow-md z-10 px-4 py-3 text-sm text-center text-muted-foreground">
-                                No skills found.
+
+                                {!hasExactMatch && (
+                                    <button
+                                        type="button"
+                                        className="w-full text-left px-4 py-2.5 text-sm text-primary hover:bg-primary/5 font-medium flex items-center justify-between"
+                                        onClick={handleCreateCustomSkill}
+                                        disabled={isCreatingCustom}
+                                    >
+                                        <span>+ Add &quot;{searchQuery.trim()}&quot; as a custom skill</span>
+                                        <Plus className="h-4 w-4" />
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>

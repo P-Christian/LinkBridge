@@ -4,21 +4,61 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
 import "react-pdf/dist/Page/TextLayer.css";
 import "react-pdf/dist/Page/AnnotationLayer.css";
-import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, AlertCircle, FileText } from "lucide-react";
+import { Loader2, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, AlertCircle, FileText, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
+import { cn } from "@/lib/utils";
 
 // Configure pdfjs worker to use local public worker (same-origin, strictly compliant with CSP and no external CDN dependency)
 if (typeof window !== "undefined") {
   pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 }
 
+// PRIV-010: previews are rendered from attacker-controllable uploads, so the
+// bytes pulled into the browser are capped before any parser sees them.
+const MAX_PREVIEW_BYTES = 10 * 1024 * 1024; // 10 MB
+
+class DocumentTooLargeError extends Error {}
+
+function tooLargeError(): DocumentTooLargeError {
+  return new DocumentTooLargeError(
+    `File is larger than ${Math.floor(MAX_PREVIEW_BYTES / (1024 * 1024))} MB and cannot be previewed. Please download it instead.`
+  );
+}
+
+async function fetchBoundedDocument(url: string): Promise<ArrayBuffer> {
+  const res = await fetch(url, { credentials: "same-origin" });
+  if (!res.ok) {
+    throw new Error(`Failed to load document (${res.status})`);
+  }
+
+  const declared = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_PREVIEW_BYTES) {
+    throw tooLargeError();
+  }
+
+  const buffer = await res.arrayBuffer();
+  // content-length may be missing or wrong, so also check the bytes read.
+  if (buffer.byteLength > MAX_PREVIEW_BYTES) {
+    throw tooLargeError();
+  }
+
+  return buffer;
+}
+
 interface DocumentViewerProps {
   fileUrl: string;
   fileName: string;
+  hideDownloadButton?: boolean;
+  hideFileName?: boolean;
 }
 
-export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
+export function DocumentViewer({
+  fileUrl,
+  fileName,
+  hideDownloadButton = false,
+  hideFileName = false,
+}: DocumentViewerProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +83,44 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
     proxiedUrl = `/api/assets/${assetsMatch[1]}`;
   }
 
-  // General Zoom state (for DOCX & Images)
+  // General Zoom & Pan & Rotation state (for DOCX & Images)
   const [zoom, setZoom] = useState(1.0);
+  const [rotation, setRotation] = useState(0);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const dragStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setIsDragging(true);
+    dragStartRef.current = { x: e.clientX - pan.x, y: e.clientY - pan.y };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDragging) return;
+    setPan({
+      x: e.clientX - dragStartRef.current.x,
+      y: e.clientY - dragStartRef.current.y,
+    });
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDragging) {
+      setIsDragging(false);
+      try {
+        (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+    }
+  };
+
+  const handleReset = () => {
+    setZoom(1.0);
+    setRotation(0);
+    setPan({ x: 0, y: 0 });
+  };
 
   // Effect to load PDF authenticated buffer
   useEffect(() => {
@@ -59,13 +135,7 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
       }
     });
 
-    fetch(proxiedUrl, { credentials: "same-origin" })
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(`Failed to load document (${res.status})`);
-        }
-        return res.arrayBuffer();
-      })
+    fetchBoundedDocument(proxiedUrl)
       .then((buffer) => {
         if (!isMounted) return;
         setPdfData(buffer);
@@ -73,7 +143,11 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
       .catch((err) => {
         console.error("PDF Preview fetch error:", err);
         if (isMounted) {
-          setError("Failed to load PDF document.");
+          setError(
+            err instanceof DocumentTooLargeError
+              ? err.message
+              : "Failed to load PDF document."
+          );
           setLoading(false);
         }
       });
@@ -91,11 +165,7 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
     setLoading(true);
     setError(null);
 
-    fetch(proxiedUrl, { credentials: "same-origin" })
-      .then((res) => {
-        if (!res.ok) throw new Error(`Failed to load document (${res.status})`);
-        return res.arrayBuffer();
-      })
+    fetchBoundedDocument(proxiedUrl)
       .then(async (arrayBuffer) => {
         if (!isMounted || !docxContainerRef.current) return;
         docxContainerRef.current.innerHTML = "";
@@ -110,9 +180,13 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
             ignoreWidth: false,
             ignoreHeight: false,
             ignoreLastRenderedPageBreak: false,
-            renderHeaders: true,
-            renderFooters: true,
-            renderFootnotes: true,
+            // PRIV-010: header/footer/footnote parts of an untrusted .docx are
+            // rendered into extra DOM sections (and the library injects style
+            // containers for them), so they stay off; only the body renders.
+            renderHeaders: false,
+            renderFooters: false,
+            renderFootnotes: false,
+            renderEndnotes: false,
             useBase64URL: true,
             experimental: false,
           }
@@ -122,7 +196,11 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
       .catch((err) => {
         console.error("DOCX Preview error:", err);
         if (isMounted) {
-          setError("Failed to render DOCX file. You can download the file to view it.");
+          setError(
+            err instanceof DocumentTooLargeError
+              ? err.message
+              : "Failed to render DOCX file. You can download the file to view it."
+          );
           setLoading(false);
         }
       });
@@ -175,22 +253,46 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setZoom(1.0)}
+            title="Rotate 90°"
+            onClick={() => setRotation((r) => r + 90)}
+            className="h-7 w-7 p-0 text-zinc-300 hover:text-white"
+          >
+            <RotateCw className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={handleReset}
             className="h-7 px-2 text-[11px] font-semibold text-zinc-300 hover:text-white border border-zinc-700"
           >
             Reset
           </Button>
         </div>
-        <div className="flex-1 overflow-auto p-4 flex items-center justify-center">
-          <Image
-            src={proxiedUrl}
-            alt={fileName}
-            width={1200}
-            height={800}
-            unoptimized
-            style={{ transform: `scale(${zoom})`, transformOrigin: "center center" }}
-            className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-md transition-transform duration-150 ease-out"
-          />
+        <div
+          className="flex-1 overflow-hidden p-4 flex items-center justify-center select-none cursor-grab active:cursor-grabbing"
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
+          <div
+            style={{
+              transform: `translate(${pan.x}px, ${pan.y}px) rotate(${rotation}deg) scale(${zoom})`,
+              transformOrigin: "center center",
+              transition: isDragging ? "none" : "transform 150ms ease-out",
+            }}
+            className="flex items-center justify-center max-w-full max-h-full"
+          >
+            <Image
+              src={proxiedUrl}
+              alt={fileName}
+              width={1200}
+              height={800}
+              unoptimized
+              draggable={false}
+              className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg shadow-md select-none pointer-events-none"
+            />
+          </div>
         </div>
       </div>
     );
@@ -302,11 +404,18 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
     return (
       <div className="w-full h-full flex flex-col bg-zinc-100 dark:bg-zinc-950 overflow-hidden relative">
         {/* DOCX Zoom Controls Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2 bg-zinc-800 text-zinc-200 border-b border-zinc-700 text-xs shrink-0">
-          <div className="flex items-center gap-2 text-zinc-400">
-            <FileText className="h-4 w-4 text-emerald-400" />
-            <span className="font-semibold text-zinc-200 truncate max-w-xs">{fileName}</span>
-          </div>
+        <div
+          className={cn(
+            "flex items-center px-4 py-2 bg-zinc-800 text-zinc-200 border-b border-zinc-700 text-xs shrink-0",
+            hideFileName ? "justify-end" : "justify-between"
+          )}
+        >
+          {!hideFileName && (
+            <div className="flex items-center gap-2 text-zinc-400">
+              <FileText className="h-4 w-4 text-emerald-400" />
+              <span className="font-semibold text-zinc-200 truncate max-w-xs">{fileName}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <Button
               variant="ghost"
@@ -380,13 +489,15 @@ export function DocumentViewer({ fileUrl, fileName }: DocumentViewerProps) {
         <h4 className="font-semibold text-sm text-foreground">{fileName}</h4>
         <p className="text-xs text-muted-foreground">Direct preview is not available for this file type.</p>
       </div>
-      <a
-        href={proxiedUrl}
-        download={fileName}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-      >
-        <Download className="h-4 w-4" /> Download File
-      </a>
+      {!hideDownloadButton && (
+        <a
+          href={proxiedUrl}
+          download={fileName}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
+        >
+          <Download className="h-4 w-4" /> Download File
+        </a>
+      )}
     </div>
   );
 }

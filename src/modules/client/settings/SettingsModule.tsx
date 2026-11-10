@@ -6,58 +6,45 @@ import React, { useEffect, useState } from "react";
 import { useSettings } from "./hooks/useSettings";
 import AccountSettings from "./components/AccountSettings";
 import SecuritySettings from "./components/SecuritySettings";
-import TeamSettings from "./components/TeamSettings";
 import NotificationSettings from "./components/NotificationSettings";
 // import IntegrationSettings from "./components/IntegrationSettings";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   User,
   Shield,
-  Users,
   Bell,
-  AlertCircle,
-  CheckCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { motion } from "framer-motion";
 
-type SettingsTab = "account" | "security" | "team" | "notifications";
+export type SettingsTab = "account" | "security" | "notifications";
 
 const TABS: { id: SettingsTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "account", label: "Account Profile", icon: User },
   { id: "security", label: "Security & Auth", icon: Shield },
-  { id: "team", label: "Team & Roles", icon: Users },
   { id: "notifications", label: "Notifications", icon: Bell },
   // { id: "integrations", label: "Integrations", icon: Blocks },
 ];
 
-export default function SettingsModule() {
+export default function SettingsModule({
+  initialTab = "account",
+}: {
+  initialTab?: SettingsTab;
+}) {
   const {
     user,
-    team,
     loading,
-    teamLoading,
     saving,
-    error,
-    successMessage,
     loadProfile,
     saveProfile,
     changePassword,
-    loadTeam,
-    modifyTeamRole,
-    clearMessages,
   } = useSettings();
 
-  const [activeTab, setActiveTab] = useState<SettingsTab>("account");
+  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
-
-  const handleTabChange = (tab: SettingsTab) => {
-    clearMessages();
-    setActiveTab(tab);
-  };
 
   return (
     <div className="space-y-4 md:space-y-6 client-page-transition">
@@ -71,47 +58,29 @@ export default function SettingsModule() {
         }
       `}</style>
 
-      {/* Header */}
-      {/* <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-br from-indigo-950 via-zinc-900 to-neutral-950 dark:from-black dark:via-zinc-950 dark:to-zinc-900 text-white p-6 sm:p-8 rounded-3xl border border-white/10 shadow-xl relative overflow-hidden">
-        <div className="absolute right-0 top-0 h-40 w-40 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
-        <div className="flex items-center gap-4 relative z-10">
-          <div className="p-3 bg-white/10 backdrop-blur rounded-2xl border border-white/20">
-            <Settings2 className="h-7 w-7" />
-          </div>
-          <div>
-            <h1 className="text-xl font-bold tracking-tight">Employer Settings</h1>
-            <p className="text-sm text-zinc-300 mt-1">
-              Manage account preferences, password security, team roles, and platform integrations.
-            </p>
-          </div>
+      {/* ── Page Header & Breadcrumb ─────────────────────────────────── */}
+      <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
+            Client Settings
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage your account preferences, password security, and notification preferences.
+          </p>
         </div>
-      </div> */}
-
-      {/* Feedback Messages */}
-      {error && (
-        <div className="flex items-center gap-3 p-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200/50 rounded-xl text-rose-700 dark:text-rose-300 text-sm">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-        </div>
-      )}
-      {successMessage && (
-        <div className="flex items-center gap-3 p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 rounded-xl text-emerald-700 dark:text-emerald-300 text-sm">
-          <CheckCircle className="h-4 w-4 shrink-0" />
-          {successMessage}
-        </div>
-      )}
+      </div>
 
       {/* Tabs & Module Body */}
       <Card className="shadow-sm border bg-card rounded-xl !py-0 gap-0 overflow-hidden">
         <CardHeader className="border-b gap-0 border-zinc-100 dark:border-zinc-800 px-6 max-md:px-1 !py-0 bg-zinc-50/50 dark:bg-zinc-900/10">
-          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-md:grid max-md:grid-cols-4 max-md:items-stretch max-md:gap-0.5">
+          <div className="flex items-center gap-2 overflow-x-auto no-scrollbar max-md:grid max-md:grid-cols-3 max-md:items-stretch max-md:gap-0.5">
             {TABS.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => handleTabChange(tab.id)}
+                  onClick={() => setActiveTab(tab.id)}
                   className={cn(
                     "relative flex items-center gap-2 px-4 py-3.5 text-sm font-medium transition-colors whitespace-nowrap max-md:flex-col max-md:justify-center max-md:gap-1 max-md:px-1 max-md:py-3 max-md:text-xs max-md:tracking-tight max-md:text-center max-md:leading-tight max-md:whitespace-normal max-md:break-words",
                     isActive
@@ -147,15 +116,6 @@ export default function SettingsModule() {
               )}
               {activeTab === "security" && (
                 <SecuritySettings saving={saving} onChangePassword={changePassword} />
-              )}
-              {activeTab === "team" && (
-                <TeamSettings
-                  team={team}
-                  loading={teamLoading}
-                  saving={saving}
-                  onLoadTeam={loadTeam}
-                  onModifyRole={modifyTeamRole}
-                />
               )}
               {activeTab === "notifications" && <NotificationSettings />}
               {/* {activeTab === "integrations" && <IntegrationSettings />} */}

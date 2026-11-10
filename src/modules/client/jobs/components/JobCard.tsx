@@ -26,6 +26,27 @@ import {
 } from "lucide-react";
 import JobStatusBadge from "./JobStatusBadge";
 import { JobPosting, JobStatus, JOB_TYPE_LABELS } from "../types";
+import { pluralizeApplicants } from "../job-helpers";
+import { cn } from "@/lib/utils";
+
+// A disabled control must not stay wrapped in a link, otherwise clicking it
+// still navigates to an empty applicants page.
+function ApplicantsGate({
+  enabled,
+  href,
+  children,
+}: {
+  enabled: boolean;
+  href: string;
+  children: React.ReactNode;
+}) {
+  if (!enabled) return <>{children}</>;
+  return (
+    <Link href={href} onClick={(e) => e.stopPropagation()}>
+      {children}
+    </Link>
+  );
+}
 
 interface JobCardProps {
   job: JobPosting;
@@ -104,6 +125,11 @@ export default function JobCard({
   const arrangement = (descData.work_arrangement as string) || (job.work_arrangement as string) || "Remote";
   const salaryType = (reqsData.salary_type as string) || (job.salary_type as string) || "Salary Range";
 
+  const totalApplicants = job.applicants_count ?? 0;
+  const activeApplicants = job.active_applicants_count ?? totalApplicants;
+  const hasApplicants = totalApplicants > 0;
+  const applicantsHref = `/linkbridge/client/applicants?job_id=${job.job_id}`;
+
   return (
     <motion.div
       layout="position"
@@ -174,9 +200,12 @@ export default function JobCard({
                         {JOB_TYPE_LABELS[job.job_type] ?? job.job_type}
                       </span>
                       <span className="h-3 w-px bg-border hidden sm:block" />
-                      <span className="flex items-center gap-1.5">
+                      <span
+                        className="flex items-center gap-1.5"
+                        title={`${totalApplicants} total including rejected and hired · ${activeApplicants} still in the pipeline`}
+                      >
                         <Users className="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
-                        {job.applicants_count ?? 0} applicant{(job.applicants_count ?? 0) !== 1 ? "s" : ""}
+                        {pluralizeApplicants(totalApplicants)}
                       </span>
                       <span className="h-3 w-px bg-border hidden sm:block" />
                       <span className="flex items-center gap-1.5">
@@ -227,47 +256,64 @@ export default function JobCard({
                           <RotateCcw className="h-3.5 w-3.5" />
                           Reopen
                         </Button>
-                        <Link
-                          href={`/vos-sync/client/applicants?job_id=${job.job_id}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
+                        <ApplicantsGate enabled={hasApplicants} href={applicantsHref}>
                           <Button
                             type="button"
                             variant="ghost"
                             size="sm"
-                            className="h-9 px-2.5 text-sm md:text-xs gap-1.5 rounded-xl text-muted-foreground hover:text-foreground font-semibold max-md:min-h-10"
-                            title="View past applicants"
+                            disabled={!hasApplicants}
+                            title={
+                              hasApplicants
+                                ? `View past applicants · ${activeApplicants} still in the pipeline`
+                                : "No applicants yet for this posting"
+                            }
+                            className={cn(
+                              "h-9 px-2.5 text-sm md:text-xs gap-1.5 rounded-xl text-muted-foreground font-semibold max-md:min-h-10 disabled:pointer-events-auto",
+                              hasApplicants && "hover:text-foreground"
+                            )}
                           >
                             <Users className="h-3.5 w-3.5" />
-                            {typeof job.applicants_count === "number" && job.applicants_count > 0 && (
-                              <span className="px-1.5 py-0.2 bg-muted text-muted-foreground rounded-full text-xs md:text-[10px] font-bold">
-                                {job.applicants_count}
-                              </span>
-                            )}
+                            <span className="px-1.5 py-0.2 bg-muted text-muted-foreground rounded-full text-xs md:text-[10px] font-bold">
+                              {activeApplicants}
+                            </span>
                           </Button>
-                        </Link>
+                        </ApplicantsGate>
                       </div>
                     ) : (
-                      <Link
-                        href={`/vos-sync/client/applicants?job_id=${job.job_id}`}
-                        onClick={(e) => e.stopPropagation()}
-                      >
+                      <ApplicantsGate enabled={hasApplicants} href={applicantsHref}>
                         <Button
                           type="button"
                           variant="outline"
                           size="sm"
-                          className="h-9 px-3.5 text-sm md:text-xs gap-2 rounded-xl border-border hover:border-primary hover:text-primary hover:bg-primary/5 transition-all duration-200 font-semibold shadow-xs max-md:min-h-10"
-                        >
-                          <Users className="h-3.5 w-3.5 text-primary" />
-                          View Applicants
-                          {typeof job.applicants_count === "number" && job.applicants_count > 0 && (
-                            <span className="ml-0.5 px-1.5 py-0.2 bg-primary/10 text-primary rounded-full text-xs md:text-[10px] font-bold">
-                              {job.applicants_count}
-                            </span>
+                          disabled={!hasApplicants}
+                          title={
+                            hasApplicants
+                              ? undefined
+                              : "No applicants yet for this posting"
+                          }
+                          className={cn(
+                            "h-9 px-3.5 text-sm md:text-xs gap-2 rounded-xl border-border transition-all duration-200 font-semibold shadow-xs max-md:min-h-10 disabled:pointer-events-auto",
+                            hasApplicants
+                              ? "hover:border-primary hover:text-primary hover:bg-primary/5"
+                              : "text-muted-foreground"
                           )}
-                          <ChevronRight className="h-3 w-3 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                        >
+                          <Users className={cn("h-3.5 w-3.5", hasApplicants && "text-primary")} />
+                          View Applicants
+                          <span
+                            className={cn(
+                              "ml-0.5 px-1.5 py-0.2 rounded-full text-xs md:text-[10px] font-bold",
+                              hasApplicants ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
+                            )}
+                            title={hasApplicants ? `${totalApplicants} total including rejected and hired` : undefined}
+                          >
+                            {activeApplicants}
+                          </span>
+                          {hasApplicants && (
+                            <ChevronRight className="h-3 w-3 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
+                          )}
                         </Button>
-                      </Link>
+                      </ApplicantsGate>
                     )}
                   </div>
 

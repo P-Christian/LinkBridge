@@ -10,6 +10,7 @@ import {
   CalendarClock,
   CalendarX,
   CheckCircle2,
+  ClipboardList,
   FileText,
   FileX,
   MessageSquare,
@@ -21,26 +22,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import type { Notification } from "../types";
-
-/* ── Category filter ─────────────────────────────────────────────── */
-
-export type CategoryFilter = "ALL" | "APPLICATIONS" | "INTERVIEWS";
-
-export function matchesCategory(notification: Notification, category: CategoryFilter): boolean {
-  if (category === "ALL") return true;
-  const cat = (notification.category || "").toUpperCase();
-  const eventType = (notification.event_type || "").toUpperCase();
-  const has = (needle: string) => cat.includes(needle) || eventType.includes(needle);
-
-  switch (category) {
-    case "APPLICATIONS":
-      return has("APPLICATION");
-    case "INTERVIEWS":
-      return has("INTERVIEW");
-    default:
-      return true;
-  }
-}
 
 /* ── Visuals ─────────────────────────────────────────────────────── */
 
@@ -95,11 +76,12 @@ function visual(icon: LucideIcon, label: string, tone: Tone): NotificationVisual
   return { icon, label, ...TONES[tone] };
 }
 
-type Kind =
+export type NotificationKind =
   | "shortlist"
   | "closed"
   | "interview"
   | "application"
+  | "assessment"
   | "message"
   | "invitation"
   | "job"
@@ -109,10 +91,11 @@ type Kind =
   | "default";
 
 // Order matters: the first rule that matches wins.
-const RULES: { kind: Kind; keys: string[]; text: string[] }[] = [
+const RULES: { kind: NotificationKind; keys: string[]; text: string[] }[] = [
   { kind: "shortlist", keys: ["SHORTLIST"], text: ["shortlist", "hired"] },
   { kind: "closed", keys: ["WITHDRAW", "REJECT"], text: ["withdr", "reject"] },
   { kind: "interview", keys: ["INTERVIEW"], text: ["interview"] },
+  { kind: "assessment", keys: ["ASSESSMENT"], text: ["assessment"] },
   { kind: "application", keys: ["APPLICATION"], text: ["application"] },
   { kind: "message", keys: ["MESSAGE"], text: ["message"] },
   { kind: "invitation", keys: ["INVITATION"], text: ["invitation", "invite"] },
@@ -123,12 +106,11 @@ const RULES: { kind: Kind; keys: string[]; text: string[] }[] = [
 ];
 
 /**
- * Picks an icon, label and colour for a notification.
- * The structured fields (category / event_type) are checked first, then the
- * title, and only then the message body, so a message that merely mentions
+ * Classifies a notification from its structured fields first, then the title,
+ * and only then the message body, so a message that merely mentions
  * "application" can't override a clearly typed interview notification.
  */
-export function getNotificationVisual(notification: Notification): NotificationVisual {
+function getNotificationKind(notification: Notification): NotificationKind {
   const category = (notification.category || "").toUpperCase();
   const eventType = (notification.event_type || "").toUpperCase();
   const key = `${category} ${eventType}`;
@@ -138,11 +120,23 @@ export function getNotificationVisual(notification: Notification): NotificationV
   const byKey = RULES.find((r) => r.keys.some((k) => key.includes(k)));
   const byTitle = byKey ? undefined : RULES.find((r) => r.text.some((t) => title.includes(t)));
 
-  let kind: Kind = byKey?.kind ?? byTitle?.kind ?? "default";
+  let kind: NotificationKind = byKey?.kind ?? byTitle?.kind ?? "default";
   if (kind === "default") {
     if (message.includes("shortlist")) kind = "shortlist";
     else if (message.includes("application")) kind = "application";
   }
+
+  return kind;
+}
+
+/** Picks an icon, label and colour for a notification. */
+export function getNotificationVisual(notification: Notification): NotificationVisual {
+  const category = (notification.category || "").toUpperCase();
+  const eventType = (notification.event_type || "").toUpperCase();
+  const key = `${category} ${eventType}`;
+  const title = (notification.title || "").toLowerCase();
+
+  const kind = getNotificationKind(notification);
 
   switch (kind) {
     case "shortlist":
@@ -159,6 +153,8 @@ export function getNotificationVisual(notification: Notification): NotificationV
       return visual(Calendar, "Interview", "amber");
     case "application":
       return visual(FileText, "Application", "primary");
+    case "assessment":
+      return visual(ClipboardList, "Assessment", "primary");
     case "message":
       return visual(MessageSquare, "Message", "sky");
     case "invitation":

@@ -18,37 +18,37 @@ export function ProfileCompletenessBanner() {
         const total = 6;
 
         if (!(profile.user_fname && profile.user_lname && profile.user_bday && profile.gender)) {
-            missing.push({ name: "Personal Information", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Personal Information", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
 
         if (!(profile.resumes && profile.resumes.length > 0)) {
-            missing.push({ name: "Resume", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Resume", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
 
         if (!profile.job_seeker_profile?.[0]?.professional_summary) {
-            missing.push({ name: "Professional Summary", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Professional Summary", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
 
         if (!(profile.skills && profile.skills.length > 0)) {
-            missing.push({ name: "Skills", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Skills", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
 
         if (!(profile.work_experience && profile.work_experience.length > 0)) {
-            missing.push({ name: "Work Experience", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Work Experience", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
 
         if (!(profile.education && profile.education.length > 0)) {
-            missing.push({ name: "Education", href: "/vos-sync/freelancer/profile" });
+            missing.push({ name: "Education", href: "/linkbridge/freelancer/profile" });
         } else {
             completed++;
         }
@@ -112,7 +112,7 @@ export function ProfileCompletenessBanner() {
                         </div>
                     </div>
                     <Button asChild size="sm" className="bg-orange-500 hover:bg-orange-600 text-white shrink-0 sm:mt-2 max-md:min-h-11">
-                        <Link href="/vos-sync/freelancer/profile">
+                        <Link href="/linkbridge/freelancer/profile">
                             Update Profile <ChevronRight className="ml-2 h-4 w-4" />
                         </Link>
                     </Button>

@@ -1,6 +1,7 @@
 // src/app/api/vos-admin/job-roles/tester/route.ts
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdministrator } from "@/lib/authenticated-session";
 import {
   runMatchingEngine,
   normalizeRawCandidate,
@@ -9,6 +10,7 @@ import {
   resolveTaxonomyFromDB,
 } from "@/modules/matching-engine";
 
+import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,10 @@ function getHeaders(): Record<string, string> {
 
 export async function POST(req: NextRequest) {
   try {
+    if (!(await requireAdministrator(req))) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
     const body = await req.json();
     const keyword = (body.keyword || "").trim();
     if (!keyword) {
@@ -36,13 +42,45 @@ export async function POST(req: NextRequest) {
       fetch(`${DIRECTUS_BASE}/items/vs_role_category?limit=-1`, { headers: getHeaders(), cache: "no-store" }),
     ]);
 
-    const aliasList = aliasRes.ok ? (await aliasRes.json()).data ?? [] : [];
-    const rolesList = rolesRes.ok ? (await rolesRes.json()).data ?? [] : [];
-    const catList = catRes.ok ? (await catRes.json()).data ?? [] : [];
+    // The whole point of this studio is to explain why a match did or did not
+    // happen. Read as empty, an unreadable taxonomy table answered "nothing
+    // matched" while the rules themselves were missing.
+    if (!aliasRes.ok || !rolesRes.ok || !catRes.ok) {
+      return NextResponse.json(
+        { error: "The job taxonomy could not be read, so the match test was not run." },
+        { status: 502 }
+      );
+    }
+
+    const aliasList = (await aliasRes.json()).data ?? [];
+    const rolesList = (await rolesRes.json()).data ?? [];
+    const catList = (await catRes.json()).data ?? [];
+
+    // Filter out inactive categories, roles, and orphaned aliases so inactive entries are not matched
+    const activeCatList = catList.filter(
+      (c: Record<string, unknown>) => c.is_active !== false && c.is_active !== 0 && c.is_active !== "false"
+    );
+    const activeCatIds = new Set(activeCatList.map((c: Record<string, unknown>) => Number(c.category_id)));
+
+    const activeRolesList = rolesList.filter((r: Record<string, unknown>) => {
+      const isRoleActive = r.is_active !== false && r.is_active !== 0 && r.is_active !== "false";
+      const isCatActive = !r.category_id || activeCatIds.has(Number(r.category_id));
+      return isRoleActive && isCatActive;
+    });
+    const activeRoleIds = new Set(activeRolesList.map((r: Record<string, unknown>) => Number(r.role_id)));
+
+    const activeAliasList = aliasList.filter((a: Record<string, unknown>) => {
+      const isAliasActive = a.is_active !== false && a.is_active !== 0 && a.is_active !== "false";
+      return isAliasActive && (!a.role_id || activeRoleIds.has(Number(a.role_id)));
+    });
 
     // Algorithmic query analysis & pure DB-driven taxonomy resolution
     const analyzed = analyzeQuery(keyword);
-    const taxonomyContext = resolveTaxonomyFromDB(analyzed, { aliasList, rolesList, catList });
+    const taxonomyContext = resolveTaxonomyFromDB(analyzed, {
+      aliasList: activeAliasList,
+      rolesList: activeRolesList,
+      catList: activeCatList,
+    });
 
     // 2. Candidate profile (Default / Custom from body)
     const defaultRawCandidate = {
@@ -123,6 +161,6 @@ export async function POST(req: NextRequest) {
       trace: engineResult.trace,
     });
   } catch (err: unknown) {
-    return NextResponse.json({ error: (err as Error).message || "Simulation error." }, { status: 500 });
+    return NextResponse.json({ error: safeErrorMessage(err, "Simulation error.") }, { status: 500 });
   }
 }

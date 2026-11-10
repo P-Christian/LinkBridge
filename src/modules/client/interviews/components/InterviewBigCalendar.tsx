@@ -15,6 +15,7 @@ import {
 import InterviewStatusBadge from "./InterviewStatusBadge";
 import InterviewForm, { JobOption, ApplicantOption } from "./InterviewForm";
 import ScreeningAnswersView from "./ScreeningAnswersView";
+import { needsFeedback } from "./interviewUtils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -277,13 +278,20 @@ export default function InterviewBigCalendar({
     return map;
   }, [interviews]);
 
-  const getEventBadgeStyle = (status: InterviewStatus) => {
-    switch (status) {
+  const awaitingFeedbackCount = useMemo(() => {
+    return interviews.filter(needsFeedback).length;
+  }, [interviews]);
+
+  const getEventBadgeStyle = (item: Interview) => {
+    if (needsFeedback(item)) {
+      return "bg-amber-50 dark:bg-amber-950/70 text-amber-800 dark:text-amber-200 border-amber-300 dark:border-amber-700/70 hover:bg-amber-100/80 shadow-2xs";
+    }
+    switch (item.interview_status) {
       case "SCHEDULED":
       case "CONFIRMED":
         return "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100";
       case "RESCHEDULED":
-        return "bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60 hover:bg-amber-100";
+        return "bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60 hover:bg-sky-100";
       case "COMPLETED":
         return "bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60 hover:bg-purple-100";
       case "CANCELLED":
@@ -557,6 +565,15 @@ export default function InterviewBigCalendar({
           >
             Today
           </Button>
+          {awaitingFeedbackCount > 0 && (
+            <Badge
+              variant="outline"
+              className="hidden sm:inline-flex items-center gap-1.5 bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50 text-xs font-semibold py-1 px-2.5 rounded-full"
+            >
+              <AlertCircle className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
+              <span>{awaitingFeedbackCount} awaiting feedback</span>
+            </Badge>
+          )}
         </div>
 
         {/* Legend and Actions */}
@@ -568,7 +585,7 @@ export default function InterviewBigCalendar({
               Scheduled
             </span>
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
-              <span className="h-2 w-2 rounded-full bg-amber-500" />
+              <span className="h-2 w-2 rounded-full bg-sky-500" />
               Rescheduled
             </span>
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
@@ -578,6 +595,10 @@ export default function InterviewBigCalendar({
             <span className="flex items-center gap-1.5 text-zinc-600 dark:text-zinc-400">
               <span className="h-2 w-2 rounded-full bg-rose-500" />
               Cancelled
+            </span>
+            <span className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 font-medium">
+              <span className="h-2 w-2 rounded-full bg-amber-500 ring-1 ring-amber-400" />
+              Awaiting Feedback
             </span>
           </div>
 
@@ -651,6 +672,7 @@ export default function InterviewBigCalendar({
               >
                 {/* Day Header Row */}
                 <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center gap-1">
                   <span
                     className={`text-xs font-bold h-6 w-6 rounded-full flex items-center justify-center transition-all ${
                       isTodayDate
@@ -662,6 +684,13 @@ export default function InterviewBigCalendar({
                   >
                     {format(day, "d")}
                   </span>
+                  {dayInterviews.some(needsFeedback) && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-amber-500 shrink-0"
+                      title="Contains interviews awaiting feedback"
+                    />
+                  )}
+                </div>
 
                   {/* Add Interview Quick Action Button */}
                   {(onScheduleDate || onCreateInterview) && (
@@ -675,7 +704,7 @@ export default function InterviewBigCalendar({
                         }
                       }}
                       title={`Schedule interview on ${format(day, "MMM d, yyyy")}`}
-                      className="opacity-0 group-hover:opacity-100 max-md:opacity-100 max-md:size-10 max-md:hidden transition-opacity p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                      className="opacity-0 group-hover:opacity-100 max-md:opacity-100 max-md:size-10 transition-opacity p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800"
                     >
                       <Plus className="h-3.5 w-3.5" />
                     </button>
@@ -691,6 +720,7 @@ export default function InterviewBigCalendar({
                         "h:mm a"
                       );
                       const candidateName = getCandidateLabel(item);
+                      const isOverdue = needsFeedback(item);
 
                       if (isFullscreen) {
                         return (
@@ -700,11 +730,15 @@ export default function InterviewBigCalendar({
                               e.stopPropagation();
                               openFullscreenDetails(item);
                             }}
+                            title={isOverdue ? `Awaiting feedback: ${candidateName} (${startTime})` : undefined}
                             className={`w-full max-md:min-h-10 text-left p-1.5 rounded-lg border text-xs md:text-[11px] font-medium transition-all shadow-2xs truncate flex items-center justify-between gap-1 ${getEventBadgeStyle(
-                              item.interview_status
+                              item
                             )}`}
                           >
-                            <span className="truncate font-semibold">
+                            <span className="truncate font-semibold flex items-center gap-1">
+                              {isOverdue && (
+                                <AlertCircle className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                              )}
                               <span className="font-bold mr-1">{startTime}</span>
                               {candidateName}
                             </span>
@@ -725,11 +759,15 @@ export default function InterviewBigCalendar({
                                 e.stopPropagation();
                                 onViewDetails(item);
                               }}
+                              title={isOverdue ? `Awaiting feedback: ${candidateName} (${startTime})` : undefined}
                               className={`w-full max-md:min-h-10 text-left p-1.5 rounded-lg border text-xs md:text-[11px] font-medium transition-all shadow-2xs truncate flex items-center justify-between gap-1 ${getEventBadgeStyle(
-                                item.interview_status
+                                item
                               )}`}
                             >
-                              <span className="truncate font-semibold">
+                              <span className="truncate font-semibold flex items-center gap-1">
+                                {isOverdue && (
+                                  <AlertCircle className="h-3 w-3 shrink-0 text-amber-600 dark:text-amber-400" />
+                                )}
                                 <span className="font-bold mr-1">{startTime}</span>
                                 {candidateName}
                               </span>
@@ -745,13 +783,25 @@ export default function InterviewBigCalendar({
                             align="start"
                             className="w-72 p-3 text-sm md:text-xs space-y-2 shadow-xl border-zinc-200 dark:border-zinc-800 max-md:w-[calc(100vw-2rem)] max-md:max-w-[calc(100vw-2rem)] max-md:max-h-[90dvh] max-md:overflow-y-auto"
                           >
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-zinc-900 dark:text-white">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-bold text-zinc-900 dark:text-white truncate">
                                 {startTime} - {candidateName}
                               </span>
-                              <InterviewStatusBadge
-                                status={item.interview_status}
-                              />
+                              {isOverdue ? (
+                                <Badge
+                                  variant="outline"
+                                  className="text-[10px] font-semibold px-2 py-0 rounded-full gap-1 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50 shrink-0"
+                                >
+                                  <AlertCircle className="h-3 w-3" />
+                                  Awaiting feedback
+                                </Badge>
+                              ) : (
+                                <InterviewStatusBadge
+                                  status={item.interview_status}
+                                  scheduledAt={item.scheduled_at}
+                                  durationMinutes={item.duration_minutes}
+                                />
+                              )}
                             </div>
                             <div className="text-zinc-500 flex items-center gap-1.5">
                               <Clock className="h-3.5 w-3.5 text-zinc-400" />
@@ -792,12 +842,22 @@ export default function InterviewBigCalendar({
                               </Button>
                               <Button
                                 size="sm"
-                                variant="outline"
+                                variant={isOverdue ? "default" : "outline"}
                                 onClick={() => onOpenEvaluation(item)}
-                                className="h-7 max-md:min-h-10 text-xs md:text-[10px] px-2 rounded-md text-emerald-700 dark:text-emerald-300 font-semibold"
+                                className={`h-7 max-md:min-h-10 text-xs md:text-[10px] px-2 rounded-md font-semibold ${
+                                  isOverdue
+                                    ? "bg-[#14a800] hover:bg-[#118f00] text-white border-0"
+                                    : item.interview_status === "COMPLETED"
+                                    ? "text-emerald-700 dark:text-emerald-300"
+                                    : "text-zinc-700 dark:text-zinc-300"
+                                }`}
                               >
-                                <MessageSquare className="h-3 w-3 mr-1 text-emerald-600" />{" "}
-                                {item.interview_status === "COMPLETED" ? "View Feedback" : "Feedback"}
+                                <MessageSquare className="h-3 w-3 mr-1" />{" "}
+                                {isOverdue
+                                  ? "Record Feedback"
+                                  : item.interview_status === "COMPLETED"
+                                  ? "View Feedback"
+                                  : "Feedback"}
                               </Button>
                               {(item.interview_status === "SCHEDULED" ||
                                 item.interview_status === "CONFIRMED" ||
@@ -807,10 +867,10 @@ export default function InterviewBigCalendar({
                                     size="sm"
                                     variant="outline"
                                     onClick={() => onReschedule(item)}
-                                    className="h-7 max-md:min-h-10 text-xs md:text-[10px] px-2 rounded-md font-semibold text-amber-600 dark:text-amber-400"
+                                    className="h-7 max-md:min-h-10 text-xs md:text-[10px] px-2 rounded-md font-semibold text-sky-600 dark:text-sky-400"
                                     title="Reschedule Interview"
                                   >
-                                    <RefreshCw className="h-3 w-3 mr-1 text-amber-500" /> Reschedule
+                                    <RefreshCw className="h-3 w-3 mr-1 text-sky-500" /> Reschedule
                                   </Button>
                                   <Button
                                     size="sm"
@@ -894,7 +954,9 @@ export default function InterviewBigCalendar({
 
                 <div className="space-y-3 overflow-y-auto pr-1 flex-1 max-h-[62vh]">
                   {selectedDayInterviews.interviews.length > 0 ? (
-                    selectedDayInterviews.interviews.map((item) => (
+                    selectedDayInterviews.interviews.map((item) => {
+                      const isOverdue = needsFeedback(item);
+                      return (
                       <div
                         key={item.interview_id}
                         className="p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-900/50 space-y-3 transition-all hover:border-zinc-300 dark:hover:border-zinc-700"
@@ -909,7 +971,21 @@ export default function InterviewBigCalendar({
                               ({item.duration_minutes || 60}m · {item.interview_format.toLowerCase()})
                             </span>
                           </div>
-                          <InterviewStatusBadge status={item.interview_status} />
+                          {isOverdue ? (
+                            <Badge
+                              variant="outline"
+                              className="text-xs md:text-[11px] font-semibold px-2 py-0.5 rounded-full gap-1 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50"
+                            >
+                              <AlertCircle className="h-3 w-3" />
+                              Awaiting feedback
+                            </Badge>
+                          ) : (
+                            <InterviewStatusBadge
+                              status={item.interview_status}
+                              scheduledAt={item.scheduled_at}
+                              durationMinutes={item.duration_minutes}
+                            />
+                          )}
                         </div>
 
                         <div className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
@@ -934,7 +1010,7 @@ export default function InterviewBigCalendar({
                           </Button>
                           <Button
                             size="sm"
-                            variant="outline"
+                            variant={isOverdue ? "default" : "outline"}
                             onClick={() => {
                               setSelectedDayInterviews(null);
                               if (isFullscreen) {
@@ -943,9 +1019,20 @@ export default function InterviewBigCalendar({
                                 onOpenEvaluation(item);
                               }
                             }}
-                            className="h-8 max-md:min-h-10 text-sm md:text-xs px-3 rounded-lg text-emerald-700 dark:text-emerald-300 font-semibold"
+                            className={`h-8 max-md:min-h-10 text-sm md:text-xs px-3 rounded-lg font-semibold ${
+                              isOverdue
+                                ? "bg-[#14a800] hover:bg-[#118f00] text-white border-0"
+                                : item.interview_status === "COMPLETED"
+                                ? "text-emerald-700 dark:text-emerald-300"
+                                : "text-zinc-700 dark:text-zinc-300"
+                            }`}
                           >
-                            <MessageSquare className="h-3.5 w-3.5 mr-1.5 text-emerald-600" /> Feedback
+                            <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
+                            {isOverdue
+                              ? "Record Feedback"
+                              : item.interview_status === "COMPLETED"
+                              ? "View Feedback"
+                              : "Feedback"}
                           </Button>
                           {(item.interview_status === "SCHEDULED" ||
                             item.interview_status === "CONFIRMED" ||
@@ -962,9 +1049,9 @@ export default function InterviewBigCalendar({
                                     onReschedule(item);
                                   }
                                 }}
-                                className="h-8 max-md:min-h-10 text-sm md:text-xs px-3 rounded-lg font-semibold text-amber-600 dark:text-amber-400"
+                                className="h-8 max-md:min-h-10 text-sm md:text-xs px-3 rounded-lg font-semibold text-sky-600 dark:text-sky-400"
                               >
-                                <RefreshCw className="h-3.5 w-3.5 mr-1.5 text-amber-500" /> Reschedule
+                                <RefreshCw className="h-3.5 w-3.5 mr-1.5 text-sky-500" /> Reschedule
                               </Button>
                               <Button
                                 size="sm"
@@ -985,7 +1072,8 @@ export default function InterviewBigCalendar({
                           )}
                         </div>
                       </div>
-                    ))
+                    );
+                  })
                   ) : (
                     <div className="py-10 px-4 text-center rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 space-y-3">
                       <Calendar className="h-9 w-9 mx-auto text-zinc-400 dark:text-zinc-600" />
@@ -1072,7 +1160,21 @@ export default function InterviewBigCalendar({
                     <h3 className="font-bold text-base text-zinc-900 dark:text-white">
                       Interview Details & Q&A
                     </h3>
-                    <InterviewStatusBadge status={selectedInterview.interview_status} />
+                    {needsFeedback(selectedInterview) ? (
+                      <Badge
+                        variant="outline"
+                        className="text-xs md:text-[11px] font-semibold px-2 py-0.5 rounded-full gap-1 bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/50"
+                      >
+                        <AlertCircle className="h-3 w-3" />
+                        Awaiting feedback
+                      </Badge>
+                    ) : (
+                      <InterviewStatusBadge
+                        status={selectedInterview.interview_status}
+                        scheduledAt={selectedInterview.scheduled_at}
+                        durationMinutes={selectedInterview.duration_minutes}
+                      />
+                    )}
                   </div>
                   <p className="text-sm md:text-xs text-zinc-500">
                     {format(parseISO(selectedInterview.scheduled_at), "EEEE, MMMM d, yyyy")}
@@ -1161,11 +1263,22 @@ export default function InterviewBigCalendar({
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <Button
                     size="sm"
-                    variant="outline"
+                    variant={needsFeedback(selectedInterview) ? "default" : "outline"}
                     onClick={() => openFullscreenFeedback(selectedInterview)}
-                    className="h-8 max-md:min-h-10 text-sm md:text-xs font-semibold text-emerald-700 dark:text-emerald-300"
+                    className={`h-8 max-md:min-h-10 text-sm md:text-xs font-semibold ${
+                      needsFeedback(selectedInterview)
+                        ? "bg-[#14a800] hover:bg-[#118f00] text-white border-0"
+                        : selectedInterview.interview_status === "COMPLETED"
+                        ? "text-emerald-700 dark:text-emerald-300"
+                        : "text-zinc-700 dark:text-zinc-300"
+                    }`}
                   >
-                    <MessageSquare className="h-3.5 w-3.5 mr-1 text-emerald-600" /> Feedback
+                    <MessageSquare className="h-3.5 w-3.5 mr-1" />
+                    {needsFeedback(selectedInterview)
+                      ? "Record Feedback"
+                      : selectedInterview.interview_status === "COMPLETED"
+                      ? "View Feedback"
+                      : "Feedback"}
                   </Button>
 
                   {(selectedInterview.interview_status === "SCHEDULED" ||
@@ -1176,9 +1289,9 @@ export default function InterviewBigCalendar({
                         size="sm"
                         variant="outline"
                         onClick={() => openFullscreenReschedule(selectedInterview)}
-                        className="h-8 max-md:min-h-10 text-sm md:text-xs font-semibold text-amber-600 dark:text-amber-400"
+                        className="h-8 max-md:min-h-10 text-sm md:text-xs font-semibold text-sky-600 dark:text-sky-400"
                       >
-                        <RefreshCw className="h-3.5 w-3.5 mr-1 text-amber-500" /> Reschedule
+                        <RefreshCw className="h-3.5 w-3.5 mr-1 text-sky-500" /> Reschedule
                       </Button>
                       <Button
                         size="sm"

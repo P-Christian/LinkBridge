@@ -80,7 +80,7 @@ export function TrustedEmployersMarquee({ companies }: MarqueeProps) {
   if (!companies || companies.length === 0) {
     return (
       <div className="w-full py-8 text-center border border-dashed rounded-xl bg-muted/20">
-        <p className="text-sm text-muted-foreground">Join hundreds of growing companies hiring on VOS Sync.</p>
+        <p className="text-sm text-muted-foreground">Join hundreds of growing companies hiring on LinkBridge.</p>
       </div>
     );
   }
@@ -96,10 +96,10 @@ export function TrustedEmployersMarquee({ companies }: MarqueeProps) {
     <div className="w-full overflow-hidden py-6 bg-muted/10 border-y border-border">
       <div className="max-w-7xl mx-auto px-4 text-center mb-6">
         <h2 className="text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
-          Companies Hiring Through VOS Sync
+          Companies Hiring Through LinkBridge
         </h2>
         <p className="text-sm text-muted-foreground mt-1 max-w-xl mx-auto">
-          From startups to enterprise organizations, employers use VOS Sync to connect with qualified professionals.
+          From startups to enterprise organizations, employers use LinkBridge to connect with qualified professionals.
         </p>
         <button
           type="button"

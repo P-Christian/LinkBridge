@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { VsSchoolCourse } from '@/modules/school-admin/types/school-admin.types';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 
 interface RosterFiltersProps {
   selectedSchoolYear: string;
@@ -28,14 +29,49 @@ export const RosterFilters: React.FC<RosterFiltersProps> = ({
   courses,
   availableSchoolYears,
 }) => {
+  const [localSearch, setLocalSearch] = React.useState(searchQuery);
+  const [prevSearchQuery, setPrevSearchQuery] = React.useState(searchQuery);
+
+  // Sync state if parent searchQuery changes externally (e.g. reset/cleared)
+  if (prevSearchQuery !== searchQuery) {
+    setPrevSearchQuery(searchQuery);
+    setLocalSearch(searchQuery);
+  }
+
+  // Debounce dispatching to parent with 400ms delay & 3-character threshold
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      const trimmed = localSearch.trim();
+      if (trimmed.length === 0) {
+        if (searchQuery !== '') {
+          onSearchChange('');
+        }
+      } else if (trimmed.length >= 3) {
+        if (trimmed !== searchQuery) {
+          onSearchChange(trimmed);
+        }
+      } else {
+        // Under threshold (< 3 chars, e.g. after backspacing from >= 3)
+        // Clear active query if one was previously set to prevent stale results
+        if (searchQuery !== '') {
+          onSearchChange('');
+        }
+      }
+    }, 400);
+
+    return () => {
+      clearTimeout(handler);
+    };
+  }, [localSearch, searchQuery, onSearchChange]);
+
   return (
     <div className="bg-card p-4 rounded-xl border border-border shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
       {/* Search Input */}
       <div className="relative w-full md:w-80">
         <input
           type="text"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
+          value={localSearch}
+          onChange={(e) => setLocalSearch(e.target.value)}
           placeholder="Search name, student #, email..."
           className="w-full pl-9 pr-4 py-2 text-sm border border-input rounded-lg bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent"
         />
@@ -77,18 +113,22 @@ export const RosterFilters: React.FC<RosterFiltersProps> = ({
         </select>
 
         {/* Course Filter */}
-        <select
-          value={selectedCourseId}
-          onChange={(e) => onCourseChange(e.target.value)}
-          className="px-3 py-2 text-sm border border-input rounded-lg bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-ring max-w-[200px] truncate"
-        >
-          <option value="all">All Courses</option>
-          {courses.map((course) => (
-            <option key={course.school_course_id} value={course.school_course_id}>
-              {course.course_name} ({course.course_code || 'N/A'})
-            </option>
-          ))}
-        </select>
+        <div className="w-full sm:w-[220px]">
+          <SearchableSelect
+            options={[
+              { value: 'all', label: 'All Courses' },
+              ...courses.map((course) => ({
+                value: String(course.school_course_id),
+                label: `${course.course_name} (${course.course_code || 'N/A'})`,
+              })),
+            ]}
+            value={selectedCourseId}
+            onValueChange={onCourseChange}
+            placeholder="All Courses"
+            searchPlaceholder="Search courses..."
+            triggerClassName="h-[38px] text-sm rounded-lg"
+          />
+        </div>
 
         {/* Status Filter */}
         <select

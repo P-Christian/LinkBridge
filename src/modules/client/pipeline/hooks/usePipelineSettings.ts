@@ -3,6 +3,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import {
   CanonicalStageType,
   CompanyPipeline,
@@ -17,6 +19,8 @@ export function usePipelineSettings() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
+  const abortRead = useRequestAbort();
+
   const clearMessages = useCallback(() => {
     setError("");
     setSuccess("");
@@ -25,9 +29,14 @@ export function usePipelineSettings() {
   const fetchPipelines = useCallback(async () => {
     setLoading(true);
     setError("");
+    // Every mutation below refetches the whole pipeline list, so a snapshot
+    // taken before a stage was added, renamed, moved or deleted can still land
+    // last and put the board back the way it looked before that change.
+    const signal = abortRead();
     try {
-      const res = await fetch("/api/client/pipelines");
+      const res = await fetch("/api/client/pipelines", { cache: "no-store", signal });
       const json = await res.json();
+      if (signal.aborted) return;
       if (!res.ok) {
         throw new Error(json.error || "Failed to load pipelines.");
       }
@@ -44,11 +53,14 @@ export function usePipelineSettings() {
         });
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Error fetching pipelines.");
+      if (signal.aborted) return;
+      const msg = err instanceof Error ? err.message : "Error fetching pipelines.";
+      setError(msg);
+      toast.error(msg);
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
-  }, []);
+  }, [abortRead]);
 
   useEffect(() => {
     fetchPipelines();
@@ -73,14 +85,18 @@ export function usePipelineSettings() {
           throw new Error(json.error || "Failed to create pipeline.");
         }
 
-        setSuccess(`Pipeline "${name}" created successfully.`);
+        const msg = `Pipeline "${name}" created successfully.`;
+        setSuccess(msg);
+        toast.success(msg);
         await fetchPipelines();
         if (json.pipeline?.id) {
           setSelectedPipelineId(json.pipeline.id);
         }
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to create pipeline.");
+        const msg = err instanceof Error ? err.message : "Failed to create pipeline.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
@@ -111,11 +127,15 @@ export function usePipelineSettings() {
           throw new Error(json.error || "Failed to add stage.");
         }
 
-        setSuccess(`Stage "${data.stage_name}" added.`);
+        const msg = `Stage "${data.stage_name}" added.`;
+        setSuccess(msg);
+        toast.success(msg);
         await fetchPipelines();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to add stage.");
+        const msg = err instanceof Error ? err.message : "Failed to add stage.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
@@ -148,10 +168,13 @@ export function usePipelineSettings() {
         }
 
         setSuccess("Stage updated successfully.");
+        toast.success("Stage updated successfully.");
         await fetchPipelines();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update stage.");
+        const msg = err instanceof Error ? err.message : "Failed to update stage.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
@@ -201,12 +224,15 @@ export function usePipelineSettings() {
         }
 
         setSuccess("Stage removed successfully.");
+        toast.success("Stage removed successfully.");
         await fetchPipelines();
         return true;
       } catch (err) {
         // Rollback on failure
         setPipelines(originalPipelines);
-        setError(err instanceof Error ? err.message : "Failed to delete stage.");
+        const msg = err instanceof Error ? err.message : "Failed to delete stage.";
+        setError(msg);
+        toast.error(msg);
         return false;
       }
     },
@@ -237,10 +263,13 @@ export function usePipelineSettings() {
         }
 
         setSuccess("Stage transitions updated.");
+        toast.success("Stage transitions updated.");
         await fetchPipelines();
         return true;
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to update transitions.");
+        const msg = err instanceof Error ? err.message : "Failed to update transitions.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
@@ -311,7 +340,9 @@ export function usePipelineSettings() {
       } catch (err) {
         // Rollback on failure
         setPipelines(originalPipelines);
-        setError(err instanceof Error ? err.message : "Failed to reorder stages.");
+        const msg = err instanceof Error ? err.message : "Failed to reorder stages.";
+        setError(msg);
+        toast.error(msg);
         return false;
       }
     },
@@ -366,7 +397,9 @@ export function usePipelineSettings() {
       } catch (err) {
         // Rollback on failure
         setPipelines(originalPipelines);
-        setError(err instanceof Error ? err.message : "Failed to reorder stages.");
+        const msg = err instanceof Error ? err.message : "Failed to reorder stages.";
+        setError(msg);
+        toast.error(msg);
         return false;
       }
     },
@@ -389,19 +422,65 @@ export function usePipelineSettings() {
           throw new Error(json.error || "Failed to set default template.");
         }
 
-        setSuccess("Template marked as company default successfully.");
+        const msg = "Template marked as company default successfully.";
+        setSuccess(msg);
+        toast.success(msg);
         await fetchPipelines();
         return true;
       } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Failed to set default template."
-        );
+        const msg = err instanceof Error ? err.message : "Failed to set default template.";
+        setError(msg);
+        toast.error(msg);
         return false;
       } finally {
         setSaving(false);
       }
     },
     [fetchPipelines]
+  );
+
+  const deletePipeline = useCallback(
+    async (pipelineId: number) => {
+      setSaving(true);
+      setError("");
+      setSuccess("");
+      try {
+        const res = await fetch(`/api/client/pipelines/${pipelineId}`, {
+          method: "DELETE",
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          throw new Error(json.error || "Failed to delete pipeline template.");
+        }
+
+        const msg = "Pipeline template deleted successfully.";
+        setSuccess(msg);
+        toast.success(msg);
+
+        // Optimistically update list and switch selected if needed
+        setPipelines((prev) => {
+          const remaining = prev.filter((p) => p.id !== pipelineId);
+          if (selectedPipelineId === pipelineId) {
+            const nextSelected = remaining.find((p) => p.is_default) ?? remaining[0] ?? null;
+            if (nextSelected) {
+              setSelectedPipelineId(nextSelected.id);
+            }
+          }
+          return remaining;
+        });
+
+        await fetchPipelines();
+        return true;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "Failed to delete pipeline template.";
+        setError(msg);
+        toast.error(msg);
+        return false;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [selectedPipelineId, fetchPipelines]
   );
 
   return {
@@ -417,6 +496,7 @@ export function usePipelineSettings() {
     fetchPipelines,
     createPipeline,
     setDefaultPipeline,
+    deletePipeline,
     addStage,
     updateStage,
     deleteStage,

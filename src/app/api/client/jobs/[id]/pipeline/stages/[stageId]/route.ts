@@ -34,16 +34,15 @@ function getHeaders(): Record<string, string> {
 }
 
 async function getCompanyId(userId: number): Promise<number | null> {
-  try {
-    const res = await fetch(
-      `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    const json = await res.json();
-    return json.data?.[0]?.company_id ?? null;
-  } catch {
-    return null;
-  }
+  const res = await fetch(
+    `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  // An unreadable link is not "no link": falling through to the null branch
+  // answered 403/404 and a recruiter read that as having no company at all.
+  if (!res.ok) throw new Error(`Company link lookup failed (${res.status}).`);
+  const json = await res.json();
+  return json.data?.[0]?.company_id ?? null;
 }
 
 export async function PATCH(
@@ -186,6 +185,9 @@ export async function DELETE(
 
     const session = await authenticateRequest(req);
     if (!session) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
 
     const userId = Number(session.userId);
     const companyId = await getCompanyId(userId);

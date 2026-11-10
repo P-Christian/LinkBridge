@@ -1,5 +1,6 @@
 // src/app/api/client/jobs/categories/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,8 +34,16 @@ const FALLBACK_CATEGORIES: RoleCategory[] = [
   { category_id: 9, category_code: "design", category_name: "UI/UX & Product Design", description: "Figma, UX research, interface design" },
 ];
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const session = await authenticateRequest(req);
+    if (!session) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+    if (!isClientSession(session)) {
+      return NextResponse.json({ error: "Client account required." }, { status: 403 });
+    }
+
     if (!DIRECTUS_BASE) {
       return NextResponse.json({ categories: FALLBACK_CATEGORIES });
     }

@@ -1,56 +1,65 @@
-"use client";
-
 import React from "react";
-import { Search, SlidersHorizontal } from "lucide-react";
+import { Search, SlidersHorizontal, RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { JobType, WorkArrangement, ExperienceLevel, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS } from "../types";
+import { MultiSelectFilter } from "./MultiSelectFilter";
+import {
+  JobType,
+  WorkArrangement,
+  ExperienceLevel,
+  DatePostedFilter,
+  JOB_TYPE_LABELS,
+  EXPERIENCE_LEVEL_LABELS,
+  DATE_POSTED_OPTIONS,
+} from "../types";
 
 interface Props {
   search: string;
   onSearchChange: (v: string) => void;
-  filterJobType: JobType | "ALL";
-  onJobTypeChange: (v: JobType | "ALL") => void;
-  filterArrangement: WorkArrangement | "ALL";
-  onArrangementChange: (v: WorkArrangement | "ALL") => void;
-  filterExperience: ExperienceLevel | "ALL";
-  onExperienceChange: (v: ExperienceLevel | "ALL") => void;
+  filterJobTypes: JobType[];
+  onJobTypesChange: (v: JobType[]) => void;
+  filterArrangements: WorkArrangement[];
+  onArrangementsChange: (v: WorkArrangement[]) => void;
+  filterExperienceLevels: ExperienceLevel[];
+  onExperienceLevelsChange: (v: ExperienceLevel[]) => void;
+  filterDatePosted: DatePostedFilter;
+  onDatePostedChange: (v: DatePostedFilter) => void;
+  hasActiveFilters?: boolean;
+  onClearAll?: () => void;
   totalCount: number;
   filteredCount: number;
 }
 
-const JOB_TYPE_OPTIONS = [
-  { value: "ALL", label: "All Types" },
-  ...(Object.entries(JOB_TYPE_LABELS) as [JobType, string][]).map(([k, v]) => ({
-    value: k,
-    label: v,
-  })),
-];
+const JOB_TYPE_OPTIONS = (Object.entries(JOB_TYPE_LABELS) as [JobType, string][]).map(([k, v]) => ({
+  value: k,
+  label: v,
+}));
 
-const ARRANGEMENT_OPTIONS = [
-  { value: "ALL", label: "All Arrangements" },
+const ARRANGEMENT_OPTIONS: { value: WorkArrangement; label: string }[] = [
   { value: "Remote", label: "Remote" },
   { value: "Hybrid", label: "Hybrid" },
   { value: "On-site", label: "On-site" },
 ];
 
-const EXPERIENCE_OPTIONS = [
-  { value: "ALL", label: "All Levels" },
-  ...(Object.entries(EXPERIENCE_LEVEL_LABELS) as [ExperienceLevel, string][]).map(([k, v]) => ({
-    value: k,
-    label: v,
-  })),
-];
+const EXPERIENCE_OPTIONS = (Object.entries(EXPERIENCE_LEVEL_LABELS) as [ExperienceLevel, string][]).map(([k, v]) => ({
+  value: k,
+  label: v,
+}));
 
 export function JobBrowseFilters({
   search,
   onSearchChange,
-  filterJobType,
-  onJobTypeChange,
-  filterArrangement,
-  onArrangementChange,
-  filterExperience,
-  onExperienceChange,
+  filterJobTypes,
+  onJobTypesChange,
+  filterArrangements,
+  onArrangementsChange,
+  filterExperienceLevels,
+  onExperienceLevelsChange,
+  filterDatePosted,
+  onDatePostedChange,
+  hasActiveFilters,
+  onClearAll,
   totalCount,
   filteredCount,
 }: Props) {
@@ -75,32 +84,58 @@ export function JobBrowseFilters({
           <span>Filter:</span>
         </div>
 
-        {/* Job Type */}
-        <SearchableSelect
-          value={filterJobType}
-          onValueChange={(v) => onJobTypeChange(v as JobType | "ALL")}
+        {/* Job Type (Multi-Select) */}
+        <MultiSelectFilter
+          title="Job Types"
+          allLabel="All Types"
           options={JOB_TYPE_OPTIONS}
-          placeholder="Job Type"
-          triggerClassName="h-8 w-36 text-sm md:text-xs rounded-lg max-md:min-h-11"
+          selectedValues={filterJobTypes}
+          onSelectionChange={(vals) => onJobTypesChange(vals as JobType[])}
+          triggerClassName="w-40"
         />
 
-        {/* Work Arrangement */}
-        <SearchableSelect
-          value={filterArrangement}
-          onValueChange={(v) => onArrangementChange(v as WorkArrangement | "ALL")}
+        {/* Work Arrangement (Multi-Select) */}
+        <MultiSelectFilter
+          title="Arrangements"
+          allLabel="All Arrangements"
           options={ARRANGEMENT_OPTIONS}
-          placeholder="Arrangement"
-          triggerClassName="h-8 w-36 text-sm md:text-xs rounded-lg max-md:min-h-11"
+          selectedValues={filterArrangements}
+          onSelectionChange={(vals) => onArrangementsChange(vals as WorkArrangement[])}
+          triggerClassName="w-44"
         />
 
-        {/* Experience Level */}
-        <SearchableSelect
-          value={filterExperience}
-          onValueChange={(v) => onExperienceChange(v as ExperienceLevel | "ALL")}
+        {/* Experience Level (Multi-Select) */}
+        <MultiSelectFilter
+          title="Levels"
+          allLabel="All Levels"
           options={EXPERIENCE_OPTIONS}
-          placeholder="Experience"
-          triggerClassName="h-8 w-40 text-sm md:text-xs rounded-lg max-md:min-h-11"
+          selectedValues={filterExperienceLevels}
+          onSelectionChange={(vals) => onExperienceLevelsChange(vals as ExperienceLevel[])}
+          triggerClassName="w-40"
         />
+
+        {/* Date Posted */}
+        <SearchableSelect
+          value={filterDatePosted}
+          onValueChange={(v) => onDatePostedChange(v as DatePostedFilter)}
+          options={DATE_POSTED_OPTIONS}
+          placeholder="Date Posted"
+          triggerClassName="h-8 w-44 text-sm md:text-xs rounded-lg max-md:min-h-11 border-zinc-200 dark:border-zinc-800"
+        />
+
+        {/* Clear Filters Button */}
+        {hasActiveFilters && onClearAll && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClearAll}
+            className="h-8 text-xs px-2.5 rounded-lg text-rose-600 dark:text-rose-400 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/30 gap-1.5 font-medium transition-colors max-md:min-h-11"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Clear Filters
+          </Button>
+        )}
 
         <span className="ml-auto text-sm md:text-xs text-muted-foreground">
           {filteredCount === totalCount

@@ -36,12 +36,12 @@ export function useClientKeyboardShortcuts() {
 
         if (key === "d") {
           e.preventDefault();
-          router.push("/vos-sync/client/dashboard");
+          router.push("/linkbridge/client/dashboard");
           return;
         }
         if (key === "j") {
           e.preventDefault();
-          router.push("/vos-sync/client/jobs");
+          router.push("/linkbridge/client/jobs");
           return;
         }
       }
@@ -58,7 +58,7 @@ export function useClientKeyboardShortcuts() {
       // Single key: 'n' for new job
       if (key === "n") {
         e.preventDefault();
-        router.push("/vos-sync/client/jobs");
+        router.push("/linkbridge/client/jobs");
       }
     }
 

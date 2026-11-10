@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, memo } from "react";
+import { useRequestAbort } from "@/hooks/useRequestAbort";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -263,7 +264,7 @@ function featureLabel(feature: string): string {
 }
 
 function timeSince(isoString: string | null): string {
-  if (!isoString) return "No recent requests";
+  if (!isoString) return "Engine on standby";
   const ms = Date.now() - new Date(isoString).getTime();
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s ago`;
@@ -293,9 +294,9 @@ const HealthBadge = memo(({ health }: { health: "HEALTHY" | "DEGRADED" | "UNAVAI
           <AlertTriangle className="h-3.5 w-3.5 text-amber-500" /> Degraded
         </Badge>
       )}
-      {health === "NO_DATA" && (
-        <Badge variant="outline" className="bg-muted text-muted-foreground border-border gap-1.5 px-3 py-1 font-bold">
-          <Clock className="h-3.5 w-3.5 text-muted-foreground" /> No Data Yet
+      {(health === "NO_DATA" || (health as string) === "STANDBY") && (
+        <Badge variant="outline" className="bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 gap-1.5 px-3 py-1 font-bold">
+          <Clock className="h-3.5 w-3.5 text-blue-500" /> Standby
         </Badge>
       )}
       {health === "UNAVAILABLE" && (
@@ -342,6 +343,7 @@ export default function GeminiMonitoringDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const abortTelemetry = useRequestAbort();
 
   // Filters State — defaults to 1_DAY (Today) and ALL providers
   const [selectedProvider, setSelectedProvider] = useState<string>("ALL");
@@ -388,6 +390,9 @@ export default function GeminiMonitoringDashboard() {
     else setLoading(true);
     setFetchError(null);
 
+    // Filters and the 30s poll share one payload: only the newest read may write
+    // it, or a 28-day response lands on top of the range just selected.
+    const signal = abortTelemetry();
     try {
       const params = new URLSearchParams();
       if (selectedProvider && selectedProvider !== "ALL") params.set("provider", selectedProvider);
@@ -399,23 +404,38 @@ export default function GeminiMonitoringDashboard() {
       if (selectedFeature && selectedFeature !== "ALL") params.set("feature", selectedFeature);
 
       const qs = params.toString() ? `?${params.toString()}` : "";
-      const res = await fetch(`/api/vos-admin/gemini-monitoring${qs}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`API error ${res.status}`);
+      const res = await fetch(`/api/vos-admin/gemini-monitoring${qs}`, { cache: "no-store", signal });
+      if (signal.aborted) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || `Telemetry read failed (${res.status}).`);
+      }
       const json: TelemetryData = await res.json();
+      if (signal.aborted) return;
       setData(json);
     } catch (err) {
+      if (signal.aborted) return;
       setFetchError((err as Error)?.message || "Failed to load telemetry.");
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      // The newest read clears both flags even if it only set one: the read it
+      // replaced may have raised the other one.
+      if (!signal.aborted) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
-  }, [selectedProvider, timeRange, dateFrom, dateTo, selectedFeature]);
+  }, [selectedProvider, timeRange, dateFrom, dateTo, selectedFeature, abortTelemetry]);
 
   useEffect(() => {
     queueMicrotask(() => {
       fetchTelemetry();
     });
-    const interval = setInterval(() => fetchTelemetry(true), 30000);
+    const interval = setInterval(() => {
+      // The telemetry read aggregates the whole call log; a dashboard left open
+      // in a background tab should not keep paying for it twice a minute.
+      if (document.hidden) return;
+      void fetchTelemetry(true);
+    }, 30000);
     return () => clearInterval(interval);
   }, [fetchTelemetry]);
 
@@ -586,7 +606,7 @@ export default function GeminiMonitoringDashboard() {
                 <span>Refresh</span>
               </Button>
 
-              <Link href="/vos-sync/vos-admin/ai-config">
+              <Link href="/linkbridge/admin/ai-config">
                 <Button
                   variant="outline"
                   size="sm"
@@ -912,7 +932,7 @@ export default function GeminiMonitoringDashboard() {
               size="sm"
               className="h-9 px-4 text-xs rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 text-white gap-2 shadow-xs shrink-0 self-start sm:self-auto"
             >
-              <Link href="/vos-sync/vos-admin/gemini-monitoring/analytics">
+              <Link href="/linkbridge/admin/gemini-monitoring/analytics">
                 <span>View Full Surge Analytics</span>
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>

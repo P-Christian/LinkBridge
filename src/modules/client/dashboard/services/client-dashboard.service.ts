@@ -1,9 +1,12 @@
 // src/modules/client/dashboard/services/client-dashboard.service.ts
 
-import { DashboardData } from "../types";
-
-const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
-const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+import { CompanyInfo, DashboardData } from "../types";
+import {
+  DirectusError,
+  directusItems,
+  directusItemsWhereIn,
+  directusSettled,
+} from "@/lib/server/directus";
 
 interface JobPostingRecord {
   job_id: number;
@@ -49,15 +52,6 @@ interface VsUser {
 interface DirectusProfile {
   user_id: number;
   profile_headline?: string | null;
-}
-
-function getHeaders(): Record<string, string> {
-  const h: Record<string, string> = {
-    "Content-Type": "application/json",
-    Accept: "application/json",
-  };
-  if (DIRECTUS_TOKEN) h["Authorization"] = `Bearer ${DIRECTUS_TOKEN}`;
-  return h;
 }
 
 function formatAvatarUrl(url?: string | null): string | null {
@@ -224,19 +218,11 @@ function generateChartData(
 }
 
 export async function getClientDashboardData(userId: number): Promise<DashboardData> {
-  if (!DIRECTUS_BASE) {
-    throw new Error("Directus base URL not configured.");
-  }
-
   // 1. Resolve company associated with user
-  const linkUrl = `${DIRECTUS_BASE}/items/vs_company_user?filter[user_id][_eq]=${userId}&fields=company_id&limit=1`;
-  const linkRes = await fetch(linkUrl, { headers: getHeaders(), cache: "no-store" });
-  if (!linkRes.ok) {
-    throw new Error(`Failed to query company association (${linkRes.status}).`);
-  }
-
-  const linkJson = await linkRes.json();
-  const companyId = linkJson.data?.[0]?.company_id;
+  const companyLinks = await directusItems<{ company_id: number }>("vs_company_user", {
+    query: `filter[user_id][_eq]=${userId}&fields=company_id&limit=1`,
+  });
+  const companyId = companyLinks[0]?.company_id;
 
   if (!companyId) {
     return {
@@ -258,8 +244,10 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
     "profile_completion_percent", "is_public", "is_active",
     "created_at", "updated_at",
   ].join(",");
-  const companyUrl = `${DIRECTUS_BASE}/items/vs_company/${companyId}?fields=${VS_COMPANY_FIELDS}`;
-  const companyRes = await fetch(companyUrl, { headers: getHeaders(), cache: "no-store" });
+  const companyRes = await directusSettled<{ data?: CompanyInfo }>(
+    `/items/vs_company/${companyId}`,
+    { query: `fields=${VS_COMPANY_FIELDS}` }
+  );
   if (!companyRes.ok) {
     if (companyRes.status === 404) {
       return {
@@ -267,77 +255,77 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
         message: "Complete your company profile to access dashboard metrics.",
       };
     }
-    throw new Error(`Failed to fetch company profile details (${companyRes.status}).`);
+    throw new DirectusError(companyRes.status, companyRes.error);
   }
-  const companyJson = await companyRes.json();
-  const companyData = companyJson.data;
+  const companyData = companyRes.data?.data;
+  if (!companyData) {
+    return {
+      onboardingRequired: true,
+      message: "Complete your company profile to access dashboard metrics.",
+    };
+  }
 
   // 3. Fetch vs_job_posting records
-  const jobsUrl = `${DIRECTUS_BASE}/items/vs_job_posting?filter[company_id][_eq]=${companyId}&sort[]=-created_at&limit=100&fields=*`;
-  const jobsRes = await fetch(jobsUrl, { headers: getHeaders(), cache: "no-store" });
-  const jobsJson = jobsRes.ok ? await jobsRes.json() : { data: [] };
-  let jobsList: JobPostingRecord[] = jobsJson.data ?? [];
+  const jobsQuery = "sort[]=-created_at&limit=-1&fields=*";
+  let jobsList = await directusItems<JobPostingRecord>("vs_job_posting", {
+    query: `filter[company_id][_eq]=${companyId}&${jobsQuery}`,
+  });
 
   if (jobsList.length === 0) {
     // Fallback: check if jobs were saved under created_by_user_id
-    const fallbackUrl = `${DIRECTUS_BASE}/items/vs_job_posting?filter[created_by_user_id][_eq]=${userId}&sort[]=-created_at&limit=100&fields=*`;
-    const fallbackRes = await fetch(fallbackUrl, { headers: getHeaders(), cache: "no-store" });
-    if (fallbackRes.ok) {
-      const fallbackJson = await fallbackRes.json();
-      jobsList = fallbackJson.data ?? [];
-    }
+    jobsList = await directusItems<JobPostingRecord>("vs_job_posting", {
+      query: `filter[created_by_user_id][_eq]=${userId}&${jobsQuery}`,
+    });
   }
 
   const jobIds: number[] = jobsList.map((j) => j.job_id);
 
   // 4. Fetch vs_job_application records
-  let applicantsList: ApplicationRecord[] = [];
-  if (jobIds.length > 0) {
-    const appUrl = `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_in]=${jobIds.join(",")}&sort[]=-applied_at&limit=200&fields=application_id,job_id,user_id,application_status,applied_at`;
-    const appRes = await fetch(appUrl, { headers: getHeaders(), cache: "no-store" });
-    if (appRes.ok) {
-      const appJson = await appRes.json();
-      applicantsList = appJson.data ?? [];
-    }
-  }
+  let applicantsList = await directusItemsWhereIn<ApplicationRecord>(
+    "vs_job_application",
+    "job_id",
+    jobIds,
+    "application_id,job_id,user_id,application_status,applied_at",
+    { extra: "sort[]=-applied_at" }
+  );
 
   // 5. Fetch interviews
-  let interviewsList: DirectusInterviewRecord[] = [];
-  const interviewUrl = `${DIRECTUS_BASE}/items/vs_interview?filter[company_id][_eq]=${companyId}&sort[]=scheduled_at&limit=100&fields=*`;
-  const interviewRes = await fetch(interviewUrl, { headers: getHeaders(), cache: "no-store" });
-  if (interviewRes.ok) {
-    const interviewJson = await interviewRes.json();
-    interviewsList = interviewJson.data ?? [];
-  }
+  const interviewsList = await directusItems<DirectusInterviewRecord>("vs_interview", {
+    query: `filter[company_id][_eq]=${companyId}&sort[]=scheduled_at&limit=-1&fields=*`,
+  });
 
   // Fetch interview application links if there are interviews
   const interviewIds = interviewsList.map((i) => i.interview_id);
   const interviewAppsMap: Record<number, number> = {}; // interview_id -> application_id
   const allInterviewAppIds: number[] = [];
-  if (interviewIds.length > 0) {
-    const iAppUrl = `${DIRECTUS_BASE}/items/vs_interview_application?filter[interview_id][_in]=${interviewIds.join(",")}&fields=interview_id,application_id&limit=100`;
-    const iAppRes = await fetch(iAppUrl, { headers: getHeaders(), cache: "no-store" });
-    if (iAppRes.ok) {
-      const iAppJson = await iAppRes.json();
-      const rows: DirectusInterviewAppRecord[] = iAppJson.data ?? [];
-      rows.forEach((r) => {
-        interviewAppsMap[r.interview_id] = r.application_id;
-        if (r.application_id) allInterviewAppIds.push(r.application_id);
-      });
-    }
-  }
+  const interviewAppRows = await directusItemsWhereIn<DirectusInterviewAppRecord>(
+    "vs_interview_application",
+    "interview_id",
+    interviewIds,
+    "interview_id,application_id"
+  );
+  interviewAppRows.forEach((r) => {
+    interviewAppsMap[r.interview_id] = r.application_id;
+    if (r.application_id) allInterviewAppIds.push(r.application_id);
+  });
 
   // Ensure all application records linked to interviews are present in applicantsList
   const missingAppIds = allInterviewAppIds.filter((appId) => !applicantsList.some((a) => a.application_id === appId));
   if (missingAppIds.length > 0) {
-    const missingAppUrl = `${DIRECTUS_BASE}/items/vs_job_application?filter[application_id][_in]=${missingAppIds.join(",")}&fields=application_id,job_id,user_id,application_status,applied_at&limit=100`;
-    const missingAppRes = await fetch(missingAppUrl, { headers: getHeaders(), cache: "no-store" });
-    if (missingAppRes.ok) {
-      const missingAppJson = await missingAppRes.json();
-      const extraApps: ApplicationRecord[] = missingAppJson.data ?? [];
-      applicantsList = [...applicantsList, ...extraApps];
-    }
+    const extraApps = await directusItemsWhereIn<ApplicationRecord>(
+      "vs_job_application",
+      "application_id",
+      missingAppIds,
+      "application_id,job_id,user_id,application_status,applied_at"
+    );
+    applicantsList = [...applicantsList, ...extraApps];
   }
+
+  // Each batch arrives newest-first, so the flattened list is grouped by job
+  // rather than ordered by date. The order is what "Recent applicants" shows.
+  applicantsList.sort((a, b) =>
+    String(b.applied_at ?? "").localeCompare(String(a.applied_at ?? ""))
+  );
 
   // Current local time
   const now = new Date();
@@ -430,9 +418,9 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
   let applicantsGrowthPercent: number | undefined = undefined;
   if (applicantsPrevMonth > 0) {
     applicantsGrowthPercent = Math.round(((applicantsThisMonth - applicantsPrevMonth) / applicantsPrevMonth) * 100);
-  } else if (applicantsThisMonth > 0) {
-    applicantsGrowthPercent = 100;
   }
+  // A zero baseline has no percentage. Reporting +100% here would put a growth
+  // badge on the dashboard for a change that never happened.
 
   // 7. Time-series aggregation for Hiring Overview chart (7d, 30d, 3m, 6m)
   const chartData = generateChartData(applicantsList, shortlistedApplicants, upcomingInterviews, now);
@@ -484,35 +472,36 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
   const profilesMap: Record<number, { headline?: string; completion: number }> = {};
 
   if (userIds.length > 0) {
-    const usersRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,user_fname,user_lname,user_email,user_position,profile_image_url,profile_completion_percent&limit=50`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    if (usersRes.ok) {
-      const usersJson = await usersRes.json();
-      const usersList: (VsUser & { profile_completion_percent?: number })[] = usersJson.data ?? [];
-      usersList.forEach((u) => {
-        usersMap[u.user_id] = u;
-        if (u.profile_completion_percent) {
-          profilesMap[u.user_id] = { completion: u.profile_completion_percent };
-        }
-      });
-    }
+    // A failed candidate read used to fall through to the placeholder branch, so
+    // every row on "Recent applicants" and the interview widget rendered as an
+    // anonymous "Candidate" with no headline and a 0% match.
+    const [usersList, profilesList] = await Promise.all([
+      directusItemsWhereIn<VsUser & { profile_completion_percent?: number }>(
+        "vs_user",
+        "user_id",
+        userIds,
+        "user_id,user_fname,user_lname,user_email,user_position,profile_image_url,profile_completion_percent"
+      ),
+      directusItemsWhereIn<DirectusProfile & { profile_completion_percent?: number }>(
+        "vs_job_seeker_profile",
+        "user_id",
+        userIds,
+        "user_id,profile_headline,profile_completion_percent"
+      ),
+    ]);
 
-    const profilesRes = await fetch(
-      `${DIRECTUS_BASE}/items/vs_job_seeker_profile?filter[user_id][_in]=${userIds.join(",")}&fields=user_id,profile_headline,profile_completion_percent&limit=50`,
-      { headers: getHeaders(), cache: "no-store" }
-    );
-    if (profilesRes.ok) {
-      const profilesJson = await profilesRes.json();
-      const profilesList: (DirectusProfile & { profile_completion_percent?: number })[] = profilesJson.data ?? [];
-      profilesList.forEach((p) => {
-        profilesMap[p.user_id] = {
-          headline: p.profile_headline || profilesMap[p.user_id]?.headline,
-          completion: p.profile_completion_percent ?? profilesMap[p.user_id]?.completion ?? 0,
-        };
-      });
-    }
+    usersList.forEach((u) => {
+      usersMap[u.user_id] = u;
+      if (u.profile_completion_percent) {
+        profilesMap[u.user_id] = { completion: u.profile_completion_percent };
+      }
+    });
+    profilesList.forEach((p) => {
+      profilesMap[p.user_id] = {
+        headline: p.profile_headline || profilesMap[p.user_id]?.headline,
+        completion: p.profile_completion_percent ?? profilesMap[p.user_id]?.completion ?? 0,
+      };
+    });
   }
 
   const formattedRecentApplicants = topRecentApps.map((a) => {
@@ -627,7 +616,7 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       count: pastUnresolvedInterviews.length,
       severity: "urgent" as const,
       actionLabel: "Mark Outcome",
-      actionUrl: "/vos-sync/client/interviews?tab=awaiting_outcome",
+      actionUrl: "/linkbridge/client/interviews?tab=awaiting_outcome",
       dismissible: false,
     });
   }
@@ -641,52 +630,13 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       description: topJob?.job_title ? `Highest volume in: ${topJob.job_title}` : "Awaiting initial screening",
       count: unreviewedApplicants.length,
       severity: "urgent" as const,
-      actionLabel: "Review Candidates",
-      actionUrl: "/vos-sync/client/applicants?status=APPLIED",
+      actionLabel: "Review Applicants",
+      actionUrl: "/linkbridge/client/applicants?status=APPLIED",
       dismissible: false,
     });
   }
 
-  if (upcomingInterviewsCount > 0) {
-    actionsRequired.push({
-      id: "interviews_awaiting",
-      type: "interview_pending" as const,
-      title: `${upcomingInterviewsCount} upcoming interview${upcomingInterviewsCount > 1 ? "s" : ""} scheduled`,
-      description: nextInterviewSummary,
-      count: upcomingInterviewsCount,
-      severity: "warning" as const,
-      actionLabel: "View Schedule",
-      actionUrl: "/vos-sync/client/interviews",
-      dismissible: false,
-    });
-  }
-
-  if (activeJobs > 0) {
-    actionsRequired.push({
-      id: "active_jobs_review",
-      type: "job_expiring" as const,
-      title: `${activeJobs} active job posting${activeJobs > 1 ? "s" : ""} running`,
-      description: "Monitor candidate pipelines and application intake",
-      count: activeJobs,
-      severity: "info" as const,
-      actionLabel: "Manage Jobs",
-      actionUrl: "/vos-sync/client/jobs",
-      dismissible: true,
-    });
-  }
-
-  if (isVerified) {
-    actionsRequired.push({
-      id: "profile_verified",
-      type: "profile_verification" as const,
-      title: "Company profile verified",
-      description: "Full talent discovery and direct hiring privileges active",
-      severity: "success" as const,
-      actionLabel: "View Profile",
-      actionUrl: "/vos-sync/client/company-profile",
-      dismissible: true,
-    });
-  } else {
+  if (!isVerified) {
     actionsRequired.push({
       id: "profile_pending",
       type: "profile_verification" as const,
@@ -694,7 +644,7 @@ export async function getClientDashboardData(userId: number): Promise<DashboardD
       description: "Submit complete documentation to unlock all hiring features",
       severity: "urgent" as const,
       actionLabel: "Complete Profile",
-      actionUrl: "/vos-sync/client/company-profile",
+      actionUrl: "/linkbridge/client/company-profile",
       dismissible: false,
     });
   }

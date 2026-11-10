@@ -1,9 +1,12 @@
+"use client";
+
 import { Clock, ArrowLeft, Mail, FileText, CheckCircle2 } from "lucide-react";
 import Link from "next/link";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SlideUp, StaggerContainer, StaggerChild } from "@/components/shared/MotionContainer";
+import { usePrimaryPlatformCompany } from "@/hooks/usePrimaryPlatformCompany";
 
 const SECTIONS = [
   { id: "acceptance", title: "1. Acceptance of Terms" },
@@ -17,6 +20,12 @@ const SECTIONS = [
 ];
 
 export default function TermsOfService() {
+  const { company } = usePrimaryPlatformCompany();
+  const brandName = company?.company_name || "LinkBridge";
+  const contactEmail = company?.support_email || company?.company_email || "vertextechcorpofficial@gmail.com";
+  const addressParts = [company?.company_city, company?.company_province, company?.company_country].filter(Boolean).join(", ");
+  const legalOffice = `Legal Agreements Team, ${brandName}${addressParts ? `, ${addressParts}` : ", Philippines"}`;
+
   return (
     <div className="bg-background text-foreground font-sans max-md:pt-2 md:pt-16">
       {/* HERO */}
@@ -48,7 +57,7 @@ export default function TermsOfService() {
             </StaggerChild>
             <StaggerChild>
               <p className="text-lg text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                Welcome to Vos Sync. These terms govern your access to and use of our platform, services, websites, and applications. Please read them carefully.
+                Welcome to {brandName}. These terms govern your access to and use of our platform, services, websites, and applications. Please read them carefully.
               </p>
             </StaggerChild>
           </StaggerContainer>
@@ -80,14 +89,14 @@ export default function TermsOfService() {
               <div id="acceptance" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">1. Acceptance of Terms</h2>
                 <p>
-                  By creating an account, browsing listings, or using any services on Vos Sync, you agree to comply with and be bound by these Terms of Service, along with our Privacy Policy. If you do not agree to these terms, you must immediately cease using the platform.
+                  By creating an account, browsing listings, or using any services on LinkBridge, you agree to comply with and be bound by these Terms of Service, along with our Privacy Policy. If you do not agree to these terms, you must immediately cease using the platform.
                 </p>
               </div>
 
               <div id="eligibility" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">2. Account Eligibility</h2>
                 <p>
-                  To register an account or use Vos Sync, you represent and warrant that:
+                  To register an account or use LinkBridge, you represent and warrant that:
                 </p>
                 <ul className="list-disc pl-5 space-y-2">
                   <li>You are at least 18 years of age or the legal age of majority in your jurisdiction.</li>
@@ -100,7 +109,7 @@ export default function TermsOfService() {
               <div id="conduct" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">3. User Conduct Rules</h2>
                 <p>
-                  You agree to use Vos Sync only for lawful recruitment and job search purposes. You are prohibited from:
+                  You agree to use LinkBridge only for lawful recruitment and job search purposes. You are prohibited from:
                 </p>
                 <ul className="list-disc pl-5 space-y-2">
                   <li>Posting misleading, fraudulent, or outdated job opportunities.</li>
@@ -113,10 +122,10 @@ export default function TermsOfService() {
               <div id="intellectual" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">4. Intellectual Property</h2>
                 <p>
-                  All content, branding elements, software, database matching mechanisms, site designs, and interactive layouts on Vos Sync are the exclusive property of Vos Sync and its licensors. 
+                  All content, branding elements, software, database matching mechanisms, site designs, and interactive layouts on LinkBridge are the exclusive property of LinkBridge and its licensors. 
                 </p>
                 <p>
-                  You retain ownership of the data, resumes, and text descriptions you post to the service. However, by uploading materials, you grant Vos Sync a worldwide, royalty-free, non-exclusive license to host and show your profile data to matching employers or candidates.
+                  You retain ownership of the data, resumes, and text descriptions you post to the service. However, by uploading materials, you grant LinkBridge a worldwide, royalty-free, non-exclusive license to host and show your profile data to matching employers or candidates.
                 </p>
               </div>
 
@@ -135,7 +144,7 @@ export default function TermsOfService() {
               <div id="limitation" className="scroll-mt-28 space-y-3">
                 <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100 border-b border-zinc-100 dark:border-zinc-800 pb-2">6. Limitation of Liability</h2>
                 <p>
-                  To the maximum extent permitted by law, Vos Sync provides the service &quot;as is&quot; and &quot;as available.&quot; We make no warranties regarding:
+                  To the maximum extent permitted by law, LinkBridge provides the service &quot;as is&quot; and &quot;as available.&quot; We make no warranties regarding:
                 </p>
                 <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 space-y-2 text-sm text-zinc-500 dark:text-zinc-400 my-4">
                   <div className="flex gap-3">
@@ -167,12 +176,14 @@ export default function TermsOfService() {
                 </p>
                 <div className="bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl p-6 space-y-3">
                   <div className="flex items-center gap-3">
-                    <Mail className="w-5 h-5 text-zinc-500" />
-                    <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">vertextechcorpofficial@gmail.com</span>
+                    <Mail className="w-5 h-5 text-zinc-500 shrink-0" />
+                    <a href={`mailto:${contactEmail}`} className="text-sm font-medium text-zinc-900 dark:text-zinc-100 hover:text-primary transition-colors">
+                      {contactEmail}
+                    </a>
                   </div>
                   <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-zinc-500" />
-                    <span className="text-sm text-zinc-500 dark:text-zinc-400">Legal Agreements Team, Vos Sync, Manila, Philippines</span>
+                    <FileText className="w-5 h-5 text-zinc-500 shrink-0" />
+                    <span className="text-sm text-zinc-500 dark:text-zinc-400">{legalOffice}</span>
                   </div>
                 </div>
               </div>

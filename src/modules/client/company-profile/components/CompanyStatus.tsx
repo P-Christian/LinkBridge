@@ -49,6 +49,18 @@ const STATUS_CONFIG: Record<
     bodyClass: "text-muted-foreground",
     defaultMessage: "Your business account was submitted successfully. Verification officers are reviewing your organization. Job posting and hiring will unlock once verified.",
   },
+  CORRECTION_REQUIRED: {
+    icon: AlertCircle,
+    label: "Needs Revision",
+    badge: "bg-warning/15 text-warning border-warning/30",
+    container: "border-warning/25 bg-warning/[0.06] backdrop-blur-md",
+    iconWrapper: "bg-warning/15 text-warning border-warning/30",
+    title: "Registration Status: NEEDS REVISION",
+    titleClass: "text-foreground",
+    bodyClass: "text-muted-foreground",
+    defaultMessage:
+      "Our review team returned your submission for revision. Update the highlighted documents and profile details, then resubmit — you can resubmit as many times as needed.",
+  },
   VERIFIED: {
     icon: CheckCircle2,
     label: "Verified",
@@ -95,6 +107,64 @@ const STATUS_CONFIG: Record<
   },
 };
 
+interface ParsedFeedback {
+  subject: string | null;
+  note: string | null;
+}
+
+function parseReviewerFeedback(rawText?: string | null): ParsedFeedback {
+  if (!rawText?.trim()) return { subject: null, note: null };
+  const text = rawText.trim();
+
+  // 1. Double or single newline separation (e.g. "Subject\n\nNote" or "Subject\nNote")
+  if (text.includes("\n")) {
+    const parts = text.split(/\n+/);
+    const subject = parts[0]?.trim() || null;
+    const note = parts.slice(1).join("\n").trim() || null;
+    return { subject, note };
+  }
+
+  // 2. Known standard preset prefix match
+  const KNOWN_PRESETS = [
+    "Incomplete or unreadable BIR Form 2303 registration document",
+    "Expired SEC / DTI Certificate of Registration",
+    "Business Permit address mismatch with submitted company profile",
+    "Invalid or unverified Company TIN registration number",
+    "Authorized representative identification missing or mismatch",
+  ];
+
+  for (const preset of KNOWN_PRESETS) {
+    if (text.toLowerCase().startsWith(preset.toLowerCase())) {
+      const remainder = text.slice(preset.length).trim().replace(/^[\.:\-–—\s]+/, "");
+      return {
+        subject: preset,
+        note: remainder || null,
+      };
+    }
+  }
+
+  // 3. Colon separation: "Subject: Note"
+  const colonMatch = text.match(/^([^:\n]{4,80}):\s*(.+)$/s);
+  if (colonMatch) {
+    return {
+      subject: colonMatch[1].trim(),
+      note: colonMatch[2].trim(),
+    };
+  }
+
+  // 4. Period sentence separation if first sentence looks like a subject/title: "Subject. Note"
+  const periodMatch = text.match(/^([^\.\n]{5,90}\.)\s+(.+)$/s);
+  if (periodMatch) {
+    return {
+      subject: periodMatch[1].replace(/\.$/, "").trim(),
+      note: periodMatch[2].trim(),
+    };
+  }
+
+  // 5. Default fallback
+  return { subject: null, note: text };
+}
+
 export default function CompanyStatus({ status, remarks, publicRejectionReason }: CompanyStatusProps) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.PENDING_VERIFICATION;
   const Icon = cfg.icon;
@@ -130,15 +200,45 @@ export default function CompanyStatus({ status, remarks, publicRejectionReason }
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
             transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-            className="mt-2 p-4 rounded-xl border bg-background/80 dark:bg-background/40 backdrop-blur-xs space-y-1.5 shadow-2xs overflow-hidden"
+            className="mt-2 p-4 rounded-xl border border-destructive/20 bg-background/80 dark:bg-background/40 backdrop-blur-xs space-y-3 shadow-2xs overflow-hidden"
           >
             <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">
-              <ShieldAlert className="h-4 w-4" />
+              <ShieldAlert className="h-4 w-4 shrink-0" />
               Verification Reviewer Feedback / Action Items
             </div>
-            <p className="text-sm md:text-xs text-foreground leading-relaxed whitespace-pre-wrap font-medium">
-              {feedback}
-            </p>
+
+            {(() => {
+              const { subject, note } = parseReviewerFeedback(feedback);
+              if (subject && note) {
+                return (
+                  <div className="space-y-2 pt-0.5">
+                    <div className="space-y-1">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                        Subject / Reason
+                      </span>
+                      <p className="text-xs font-semibold text-foreground">
+                        {subject}
+                      </p>
+                    </div>
+
+                    <div className="space-y-1 pt-2 border-t border-border/60">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground block">
+                        Reviewer Note & Instructions
+                      </span>
+                      <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap font-medium">
+                        {note}
+                      </p>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap font-medium">
+                  {note || subject || feedback}
+                </p>
+              );
+            })()}
           </motion.div>
         )}
       </AnimatePresence>
