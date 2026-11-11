@@ -10,7 +10,7 @@ import {
   CheckCircle2,
   Search,
   Plus,
-  Trash2,
+ 
   Edit2,
   ShieldAlert,
   Loader2,
@@ -1200,16 +1200,7 @@ export function RoleDetailSheet({
                             )}
                             Mark Inactive
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={selectedSkillIds.size === 0 || isBulkDeletingSkills}
-                            onClick={() => setBulkDeleteSkillsConfirmOpen(true)}
-                            className="h-7 px-2.5 text-xs font-bold gap-1 bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Delete ({selectedSkillIds.size})
-                          </Button>
+ 
                           <Button
                             size="sm"
                             variant="outline"
@@ -1312,17 +1303,7 @@ export function RoleDetailSheet({
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
 
-                                {/* Delete Button (Icon-only) */}
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteSkillTarget(s)}
-                                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                  title="Delete Skill"
-                                  aria-label="Delete Skill"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-
+        
                                 {/* Checkbox at rightmost (ONLY when Multiple Delete is toggled on) */}
                                 {isBulkDeleteSkillMode && (
                                   <div
@@ -1612,16 +1593,7 @@ export function RoleDetailSheet({
                             )}
                             Mark Inactive
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={selectedKwIds.size === 0 || isBulkDeletingKws}
-                            onClick={() => setBulkDeleteKwConfirmOpen(true)}
-                            className="h-7 px-2.5 text-xs font-bold gap-1 bg-rose-600 hover:bg-rose-700 text-white cursor-pointer"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            Delete ({selectedKwIds.size})
-                          </Button>
+ 
                           <Button
                             size="sm"
                             variant="outline"
@@ -1717,17 +1689,7 @@ export function RoleDetailSheet({
                                   <Pencil className="h-3.5 w-3.5" />
                                 </button>
 
-                                {/* Delete Button (Icon-only) */}
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteKeywordTarget(kw)}
-                                  className="p-1.5 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                  title="Delete Keyword"
-                                  aria-label="Delete Keyword"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-
+                              
                                 {/* Checkbox at rightmost (ONLY when Multiple Delete is toggled on) */}
                                 {isBulkDeleteKwMode && (
                                   <div
