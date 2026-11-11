@@ -138,7 +138,7 @@ const SCHOOL_DASHBOARD_SIDEBAR_CONFIG: SidebarConfig = {
     ],
 };
 
-const SCHOOL_ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
+const ADMIN_SIDEBAR_CONFIG: SidebarConfig = {
     title: "LinkBridge",
     subtitle: "ADMIN PORTAL",
     homeUrl: "/linkbridge/admin",
@@ -213,7 +213,7 @@ export function AppSidebar({
     }
 
     if (role === "ADMIN" || pathname.startsWith("/linkbridge/admin") || pathname.startsWith("/linkbridge/admin") || portal === "vos-admin" || portal === "admin") {
-        return <DashboardSidebar config={SCHOOL_ADMIN_SIDEBAR_CONFIG} {...props} />;
+        return <DashboardSidebar config={ADMIN_SIDEBAR_CONFIG} {...props} />;
     }
     return (
         <Sidebar

@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
-import { FolderTree, Plus, Loader2, Check, Pencil, Trash2, Sparkles, Power, Ban, AlertTriangle } from "lucide-react";
+import { FolderTree, Plus, Loader2, Check, Pencil, Sparkles, Power, Ban, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -13,7 +13,7 @@ import { slugifyCode, validateCategoryInput } from "../validators";
 import { JobCategory } from "../types";
 
 export function JobCategoryManager() {
-  const { categories, loading, addCategory, editCategory, removeCategory } = useJobCategories();
+  const { categories, loading, addCategory, editCategory } = useJobCategories();
   const [openModal, setOpenModal] = useState(false);
   const [editingCategory, setEditingCategory] = useState<JobCategory | null>(null);
 
@@ -24,7 +24,7 @@ export function JobCategoryManager() {
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<JobCategory | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleting] = useState(false);
   const [aiDescLoading, setAiDescLoading] = useState(false);
 
   // Inactive categories sort to the bottom (last)
@@ -105,16 +105,7 @@ export function JobCategoryManager() {
     }
   };
 
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
-    const ok = await removeCategory(deleteTarget.category_id);
-    setIsDeleting(false);
-    if (ok) {
-      toast.success(`Category "${deleteTarget.category_name}" deleted.`);
-      setDeleteTarget(null);
-    }
-  };
+ 
 
   const handleAiGenerateDesc = useCallback(async () => {
     const name = nameInput.trim() || codeInput.trim();
@@ -239,14 +230,7 @@ export function JobCategoryManager() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteTarget(cat)}
-                        className="h-7 w-7 p-0 text-zinc-500 hover:text-rose-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+             
                     </div>
                   </td>
                 </tr>
@@ -287,16 +271,7 @@ export function JobCategoryManager() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={handleConfirmDelete}
-              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
-            >
-              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Delete Permanently
-            </Button>
+ 
           </div>
         </DialogContent>
       </Dialog>

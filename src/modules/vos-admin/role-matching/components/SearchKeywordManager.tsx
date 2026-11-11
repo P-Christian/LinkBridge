@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
-import { Search, Plus, Loader2, Check, ShieldAlert, Pencil, Trash2,    X } from "lucide-react";
+import { Search, Plus, Loader2, Check, ShieldAlert, Pencil,     X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +18,7 @@ import type { AiSuggestResult, AiSuggestedKeyword } from "@/app/api/vos-admin/jo
 export function SearchKeywordManager() {
   const { roles } = useStandardRoles();
   const [selectedRoleId, setSelectedRoleId] = useState<number | undefined>(undefined);
-  const { keywords, loading, addKeyword, editKeyword, removeKeyword } = useSearchKeywords(selectedRoleId);
+  const { keywords, loading, addKeyword, editKeyword } = useSearchKeywords(selectedRoleId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingKeyword, setEditingKeyword] = useState<SearchKeyword | null>(null);
@@ -98,11 +98,7 @@ export function SearchKeywordManager() {
     }
   };
 
-  const handleDelete = async (aliasId: number) => {
-    if (confirm("Are you sure you want to delete this search keyword?")) {
-      await removeKeyword(aliasId);
-    }
-  };
+ 
 
   // The generator writes to whichever role the panel targets, which is not
   // always the one selected in the toolbar — the heading has to name the former.
@@ -398,9 +394,6 @@ export function SearchKeywordManager() {
                     <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEditModal(k)} className="h-7 w-7 p-0 text-zinc-500 hover:text-emerald-600">
                         <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(k.alias_id)} className="h-7 w-7 p-0 text-zinc-500 hover:text-rose-600">
-                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </td>

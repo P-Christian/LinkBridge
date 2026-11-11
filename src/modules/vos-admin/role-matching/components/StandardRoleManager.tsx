@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Briefcase, Plus, Loader2, Check, Pencil, Trash2, Power, Ban, AlertTriangle } from "lucide-react";
+import { Briefcase, Plus, Loader2, Check, Pencil, Power, Ban, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -18,7 +18,7 @@ const LEVELS: ExperienceLevel[] = ["ENTRY", "JUNIOR", "MID", "SENIOR", "LEAD", "
 export function StandardRoleManager() {
   const { categories } = useJobCategories();
   const [selectedCatId, setSelectedCatId] = useState<number | undefined>(undefined);
-  const { roles, loading, addRole, editRole, removeRole } = useStandardRoles(selectedCatId);
+  const { roles, loading, addRole, editRole } = useStandardRoles(selectedCatId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingRole, setEditingRole] = useState<StandardRole | null>(null);
@@ -30,7 +30,7 @@ export function StandardRoleManager() {
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<StandardRole | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleting] = useState(false);
 
   // Inactive roles sort to the bottom (last)
   const sortedRoles = useMemo(() => {
@@ -54,17 +54,7 @@ export function StandardRoleManager() {
       );
     }
   };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
-    const ok = await removeRole(deleteTarget.role_id);
-    setIsDeleting(false);
-    if (ok) {
-      toast.success(`Role "${deleteTarget.role_name}" deleted.`);
-      setDeleteTarget(null);
-    }
-  };
+ 
 
   const openCreateModal = () => {
     setEditingRole(null);
@@ -232,14 +222,7 @@ export function StandardRoleManager() {
                       >
                         <Pencil className="h-3.5 w-3.5" />
                       </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDeleteTarget(r)}
-                        className="h-7 w-7 p-0 text-zinc-500 hover:text-rose-600"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+
                     </div>
                   </td>
                 </tr>
@@ -280,16 +263,7 @@ export function StandardRoleManager() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={handleConfirmDelete}
-              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
-            >
-              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Delete Permanently
-            </Button>
+
           </div>
         </DialogContent>
       </Dialog>
