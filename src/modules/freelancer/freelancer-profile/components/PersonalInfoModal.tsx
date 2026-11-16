@@ -18,7 +18,7 @@ interface PersonalInfoModalProps {
 
 export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
     const { data, pendingPersonalInfo, setPersonalInfoDraft, pendingSocialLinks, setSocialLinksDraft } = useFreelancerProfileContext();
-    
+
     // Initial state setup based on pending draft or live data
     const [formData, setFormData] = useState<Partial<FreelancerProfile>>({});
     const [socialLinks, setSocialLinks] = useState<VsUserSocialLink[]>([]);
@@ -77,7 +77,7 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                 if (!isMounted) return;
                 setProvinces(data);
                 setLocationError(null);
-                
+
                 // Restore province code if we have a saved name
                 // We actually want to check the `formData.user_province` because it is set when the modal opens
             } catch (err) {
@@ -181,9 +181,6 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
         }
         if (!formData.user_lname || !formData.user_lname.trim()) {
             newFieldErrors.user_lname = "Last name is required";
-        }
-        if (!formData.user_contact || !formData.user_contact.trim()) {
-            newFieldErrors.user_contact = "Contact number is required";
         }
         if (!formData.user_bday || !formData.user_bday.trim()) {
             newFieldErrors.user_bday = "Birthday is required";
@@ -305,9 +302,9 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                         Edit Personal Information
                     </DialogTitle>
                 </DialogHeader>
-                
+
                 <div className="p-6 overflow-y-auto flex-1 space-y-8 min-h-0">
-                    
+
                     {/* Basic Info Section */}
                     <div>
                         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4 border-b pb-2">Basic Info</h3>
@@ -319,11 +316,10 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="user_fname"
                                     value={formData.user_fname || ""}
                                     onChange={handleChange}
-                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
-                                        formErrors.user_fname
-                                            ? "border-destructive focus-visible:ring-destructive"
-                                            : "border-input focus-visible:ring-ring"
-                                    }`}
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${formErrors.user_fname
+                                        ? "border-destructive focus-visible:ring-destructive"
+                                        : "border-input focus-visible:ring-ring"
+                                        }`}
                                 />
                                 {formErrors.user_fname && (
                                     <p className="text-xs text-destructive font-medium">{formErrors.user_fname}</p>
@@ -346,11 +342,10 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="user_lname"
                                     value={formData.user_lname || ""}
                                     onChange={handleChange}
-                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
-                                        formErrors.user_lname
-                                            ? "border-destructive focus-visible:ring-destructive"
-                                            : "border-input focus-visible:ring-ring"
-                                    }`}
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${formErrors.user_lname
+                                        ? "border-destructive focus-visible:ring-destructive"
+                                        : "border-input focus-visible:ring-ring"
+                                        }`}
                                 />
                                 {formErrors.user_lname && (
                                     <p className="text-xs text-destructive font-medium">{formErrors.user_lname}</p>
@@ -396,17 +391,17 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                         <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4 border-b pb-2">Contact</h3>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-foreground">Contact Number *</label>
+                                <label className="text-sm font-medium text-foreground">Contact Number (Optional)</label>
                                 <input
                                     type="text"
                                     name="user_contact"
                                     value={formData.user_contact || ""}
                                     onChange={handleChange}
-                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
-                                        formErrors.user_contact
-                                            ? "border-destructive focus-visible:ring-destructive"
-                                            : "border-input focus-visible:ring-ring"
-                                    }`}
+                                    placeholder="e.g. +63 912 345 6789"
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${formErrors.user_contact
+                                        ? "border-destructive focus-visible:ring-destructive"
+                                        : "border-input focus-visible:ring-ring"
+                                        }`}
                                 />
                                 {formErrors.user_contact && (
                                     <p className="text-xs text-destructive font-medium">{formErrors.user_contact}</p>
@@ -428,11 +423,10 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     max={todayString}
                                     value={formData.user_bday ? formData.user_bday.slice(0, 10) : ""}
                                     onChange={handleBirthdayChange}
-                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${
-                                        formErrors.user_bday
-                                            ? "border-destructive focus-visible:ring-destructive"
-                                            : "border-input focus-visible:ring-ring"
-                                    }`}
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 ${formErrors.user_bday
+                                        ? "border-destructive focus-visible:ring-destructive"
+                                        : "border-input focus-visible:ring-ring"
+                                        }`}
                                 />
                                 {formErrors.user_bday && (
                                     <p className="text-xs text-destructive font-medium">{formErrors.user_bday}</p>
@@ -444,11 +438,10 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                     name="gender"
                                     value={formData.gender || ""}
                                     onChange={handleChange}
-                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 ${
-                                        formErrors.gender
-                                            ? "border-destructive focus-visible:ring-destructive"
-                                            : "border-input focus-visible:ring-ring"
-                                    }`}
+                                    className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 ${formErrors.gender
+                                        ? "border-destructive focus-visible:ring-destructive"
+                                        : "border-input focus-visible:ring-ring"
+                                        }`}
                                 >
                                     <option value="">Select Gender</option>
                                     <option value="Male">Male</option>
@@ -576,9 +569,9 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                     <div>
                         <div className="flex items-center justify-between border-b pb-2 mb-4">
                             <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Social Links</h3>
-                            <Button 
-                                variant="outline" 
-                                size="sm" 
+                            <Button
+                                variant="outline"
+                                size="sm"
                                 className="h-8 gap-1 max-md:min-h-11"
                                 onClick={() => setSocialLinks([...socialLinks, { id: -Date.now(), user_id: data.user_id, platform_name: 'Github', profile_url: '' }])}
                             >
@@ -651,13 +644,12 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                                                         });
                                                     }
                                                 }}
-                                                className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                                                    linkError ? "border-destructive focus-visible:ring-destructive" : "border-input"
-                                                }`}
+                                                className={`flex h-11 md:h-10 w-full rounded-md border bg-transparent px-3 py-2 text-base md:text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${linkError ? "border-destructive focus-visible:ring-destructive" : "border-input"
+                                                    }`}
                                             />
-                                            <Button 
-                                                variant="ghost" 
-                                                size="icon" 
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
                                                 className="h-10 w-10 shrink-0 text-muted-foreground hover:text-destructive max-md:size-11"
                                                 onClick={() => {
                                                     const newLinks = [...socialLinks];
@@ -693,7 +685,7 @@ export function PersonalInfoModal({ isOpen, onClose }: PersonalInfoModalProps) {
                     <Button variant="outline" onClick={onClose} className="max-md:min-h-11">
                         Cancel
                     </Button>
-                    <Button 
+                    <Button
                         onClick={handleApply}
                         className="bg-primary text-primary-foreground hover:bg-primary/90 max-md:min-h-11"
                     >
