@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { useSearchParams, useRouter } from 'next/navigation';
 import {
   Briefcase, User, Eye, EyeOff, Check, ArrowLeft, ChevronDown, Search,
-  Upload, X, FileText, Shield, Building2, GraduationCap, CheckCircle2,
+  Upload, Shield, Building2, GraduationCap, CheckCircle2,
 } from 'lucide-react';
 
 import { cn } from '@/lib/utils';
@@ -22,6 +22,12 @@ import { toast } from 'sonner';
 import { validatePasswordStrict } from '@/lib/password-validation';
 import PasswordRequirementsChecklist from '@/components/auth/PasswordRequirementsChecklist';
 import TurnstileWidget from '@/components/auth/TurnstileWidget';
+import { ImageUploadSlot } from '@/components/shared/upload/ImageUploadSlot';
+import {
+  fetchProvinces as fetchProvincesFromLib,
+  fetchCities as fetchCitiesFromLib,
+  fetchBarangays as fetchBarangaysFromLib,
+} from '@/lib/psgc';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import type { RegistrationRole } from '@/modules/auth/registration/registration.types';
 import {
@@ -464,6 +470,7 @@ function SignupPageContent() {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [confirmTouched, setConfirmTouched] = useState(false);
   const [contactCountry, setContactCountry] = useState<CountryData>(COUNTRIES[0]);
 
   // ── Client Step 2: Gov ID Upload ──────────────────────────────────────────
@@ -471,15 +478,9 @@ function SignupPageContent() {
 
   // Front ID
   const [govIdFrontFile, setGovIdFrontFile] = useState<File | null>(null);
-  const [govIdFrontPreview, setGovIdFrontPreview] = useState<string | null>(null);
-  const [dragOverFront, setDragOverFront] = useState(false);
-  const govIdFrontInputRef = useRef<HTMLInputElement>(null);
 
   // Back ID
   const [govIdBackFile, setGovIdBackFile] = useState<File | null>(null);
-  const [govIdBackPreview, setGovIdBackPreview] = useState<string | null>(null);
-  const [dragOverBack, setDragOverBack] = useState(false);
-  const govIdBackInputRef = useRef<HTMLInputElement>(null);
 
   // ── Client Step 3: Company Info ───────────────────────────────────────────
   const [company, setCompany] = useState({
@@ -500,6 +501,10 @@ function SignupPageContent() {
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const [clientHumanConfirmed, setClientHumanConfirmed] = useState(false);
+  const [otpCorrectionHumanConfirmed, setOtpCorrectionHumanConfirmed] = useState(false);
+  const [freelancerHumanConfirmed, setFreelancerHumanConfirmed] = useState(false);
+  const [schoolHumanConfirmed, setSchoolHumanConfirmed] = useState(false);
 
   // ── Shared OTP ────────────────────────────────────────────────────────────
   const [otp, setOtp] = useState('');
@@ -560,7 +565,7 @@ function SignupPageContent() {
   const [freelancerEmploymentTypes, setFreelancerEmploymentTypes] = useState<string[]>([]);
   const [freelancerSkills, setFreelancerSkills] = useState<SelectedSkill[]>([]);
   const [freelancerTermsAgreed, setFreelancerTermsAgreed] = useState(false);
-  const [freelancerMarketingConsent, setFreelancerMarketingConsent] = useState(true);
+  const [freelancerMarketingConsent, setFreelancerMarketingConsent] = useState(false);
   const [freelancerErrors, setFreelancerErrors] = useState<Record<string, string>>({});
 
   // Resume file state
@@ -570,9 +575,7 @@ function SignupPageContent() {
   // Gov ID state
   const [freelancerGovIdType, setFreelancerGovIdType] = useState('');
   const [freelancerGovIdFrontFile, setFreelancerGovIdFrontFile] = useState<File | null>(null);
-  const [freelancerGovIdFrontPreview, setFreelancerGovIdFrontPreview] = useState<string | null>(null);
   const [freelancerGovIdBackFile, setFreelancerGovIdBackFile] = useState<File | null>(null);
-  const [freelancerGovIdBackPreview, setFreelancerGovIdBackPreview] = useState<string | null>(null);
 
   // ── School Signup State ───────────────────────────────────────────────────
   const [schoolFormData, setSchoolFormData] = useState({
@@ -596,6 +599,13 @@ function SignupPageContent() {
   const [schoolShowPassword, setSchoolShowPassword] = useState(false);
   const [schoolTermsAgreed, setSchoolTermsAgreed] = useState(false);
   const [schoolErrors, setSchoolErrors] = useState<Record<string, string>>({});
+
+  // Clear any stale or autofilled credentials once on mount so React state never starts dirty.
+  useEffect(() => {
+    setStep1(prev => ({ ...prev, password: '', confirmPassword: '' }));
+    setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
+    setSchoolFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
+  }, []);
 
 
   // ── Master Data Fetching (vs_company_size & vs_industry) ─────────────────
@@ -645,7 +655,18 @@ function SignupPageContent() {
               ? [{ id, name }]
               : [];
           });
-        const companySizes = toOptions(metadata.companySizes);
+        const companySizeSortKey = (name: string): number | null => {
+          const match = name.match(/\d+/);
+          return match ? parseInt(match[0], 10) : null;
+        };
+        const companySizes = [...toOptions(metadata.companySizes)].sort((a, b) => {
+          const keyA = companySizeSortKey(a.name);
+          const keyB = companySizeSortKey(b.name);
+          if (keyA === null && keyB === null) return 0;
+          if (keyA === null) return 1;
+          if (keyB === null) return -1;
+          return keyA - keyB;
+        });
         const industries = toOptions(metadata.industries);
         if (companySizes.length > 0) setFetchedCompanySizes(companySizes);
         if (industries.length > 0) setFetchedIndustries(industries);
@@ -656,7 +677,7 @@ function SignupPageContent() {
     loadMasterCollections();
   }, []);
 
-  // ── PSGC API ──────────────────────────────────────────────────────────────
+  // ── PSGC API (delegates to @/lib/psgc, which already merges Metro Manila NCR) ──
 
   const fetchProvinces = useCallback(async () => {
     setLoadingProvinces(true);
@@ -664,10 +685,8 @@ function SignupPageContent() {
     setCities([]);
     setCompany(prev => ({ ...prev, companyProvinceCode: '', companyProvince: '', companyCityCode: '', companyCity: '' }));
     try {
-      const res = await fetch('https://psgc.gitlab.io/api/provinces/', { cache: 'force-cache' });
-      if (!res.ok) throw new Error('Failed to load provinces');
-      const data = await res.json() as Array<{ code: string; name: string }>;
-      setProvinces(data.sort((a, b) => a.name.localeCompare(b.name)).map(p => ({ code: p.code, name: p.name })));
+      const data = await fetchProvincesFromLib();
+      setProvinces(data.map(p => ({ code: p.code, name: p.name })));
     } catch {
       toast.error('Could not load province list. Please try again.');
     } finally {
@@ -685,10 +704,8 @@ function SignupPageContent() {
       setSchoolFormData(prev => ({ ...prev, cityCode: '', city: '', schoolBarangayCode: '', schoolBarangay: '' }));
     }
     try {
-      const res = await fetch(`https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`, { cache: 'force-cache' });
-      if (!res.ok) throw new Error('Failed to load cities');
-      const data = await res.json() as Array<{ code: string; name: string }>;
-      setCities(data.sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ code: c.code, name: c.name })));
+      const data = await fetchCitiesFromLib(provinceCode);
+      setCities(data.map(c => ({ code: c.code, name: c.name })));
     } catch {
       toast.error('Could not load city list. Please try again.');
     } finally {
@@ -705,10 +722,8 @@ function SignupPageContent() {
       setSchoolFormData(prev => ({ ...prev, schoolBarangayCode: '', schoolBarangay: '' }));
     }
     try {
-      const res = await fetch(`https://psgc.gitlab.io/api/cities-municipalities/${cityCode}/barangays/`, { cache: 'force-cache' });
-      if (!res.ok) throw new Error('Failed to load barangays');
-      const data = await res.json() as Array<{ code: string; name: string }>;
-      setBarangays(data.sort((a, b) => a.name.localeCompare(b.name)).map(b => ({ code: b.code, name: b.name })));
+      const data = await fetchBarangaysFromLib(cityCode);
+      setBarangays(data.map(b => ({ code: b.code, name: b.name })));
     } catch {
       toast.error('Could not load barangay list. Please try again.');
     } finally {
@@ -816,9 +831,7 @@ function SignupPageContent() {
     setBarangays([]);
     setGovIdType('');
     setGovIdFrontFile(null);
-    setGovIdFrontPreview(null);
     setGovIdBackFile(null);
-    setGovIdBackPreview(null);
     setTermsAgreed(false);
     setMarketingConsent(false);
     setTurnstileToken('');
@@ -834,11 +847,9 @@ function SignupPageContent() {
     setFreelancerResumeFileName(null);
     setFreelancerGovIdType('');
     setFreelancerGovIdFrontFile(null);
-    setFreelancerGovIdFrontPreview(null);
     setFreelancerGovIdBackFile(null);
-    setFreelancerGovIdBackPreview(null);
     setFreelancerTermsAgreed(false);
-    setFreelancerMarketingConsent(true);
+    setFreelancerMarketingConsent(false);
 
     // Reset School Form (preserving social prefill if present)
     setSchoolFormData({
@@ -891,7 +902,29 @@ function SignupPageContent() {
 
   const s1Set = (field: string, value: string) => {
     setStep1(prev => ({ ...prev, [field]: value }));
+    if (field === 'confirmPassword') return;
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
+  };
+
+  const handleClientPasswordChange = (value: string) => {
+    s1Set('password', value);
+    if (confirmTouched) {
+      const confirm = step1.confirmPassword;
+      setErrors(prev => ({ ...prev, confirmPassword: confirm && value !== confirm ? 'Passwords do not match.' : '' }));
+    }
+  };
+
+  const handleClientConfirmChange = (value: string) => {
+    setStep1(prev => ({ ...prev, confirmPassword: value }));
+    setConfirmTouched(true);
+    setErrors(prev => ({ ...prev, confirmPassword: value && step1.password !== value ? 'Passwords do not match.' : '' }));
+  };
+
+  const handleClientConfirmBlur = () => {
+    setConfirmTouched(true);
+    if (step1.confirmPassword && step1.password !== step1.confirmPassword) {
+      setErrors(prev => ({ ...prev, confirmPassword: 'Passwords do not match.' }));
+    }
   };
 
   const validateStep1 = (): boolean => {
@@ -940,23 +973,9 @@ function SignupPageContent() {
 
     if (side === 'front') {
       setGovIdFrontFile(file);
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = e => setGovIdFrontPreview(e.target?.result as string);
-        reader.readAsDataURL(file);
-      } else {
-        setGovIdFrontPreview(null);
-      }
       setErrors(prev => ({ ...prev, govIdFrontFile: '' }));
     } else {
       setGovIdBackFile(file);
-      if (file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = e => setGovIdBackPreview(e.target?.result as string);
-        reader.readAsDataURL(file);
-      } else {
-        setGovIdBackPreview(null);
-      }
       setErrors(prev => ({ ...prev, govIdBackFile: '' }));
     }
   };
@@ -1358,7 +1377,7 @@ function SignupPageContent() {
               <label className="block text-sm font-medium text-foreground">
                 Work Email Address <span className="text-destructive">*</span>
               </label>
-              <Input id="c-email" type="email" value={step1.email}
+              <Input id="c-email" type="email" autoComplete="email" value={step1.email}
                 onChange={e => s1Set('email', e.target.value)} disabled={loading}
                 placeholder="e.g. hr@company.com"
                 className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.email && 'border-destructive')} />
@@ -1377,8 +1396,8 @@ function SignupPageContent() {
                     Password <span className="text-destructive">*</span>
                   </label>
                   <div className="relative">
-                    <Input id="c-password" type={showPassword ? 'text' : 'password'} value={step1.password}
-                      onChange={e => s1Set('password', e.target.value)} disabled={loading} placeholder="8+ characters"
+                    <Input id="c-password" type={showPassword ? 'text' : 'password'} autoComplete="new-password" value={step1.password}
+                      onChange={e => handleClientPasswordChange(e.target.value)} disabled={loading} placeholder="8+ characters"
                       className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.password && 'border-destructive')} />
                     <button type="button" onClick={() => setShowPassword(!showPassword)}
                       className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
@@ -1392,8 +1411,8 @@ function SignupPageContent() {
                     Confirm Password <span className="text-destructive">*</span>
                   </label>
                   <div className="relative">
-                    <Input id="c-confirm" type={showConfirmPassword ? 'text' : 'password'} value={step1.confirmPassword}
-                      onChange={e => s1Set('confirmPassword', e.target.value)} disabled={loading} placeholder="Repeat password"
+                    <Input id="c-confirm" type={showConfirmPassword ? 'text' : 'password'} autoComplete="new-password" value={step1.confirmPassword}
+                      onChange={e => handleClientConfirmChange(e.target.value)} onBlur={handleClientConfirmBlur} disabled={loading} placeholder="Repeat password"
                       className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.confirmPassword && 'border-destructive')} />
                     <button type="button" onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                       className="max-md:flex max-md:h-11 max-md:w-11 max-md:items-center max-md:justify-center absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground cursor-pointer">
@@ -1417,7 +1436,7 @@ function SignupPageContent() {
                 <label className="block text-sm font-medium text-foreground">
                   First Name <span className="text-destructive">*</span>
                 </label>
-                <Input id="c-firstName" value={step1.firstName} onChange={e => s1Set('firstName', e.target.value)}
+                <Input id="c-firstName" autoComplete="given-name" value={step1.firstName} onChange={e => s1Set('firstName', e.target.value)}
                   disabled={loading} placeholder="e.g. Jane"
                   className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.firstName && 'border-destructive')} />
                 {errors.firstName && <p className="text-xs text-destructive mt-1 font-medium">{errors.firstName}</p>}
@@ -1426,7 +1445,7 @@ function SignupPageContent() {
                 <label className="block text-sm font-medium text-foreground">
                   Last Name <span className="text-destructive">*</span>
                 </label>
-                <Input id="c-lastName" value={step1.lastName} onChange={e => s1Set('lastName', e.target.value)}
+                <Input id="c-lastName" autoComplete="family-name" value={step1.lastName} onChange={e => s1Set('lastName', e.target.value)}
                   disabled={loading} placeholder="e.g. Dela Cruz"
                   className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.lastName && 'border-destructive')} />
                 {errors.lastName && <p className="text-xs text-destructive mt-1 font-medium">{errors.lastName}</p>}
@@ -1510,49 +1529,21 @@ function SignupPageContent() {
             Front Side of ID <span className="text-destructive">*</span>
           </label>
 
-          {!govIdFrontFile ? (
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOverFront(true); }}
-              onDragLeave={() => setDragOverFront(false)}
-              onDrop={e => { e.preventDefault(); setDragOverFront(false); const f = e.dataTransfer.files[0]; if (f) validateAndSetGovIdFile(f, 'front'); }}
-              onClick={() => govIdFrontInputRef.current?.click()}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200',
-                dragOverFront ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/30',
-                errors.govIdFrontFile && 'border-destructive'
-              )}
-            >
-              <Upload className="mx-auto mb-2 text-muted-foreground/60" size={28} />
-              <p className="text-sm font-medium text-foreground mb-0.5">
-                Drop <span className="font-semibold text-primary">Front Side</span> here, or <span className="text-primary">browse</span>
-              </p>
-              <p className="text-xs text-muted-foreground">Accepted: .jpg, .png, .pdf — Max 5MB</p>
-            </div>
-          ) : (
-            <div className="border-2 border-border rounded-xl p-3 flex items-center gap-3">
-              {govIdFrontPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={govIdFrontPreview} alt="Front ID Preview" className="w-16 h-12 object-cover rounded-lg border border-border shrink-0" />
-              ) : (
-                <div className="w-16 h-12 bg-muted/50 rounded-lg border border-border flex items-center justify-center shrink-0">
-                  <FileText size={20} className="text-muted-foreground" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-primary uppercase tracking-wide">Front Side</p>
-                <p className="text-sm font-medium text-foreground truncate">{govIdFrontFile.name}</p>
-                <p className="text-[11px] text-muted-foreground">{(govIdFrontFile.size / 1024 / 1024).toFixed(2)} MB</p>
-              </div>
-              <button type="button"
-                onClick={() => { setGovIdFrontFile(null); setGovIdFrontPreview(null); }}
-                className="text-muted-foreground hover:text-destructive transition-colors p-1">
-                <X size={18} />
-              </button>
-            </div>
-          )}
-          <input ref={govIdFrontInputRef} type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) validateAndSetGovIdFile(f, 'front'); e.target.value = ''; }} />
-          {errors.govIdFrontFile && <p className="text-xs text-destructive mt-1 font-medium">{errors.govIdFrontFile}</p>}
+          <ImageUploadSlot
+            label="Front Side of ID"
+            file={govIdFrontFile}
+            onChange={(file) => {
+              if (file) validateAndSetGovIdFile(file, 'front');
+              else setGovIdFrontFile(null);
+            }}
+            facingMode="environment"
+            cameraModalTitle="Take a photo of your ID"
+            required
+            accept=".jpg,.jpeg,.png,.pdf"
+            hideLabel
+            disabled={loading}
+            error={errors.govIdFrontFile}
+          />
         </div>
 
         {/* Back ID Dropzone */}
@@ -1561,49 +1552,20 @@ function SignupPageContent() {
             Back Side of ID <span className="text-muted-foreground font-normal text-xs">(Optional)</span>
           </label>
 
-          {!govIdBackFile ? (
-            <div
-              onDragOver={e => { e.preventDefault(); setDragOverBack(true); }}
-              onDragLeave={() => setDragOverBack(false)}
-              onDrop={e => { e.preventDefault(); setDragOverBack(false); const f = e.dataTransfer.files[0]; if (f) validateAndSetGovIdFile(f, 'back'); }}
-              onClick={() => govIdBackInputRef.current?.click()}
-              className={cn(
-                'border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all duration-200',
-                dragOverBack ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50 hover:bg-muted/30',
-                errors.govIdBackFile && 'border-destructive'
-              )}
-            >
-              <Upload className="mx-auto mb-2 text-muted-foreground/60" size={28} />
-              <p className="text-sm font-medium text-foreground mb-0.5">
-                Drop <span className="font-semibold text-primary">Back Side</span> here, or <span className="text-primary">browse</span>
-              </p>
-              <p className="text-xs text-muted-foreground">Accepted: .jpg, .png, .pdf — Max 5MB</p>
-            </div>
-          ) : (
-            <div className="border-2 border-border rounded-xl p-3 flex items-center gap-3">
-              {govIdBackPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={govIdBackPreview} alt="Back ID Preview" className="w-16 h-12 object-cover rounded-lg border border-border shrink-0" />
-              ) : (
-                <div className="w-16 h-12 bg-muted/50 rounded-lg border border-border flex items-center justify-center shrink-0">
-                  <FileText size={20} className="text-muted-foreground" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-primary uppercase tracking-wide">Back Side</p>
-                <p className="text-sm font-medium text-foreground truncate">{govIdBackFile.name}</p>
-                <p className="text-[11px] text-muted-foreground">{(govIdBackFile.size / 1024 / 1024).toFixed(2)} MB</p>
-              </div>
-              <button type="button"
-                onClick={() => { setGovIdBackFile(null); setGovIdBackPreview(null); }}
-                className="text-muted-foreground hover:text-destructive transition-colors p-1">
-                <X size={18} />
-              </button>
-            </div>
-          )}
-          <input ref={govIdBackInputRef} type="file" accept=".jpg,.jpeg,.png,.pdf" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) validateAndSetGovIdFile(f, 'back'); e.target.value = ''; }} />
-          {errors.govIdBackFile && <p className="text-xs text-destructive mt-1 font-medium">{errors.govIdBackFile}</p>}
+          <ImageUploadSlot
+            label="Back Side of ID"
+            file={govIdBackFile}
+            onChange={(file) => {
+              if (file) validateAndSetGovIdFile(file, 'back');
+              else setGovIdBackFile(null);
+            }}
+            facingMode="environment"
+            cameraModalTitle="Take a photo of your ID"
+            accept=".jpg,.jpeg,.png,.pdf"
+            hideLabel
+            disabled={loading}
+            error={errors.govIdBackFile}
+          />
         </div>
 
         {/* Info Box */}
@@ -1734,7 +1696,7 @@ function SignupPageContent() {
               {/* Province / State */}
               <div className="space-y-1">
                 <label className="block text-sm font-medium text-foreground">
-                  {isPhilippines ? 'Province' : 'State / Province'} <span className="text-destructive">*</span>
+                  {isPhilippines ? 'Province / Region' : 'State / Province'} <span className="text-destructive">*</span>
                 </label>
                 {isPhilippines ? (
                   <SearchableLocationSelect options={provinces} value={company.companyProvinceCode}
@@ -1895,11 +1857,14 @@ function SignupPageContent() {
         <TurnstileWidget
           onVerify={(token) => setTurnstileToken(token)}
           onExpire={() => setTurnstileToken('')}
+          requireExplicitConfirmation
+          confirmationLabel="I'm human"
+          onConfirmationChange={setClientHumanConfirmed}
         />
 
 
         {/* Submit */}
-        <Button type="button" onClick={handleStep4Submit} disabled={loading || !termsAgreed}
+        <Button type="button" onClick={handleStep4Submit} disabled={loading || !termsAgreed || !turnstileToken || !clientHumanConfirmed}
           className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-semibold transition-all text-base disabled:opacity-40 disabled:cursor-not-allowed">
           {loading ? 'Creating your account...' : 'Create Employer Account'}
         </Button>
@@ -1951,7 +1916,7 @@ function SignupPageContent() {
           </p>
         </div>
 
-        <form onSubmit={handleOtpSubmit} className="space-y-6" id="registration-otp">
+        <form onSubmit={handleOtpSubmit} className="space-y-6" id="registration-otp" autoComplete="off">
           <Input id="otp" type="text" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={otp}
             onChange={e => setOtp(e.target.value.replace(/\D/g, ''))} disabled={loading} placeholder="000000"
             aria-label="6-digit verification code"
@@ -1987,7 +1952,7 @@ function SignupPageContent() {
                 </Button>
               </DialogTrigger>
               <DialogContent className="sm:max-w-md">
-                <form onSubmit={handleEmailCorrection} className="space-y-5">
+                <form onSubmit={handleEmailCorrection} className="space-y-5" autoComplete="off">
                   <DialogHeader>
                     <DialogTitle>Change verification email</DialogTitle>
                     <DialogDescription>
@@ -2005,13 +1970,19 @@ function SignupPageContent() {
                       className="h-11 border-2 border-border focus-visible:ring-0 focus-visible:border-primary" />
                   </div>
 
-                  <TurnstileWidget onVerify={setTurnstileToken} onExpire={() => setTurnstileToken('')} />
+                  <TurnstileWidget
+                    onVerify={setTurnstileToken}
+                    onExpire={() => setTurnstileToken('')}
+                    requireExplicitConfirmation
+                    confirmationLabel="I'm human"
+                    onConfirmationChange={setOtpCorrectionHumanConfirmed}
+                  />
 
                   <DialogFooter>
                     <Button type="button" variant="outline" className="max-md:min-h-11" onClick={() => setShowEmailCorrection(false)} disabled={loading}>
                       Keep current email
                     </Button>
-                    <Button type="submit" className="max-md:min-h-11" disabled={loading || !otpCorrectionEmail.trim() || !turnstileToken}>
+                    <Button type="submit" className="max-md:min-h-11" disabled={loading || !otpCorrectionEmail.trim() || !turnstileToken || !otpCorrectionHumanConfirmed}>
                       {loading ? 'Saving...' : 'Save email'}
                     </Button>
                   </DialogFooter>
@@ -2064,7 +2035,7 @@ function SignupPageContent() {
           <label htmlFor="firstName" className="block text-sm font-medium text-foreground">
             First name <span className="text-destructive">*</span>
           </label>
-          <Input id="firstName" value={formData.firstName} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. Jane"
+          <Input id="firstName" autoComplete="given-name" value={formData.firstName} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. Jane"
             className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.firstName && 'border-destructive focus-visible:border-destructive text-destructive')} />
           {freelancerErrors.firstName && <p className="text-xs text-destructive mt-1 font-medium">{freelancerErrors.firstName}</p>}
         </div>
@@ -2072,7 +2043,7 @@ function SignupPageContent() {
           <label htmlFor="lastName" className="block text-sm font-medium text-foreground">
             Last name <span className="text-destructive">*</span>
           </label>
-          <Input id="lastName" value={formData.lastName} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. Doe"
+          <Input id="lastName" autoComplete="family-name" value={formData.lastName} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. Doe"
             className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.lastName && 'border-destructive focus-visible:border-destructive text-destructive')} />
           {freelancerErrors.lastName && <p className="text-xs text-destructive mt-1 font-medium">{freelancerErrors.lastName}</p>}
         </div>
@@ -2082,7 +2053,7 @@ function SignupPageContent() {
         <label htmlFor="email" className="block text-sm font-medium text-foreground">
           Email Address <span className="text-destructive">*</span>
         </label>
-        <Input type="email" id="email" value={formData.email} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. jane.doe@example.com"
+        <Input type="email" id="email" autoComplete="email" value={formData.email} onChange={handleFreelancerChange} disabled={loading} placeholder="e.g. jane.doe@example.com"
           className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.email && 'border-destructive focus-visible:border-destructive text-destructive')} />
         {Boolean(socialEmail) ? (
           <p className="text-xs text-primary font-medium flex items-center gap-1 mt-1">
@@ -2121,7 +2092,7 @@ function SignupPageContent() {
               Password <span className="text-destructive">*</span>
             </label>
             <div className="relative">
-              <Input type={freelancerShowPassword ? 'text' : 'password'} id="password" value={formData.password}
+              <Input type={freelancerShowPassword ? 'text' : 'password'} id="password" autoComplete="new-password" value={formData.password}
                 onChange={handleFreelancerChange} disabled={loading} placeholder="Password (8 or more characters)"
                 className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.password && 'border-destructive focus-visible:border-destructive text-destructive')} />
               <button type="button" onClick={() => setFreelancerShowPassword(!freelancerShowPassword)}
@@ -2137,7 +2108,7 @@ function SignupPageContent() {
               Confirm Password <span className="text-destructive">*</span>
             </label>
             <div className="relative">
-              <Input type={freelancerShowConfirmPassword ? 'text' : 'password'} id="confirmPassword" value={formData.confirmPassword}
+              <Input type={freelancerShowConfirmPassword ? 'text' : 'password'} id="confirmPassword" autoComplete="new-password" value={formData.confirmPassword}
                 onChange={handleFreelancerChange} disabled={loading} placeholder="Confirm Password"
                 className={cn('h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.confirmPassword && 'border-destructive focus-visible:border-destructive text-destructive')} />
               <button type="button" onClick={() => setFreelancerShowConfirmPassword(!freelancerShowConfirmPassword)}
@@ -2187,7 +2158,7 @@ function SignupPageContent() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="block text-sm font-medium text-foreground">
-                Province <span className="text-destructive">*</span>
+                Province / Region <span className="text-destructive">*</span>
               </label>
               <SearchableLocationSelect options={provinces} value={formData.provinceCode}
                 onChange={(code, name) => setFormData(prev => ({ ...prev, provinceCode: code, province: name, cityCode: '', city: '' }))}
@@ -2300,7 +2271,7 @@ function SignupPageContent() {
   );
 
   const renderFreelancerStep3 = () => (
-    <form className="space-y-6" onSubmit={handleFreelancerSubmit} noValidate>
+    <form className="space-y-6" onSubmit={handleFreelancerSubmit} noValidate autoComplete="off">
       {/* Gov ID Card Upload (Optional during sign-up) */}
       <div className="space-y-4 border-b border-border/60 pb-6">
         <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Government Valid ID (Optional)</p>
@@ -2323,71 +2294,36 @@ function SignupPageContent() {
           {/* Front ID */}
           <div className="space-y-2">
             <label className="block text-sm font-medium text-foreground">Front Side of ID</label>
-            <div className="border-2 border-dashed border-border rounded-xl p-4 text-center hover:bg-muted/10 transition-colors relative h-36 flex flex-col justify-center items-center">
-              <input type="file" accept="image/*,application/pdf" disabled={loading}
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setFreelancerGovIdFrontFile(file);
-                    if (file.type.startsWith('image/')) {
-                      setFreelancerGovIdFrontPreview(URL.createObjectURL(file));
-                    } else {
-                      setFreelancerGovIdFrontPreview(null);
-                    }
-                  }
-                }}
-                className="absolute inset-0 opacity-0 cursor-pointer" />
-              {freelancerGovIdFrontPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={freelancerGovIdFrontPreview} alt="Front ID Preview" className="max-h-full object-contain" />
-              ) : (
-                <>
-                  <Upload size={24} className="text-muted-foreground mb-1" />
-                  <span className="text-xs text-muted-foreground font-semibold">{freelancerGovIdFrontFile?.name || 'Upload Front ID'}</span>
-                </>
-              )}
-            </div>
-            {freelancerGovIdFrontFile && (
-              <button type="button" onClick={() => { setFreelancerGovIdFrontFile(null); setFreelancerGovIdFrontPreview(null); }}
-                className="max-md:flex max-md:min-h-11 max-md:items-center text-xs text-destructive font-semibold hover:underline block cursor-pointer">Remove Front ID</button>
-            )}
+            <ImageUploadSlot
+              label="Front Side of ID"
+              file={freelancerGovIdFrontFile}
+              onChange={(file) => setFreelancerGovIdFrontFile(file)}
+              facingMode="environment"
+              cameraModalTitle="Take a photo of your ID"
+              accept=".jpg,.jpeg,.png,.pdf"
+              hideLabel
+              disabled={loading}
+              error={freelancerErrors.govIdFront}
+            />
           </div>
 
           {/* Back ID */}
           <div className="space-y-2">
-            <label className="block text-sm font-medium text-foreground">Back Side of ID / Selfie</label>
-            <div className="border-2 border-dashed border-border rounded-xl p-4 text-center hover:bg-muted/10 transition-colors relative h-36 flex flex-col justify-center items-center">
-              <input type="file" accept="image/*,application/pdf" disabled={loading}
-                onChange={e => {
-                  const file = e.target.files?.[0];
-                  if (file) {
-                    setFreelancerGovIdBackFile(file);
-                    if (file.type.startsWith('image/')) {
-                      setFreelancerGovIdBackPreview(URL.createObjectURL(file));
-                    } else {
-                      setFreelancerGovIdBackPreview(null);
-                    }
-                  }
-                }}
-                className="absolute inset-0 opacity-0 cursor-pointer" />
-              {freelancerGovIdBackPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={freelancerGovIdBackPreview} alt="Back ID Preview" className="max-h-full object-contain" />
-              ) : (
-                <>
-                  <Upload size={24} className="text-muted-foreground mb-1" />
-                  <span className="text-xs text-muted-foreground font-semibold">{freelancerGovIdBackFile?.name || 'Upload Back ID'}</span>
-                </>
-              )}
-            </div>
-            {freelancerGovIdBackFile && (
-              <button type="button" onClick={() => { setFreelancerGovIdBackFile(null); setFreelancerGovIdBackPreview(null); }}
-                className="max-md:flex max-md:min-h-11 max-md:items-center text-xs text-destructive font-semibold hover:underline block cursor-pointer">Remove Back ID</button>
-            )}
+            <label className="block text-sm font-medium text-foreground">Back Side of ID <span className="text-muted-foreground font-normal text-xs">(Optional)</span></label>
+            <ImageUploadSlot
+              label="Back Side of ID"
+              file={freelancerGovIdBackFile}
+              onChange={(file) => setFreelancerGovIdBackFile(file)}
+              facingMode="environment"
+              cameraModalTitle="Take a photo of your ID"
+              accept=".jpg,.jpeg,.png,.pdf"
+              hideLabel
+              disabled={loading}
+              error={freelancerErrors.govIdBack}
+            />
           </div>
         </div>
         {freelancerErrors.govIdType && <p className="text-xs text-destructive mt-1 font-medium">{freelancerErrors.govIdType}</p>}
-        {freelancerErrors.govIdFront && <p className="text-xs text-destructive mt-1 font-medium">{freelancerErrors.govIdFront}</p>}
       </div>
 
       {/* Compliance Preferences */}
@@ -2423,11 +2359,14 @@ function SignupPageContent() {
         <TurnstileWidget
           onVerify={(token) => setTurnstileToken(token)}
           onExpire={() => setTurnstileToken('')}
+          requireExplicitConfirmation
+          confirmationLabel="I'm human"
+          onConfirmationChange={setFreelancerHumanConfirmed}
         />
       </div>
 
       <Button type="submit"
-        disabled={loading || !freelancerTermsAgreed || !turnstileToken || (Boolean(freelancerGovIdType || freelancerGovIdFrontFile || freelancerGovIdBackFile) && (!freelancerGovIdType || !freelancerGovIdFrontFile || !freelancerGovIdBackFile))}
+        disabled={loading || !freelancerTermsAgreed || !turnstileToken || !freelancerHumanConfirmed || (Boolean(freelancerGovIdType || freelancerGovIdFrontFile || freelancerGovIdBackFile) && (!freelancerGovIdType || !freelancerGovIdFrontFile || !freelancerGovIdBackFile))}
         className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-medium transition-colors text-lg disabled:opacity-50 disabled:cursor-not-allowed">
         {loading ? 'Creating...' : 'Create Job Seeker Account'}
       </Button>
@@ -2785,21 +2724,21 @@ function SignupPageContent() {
         <p className="mt-3 text-muted-foreground">Submit institution details and set up admin access.</p>
       </div>
 
-      <form className="space-y-6" onSubmit={handleSchoolSubmit} noValidate>
+      <form className="space-y-6" onSubmit={handleSchoolSubmit} noValidate autoComplete="off">
         {/* Personal Details */}
         <div className="space-y-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Admin Personal Info</p>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="block text-sm font-medium">First name <span className="text-destructive">*</span></label>
-              <Input id="s-fname" value={schoolFormData.firstName}
+              <Input id="s-fname" autoComplete="given-name" value={schoolFormData.firstName}
                 onChange={e => setSchoolFormData(prev => ({ ...prev, firstName: e.target.value }))}
                 placeholder="First Name" className={cn('h-12 border-2', schoolErrors.firstName && 'border-destructive')} />
               {schoolErrors.firstName && <p className="text-xs text-destructive mt-1">{schoolErrors.firstName}</p>}
             </div>
             <div className="space-y-1">
               <label className="block text-sm font-medium">Last name <span className="text-destructive">*</span></label>
-              <Input id="s-lname" value={schoolFormData.lastName}
+              <Input id="s-lname" autoComplete="family-name" value={schoolFormData.lastName}
                 onChange={e => setSchoolFormData(prev => ({ ...prev, lastName: e.target.value }))}
                 placeholder="Last Name" className={cn('h-12 border-2', schoolErrors.lastName && 'border-destructive')} />
               {schoolErrors.lastName && <p className="text-xs text-destructive mt-1">{schoolErrors.lastName}</p>}
@@ -2849,7 +2788,7 @@ function SignupPageContent() {
 
           <div className="space-y-1">
             <label className="block text-sm font-medium">School Contact / Login Email <span className="text-destructive">*</span></label>
-            <Input id="s-email" type="email" value={schoolFormData.email}
+            <Input id="s-email" type="email" autoComplete="email" value={schoolFormData.email}
               onChange={e => setSchoolFormData(prev => ({ ...prev, email: e.target.value }))}
               disabled={!!inviteToken || loading}
               placeholder="e.g. admin@school.edu" className={cn('h-12 border-2', schoolErrors.email && 'border-destructive')} />
@@ -2858,7 +2797,7 @@ function SignupPageContent() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
-              <label className="block text-sm font-medium">Province <span className="text-destructive">*</span></label>
+              <label className="block text-sm font-medium">Province / Region <span className="text-destructive">*</span></label>
               <SearchableLocationSelect options={provinces} value={schoolFormData.provinceCode}
                 onChange={(code, name) => { setSchoolFormData(prev => ({ ...prev, provinceCode: code, province: name, cityCode: '', city: '', schoolBarangayCode: '', schoolBarangay: '' })); setBarangays([]); if (schoolErrors.province) setSchoolErrors(prev => ({ ...prev, province: '' })); }}
                 placeholder="Search province..." loading={loadingProvinces} error={schoolErrors.province} />
@@ -2905,7 +2844,7 @@ function SignupPageContent() {
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Password <span className="text-destructive">*</span></label>
                 <div className="relative">
-                  <Input id="s-password" type={schoolShowPassword ? 'text' : 'password'} value={schoolFormData.password}
+                  <Input id="s-password" type={schoolShowPassword ? 'text' : 'password'} autoComplete="new-password" value={schoolFormData.password}
                     onChange={e => setSchoolFormData(prev => ({ ...prev, password: e.target.value }))}
                     placeholder="8+ characters" className={cn('h-12 pr-12 border-2', schoolErrors.password && 'border-destructive')} />
                   <button type="button" onClick={() => setSchoolShowPassword(!schoolShowPassword)}
@@ -2918,7 +2857,7 @@ function SignupPageContent() {
 
               <div className="space-y-1">
                 <label className="block text-sm font-medium">Confirm Password <span className="text-destructive">*</span></label>
-                <Input id="s-confirm" type={schoolShowPassword ? 'text' : 'password'} value={schoolFormData.confirmPassword}
+                <Input id="s-confirm" type={schoolShowPassword ? 'text' : 'password'} autoComplete="new-password" value={schoolFormData.confirmPassword}
                   onChange={e => setSchoolFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
                   placeholder="Confirm password" className={cn('h-12 border-2', schoolErrors.confirmPassword && 'border-destructive')} />
                 {schoolErrors.confirmPassword && <p className="text-xs text-destructive mt-1">{schoolErrors.confirmPassword}</p>}
@@ -2952,10 +2891,13 @@ function SignupPageContent() {
           <TurnstileWidget
             onVerify={(token) => setTurnstileToken(token)}
             onExpire={() => setTurnstileToken('')}
+            requireExplicitConfirmation
+            confirmationLabel="I'm human"
+            onConfirmationChange={setSchoolHumanConfirmed}
           />
         </div>
 
-        <Button type="submit" disabled={loading || !validatePasswordStrict(schoolFormData.password)}
+        <Button type="submit" disabled={loading || !validatePasswordStrict(schoolFormData.password) || !schoolTermsAgreed || !turnstileToken || !schoolHumanConfirmed}
           className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-medium transition-colors text-lg disabled:opacity-50">
           {loading ? 'Creating...' : 'Create School Account'}
         </Button>

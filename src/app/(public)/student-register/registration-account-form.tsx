@@ -59,13 +59,30 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
+  const [humanConfirmed, setHumanConfirmed] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [confirmTouched, setConfirmTouched] = useState(false);
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const rosterPattern = useMemo(() => maskedEmailPattern(props.rosterEmailMasked), [props.rosterEmailMasked]);
   const showDurabilityWarning = Boolean(email.trim() && rosterPattern?.test(email.trim()));
   const clearError = (field: string) => setErrors((current) => current[field] ? { ...current, [field]: "" } : current);
+  const confirmMismatchMessage = (pw: string, confirm: string): string =>
+    confirm && confirm !== pw ? "Passwords do not match." : "";
+  const isConfirmMismatchError = (value: string | undefined): boolean =>
+    value === "Passwords do not match." || value === "Passwords do not match";
+  const syncConfirmMismatch = (pw: string, confirm: string) => {
+    const message = confirmMismatchMessage(pw, confirm);
+    setErrors((current) => {
+      if (message) return current.confirmPassword === message ? current : { ...current, confirmPassword: message };
+      if (isConfirmMismatchError(current.confirmPassword)) return { ...current, confirmPassword: "" };
+      return current;
+    });
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    setSubmitAttempted(true);
+    setConfirmTouched(true);
     const next: Record<string, string> = {};
     if (!firstName.trim()) next.firstName = "First name is required";
     if (!lastName.trim()) next.lastName = "Last name is required";
@@ -79,7 +96,7 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
     if (!password) next.password = "Password is required";
     else if (!validatePasswordStrict(password)) next.password = "Password does not meet security requirements";
     if (!confirmPassword) next.confirmPassword = "Please confirm your password";
-    else if (confirmPassword !== password) next.confirmPassword = "Passwords do not match";
+    else if (confirmPassword !== password) next.confirmPassword = "Passwords do not match.";
     if (!termsAgreed) next.terms = "You must agree to the Terms of Service to continue";
     setErrors(next);
     if (Object.keys(next).length > 0) return;
@@ -97,6 +114,8 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
       setPassword("");
       setConfirmPassword("");
       setTurnstileToken("");
+      setConfirmTouched(false);
+      setSubmitAttempted(false);
     }
   };
 
@@ -127,17 +146,17 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <div className="space-y-4">
-            <PasswordField id="sr-password" label="Password" value={password} visible={showPassword} error={errors.password} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => { setPassword(value); clearError("password"); }} />
-            <PasswordField id="sr-confirmPassword" label="Confirm password" value={confirmPassword} visible={showConfirmation} error={errors.confirmPassword} onToggle={() => setShowConfirmation((value) => !value)} onChange={(value) => { setConfirmPassword(value); clearError("confirmPassword"); }} />
+            <PasswordField id="sr-password" label="Password" value={password} visible={showPassword} error={errors.password} onToggle={() => setShowPassword((value) => !value)} onChange={(value) => { setPassword(value); clearError("password"); if (confirmTouched || submitAttempted) syncConfirmMismatch(value, confirmPassword); }} />
+            <PasswordField id="sr-confirmPassword" label="Confirm password" value={confirmPassword} visible={showConfirmation} error={errors.confirmPassword} onToggle={() => setShowConfirmation((value) => !value)} onChange={(value) => { setConfirmPassword(value); setConfirmTouched(true); syncConfirmMismatch(password, value); }} onBlur={() => { setConfirmTouched(true); syncConfirmMismatch(password, confirmPassword); }} />
           </div>
           <PasswordRequirementsChecklist password={password} confirmPassword={confirmPassword} className="mt-1" />
         </div>
         <label className="flex min-h-11 items-start gap-3 cursor-pointer"><Checkbox checked={termsAgreed} onCheckedChange={(value) => { setTermsAgreed(Boolean(value)); clearError("terms"); }} aria-invalid={Boolean(errors.terms)} aria-describedby={errors.terms ? "sr-terms-error" : undefined} className={cn("mt-0.5", errors.terms && "border-destructive")} /><span className={cn("text-sm text-muted-foreground", errors.terms && "text-destructive")}>I agree to the <Link href="/terms-of-service" target="_blank" className="text-primary font-medium hover:underline">Terms of Service</Link> and <Link href="/privacy-policy" target="_blank" className="text-primary font-medium hover:underline">Privacy Policy</Link>.</span></label>
         {errors.terms && <p id="sr-terms-error" role="alert" className="text-xs text-destructive font-medium">{errors.terms}</p>}
-        <div className="rounded-xl border border-border bg-muted/20 p-4"><TurnstileWidget onVerify={setTurnstileToken} onExpire={() => setTurnstileToken("")} /></div>
-        {!turnstileToken && <p id="sr-security-help" className="text-center text-xs text-muted-foreground">Complete the security check to enable account creation.</p>}
+        <div className="rounded-xl border border-border bg-muted/20 p-4"><TurnstileWidget onVerify={setTurnstileToken} onExpire={() => { setTurnstileToken(""); setHumanConfirmed(false); }} requireExplicitConfirmation confirmationLabel="I'm human" onConfirmationChange={setHumanConfirmed} /></div>
+        {(!turnstileToken || !humanConfirmed) && <p id="sr-security-help" className="text-center text-xs text-muted-foreground">Complete the security check to enable account creation.</p>}
         {props.submissionError && <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center text-xs font-medium text-destructive">{props.submissionError}</p>}
-        <Button type="submit" disabled={props.busy || !termsAgreed || !turnstileToken} aria-describedby={!turnstileToken ? "sr-security-help" : undefined} className="min-h-11 w-full py-6 rounded-full text-lg">{props.busy ? "Creating..." : "Create account"}</Button>
+        <Button type="submit" disabled={props.busy || !termsAgreed || !turnstileToken || !humanConfirmed} aria-describedby={(!turnstileToken || !humanConfirmed) ? "sr-security-help" : undefined} className="min-h-11 w-full py-6 rounded-full text-lg">{props.busy ? "Creating..." : "Create account"}</Button>
       </form>
       <p className="mt-8 text-center text-sm text-muted-foreground">Already have an account? <Link href={props.loginHref} className="inline-flex min-h-11 items-center text-primary font-medium hover:underline">Sign in</Link></p>
     </div>
@@ -148,7 +167,7 @@ function Field({ id, label, value, error, autoComplete, onChange }: { readonly i
   return <div className="space-y-1"><label htmlFor={id} className="block text-sm font-medium">{label} <span className="text-destructive">*</span></label><Input id={id} value={value} autoComplete={autoComplete} aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined} onChange={(event) => onChange(event.target.value)} className={cn("h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary", error && "border-destructive")} />{error && <p id={`${id}-error`} role="alert" className="text-xs text-destructive font-medium">{error}</p>}</div>;
 }
 
-function PasswordField({ id, label, value, visible, error, onToggle, onChange }: { readonly id: string; readonly label: string; readonly value: string; readonly visible: boolean; readonly error?: string; readonly onToggle: () => void; readonly onChange: (value: string) => void }) {
+function PasswordField({ id, label, value, visible, error, onToggle, onChange, onBlur }: { readonly id: string; readonly label: string; readonly value: string; readonly visible: boolean; readonly error?: string; readonly onToggle: () => void; readonly onChange: (value: string) => void; readonly onBlur?: () => void }) {
   const errorId = `${id}-error`;
-  return <div className="space-y-1"><label htmlFor={id} className="block text-sm font-medium">{label} <span className="text-destructive">*</span></label><div className="relative"><Input id={id} type={visible ? "text" : "password"} value={value} autoComplete="new-password" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} onChange={(event) => onChange(event.target.value)} className={cn("h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary", error && "border-destructive")} /><button type="button" onClick={onToggle} aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`} className="absolute right-0 top-1/2 flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">{visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button></div>{error && <p id={errorId} role="alert" className="text-xs text-destructive font-medium">{error}</p>}</div>;
+  return <div className="space-y-1"><label htmlFor={id} className="block text-sm font-medium">{label} <span className="text-destructive">*</span></label><div className="relative"><Input id={id} type={visible ? "text" : "password"} value={value} autoComplete="new-password" aria-invalid={Boolean(error)} aria-describedby={error ? errorId : undefined} onChange={(event) => onChange(event.target.value)} onBlur={onBlur} className={cn("h-12 pr-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary", error && "border-destructive")} /><button type="button" onClick={onToggle} aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`} className="absolute right-0 top-1/2 flex min-h-11 min-w-11 -translate-y-1/2 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">{visible ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}</button></div>{error && <p id={errorId} role="alert" className="text-xs text-destructive font-medium">{error}</p>}</div>;
 }

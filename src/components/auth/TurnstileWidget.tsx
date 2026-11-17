@@ -1,8 +1,9 @@
 "use client";
 
-import  { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import Script from "next/script";
 import { cn } from "@/lib/utils";
+import { Checkbox } from "@/components/ui/checkbox";
 
 interface TurnstileWidgetProps {
   onVerify: (token: string) => void;
@@ -10,6 +11,9 @@ interface TurnstileWidgetProps {
   onError?: (err?: unknown) => void;
   className?: string;
   theme?: "light" | "dark" | "auto";
+  requireExplicitConfirmation?: boolean;
+  confirmationLabel?: string;
+  onConfirmationChange?: (confirmed: boolean) => void;
 }
 
 declare global {
@@ -37,20 +41,33 @@ export function TurnstileWidget({
   onError,
   className,
   theme = "auto",
+  requireExplicitConfirmation = false,
+  confirmationLabel = "I'm human",
+  onConfirmationChange,
 }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const confirmationId = useId();
 
   const onVerifyRef = useRef(onVerify);
   const onExpireRef = useRef(onExpire);
   const onErrorRef = useRef(onError);
+  const onConfirmationChangeRef = useRef(onConfirmationChange);
 
   useEffect(() => {
     onVerifyRef.current = onVerify;
     onExpireRef.current = onExpire;
     onErrorRef.current = onError;
-  }, [onVerify, onExpire, onError]);
+    onConfirmationChangeRef.current = onConfirmationChange;
+  }, [onVerify, onExpire, onError, onConfirmationChange]);
+
+  useEffect(() => {
+    if (requireExplicitConfirmation) {
+      onConfirmationChangeRef.current?.(false);
+    }
+  }, [requireExplicitConfirmation]);
 
   // Retrieve site key strictly from NEXT_PUBLIC_TURNSTILE_SITE_KEY environment variable
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "";
@@ -64,9 +81,13 @@ export function TurnstileWidget({
             onVerifyRef.current?.(token);
           },
           "expired-callback": () => {
+            setConfirmed(false);
+            onConfirmationChangeRef.current?.(false);
             onExpireRef.current?.();
           },
           "error-callback": (err?: unknown) => {
+            setConfirmed(false);
+            onConfirmationChangeRef.current?.(false);
             onErrorRef.current?.(err);
           },
           theme,
@@ -97,6 +118,22 @@ export function TurnstileWidget({
         onLoad={() => setScriptLoaded(true)}
       />
       <div ref={containerRef} />
+      {requireExplicitConfirmation ? (
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id={confirmationId}
+            checked={confirmed}
+            onCheckedChange={(checked) => {
+              const next = checked === true;
+              setConfirmed(next);
+              onConfirmationChangeRef.current?.(next);
+            }}
+          />
+          <label htmlFor={confirmationId} className="text-sm text-muted-foreground">
+            {confirmationLabel}
+          </label>
+        </div>
+      ) : null}
     </div>
   );
 }

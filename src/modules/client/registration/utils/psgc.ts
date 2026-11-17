@@ -5,8 +5,13 @@ export interface PsgcItem {
   name: string;
 }
 
+const NCR_PROVINCE_CODE = "133900000";
+
+const NCR_REGION_CITIES_URL =
+  "https://psgc.gitlab.io/api/regions/130000000/cities-municipalities/";
+
 const FALLBACK_PROVINCES: PsgcItem[] = [
-  { code: "133900000", name: "Metro Manila" },
+  { code: "133900000", name: "Metro Manila (NCR)" },
   { code: "072200000", name: "Cebu" },
   { code: "112400000", name: "Davao del Sur" },
   { code: "035400000", name: "Pampanga" },
@@ -22,13 +27,23 @@ const FALLBACK_PROVINCES: PsgcItem[] = [
 
 const FALLBACK_CITIES: Record<string, PsgcItem[]> = {
   "133900000": [
-    { code: "133900001", name: "Makati City" },
-    { code: "133900002", name: "Quezon City" },
-    { code: "133900003", name: "Manila" },
-    { code: "133900004", name: "Taguig City" },
-    { code: "133900005", name: "Pasig City" },
-    { code: "133900006", name: "Mandaluyong City" },
-    { code: "133900007", name: "Muntinlupa City" },
+    { code: "137501000", name: "City of Caloocan" },
+    { code: "137601000", name: "City of Las Piñas" },
+    { code: "137602000", name: "City of Makati" },
+    { code: "137502000", name: "City of Malabon" },
+    { code: "137401000", name: "City of Mandaluyong" },
+    { code: "133900000", name: "City of Manila" },
+    { code: "137402000", name: "City of Marikina" },
+    { code: "137603000", name: "City of Muntinlupa" },
+    { code: "137503000", name: "City of Navotas" },
+    { code: "137604000", name: "City of Parañaque" },
+    { code: "137605000", name: "Pasay City" },
+    { code: "137403000", name: "City of Pasig" },
+    { code: "137606000", name: "Pateros" },
+    { code: "137404000", name: "Quezon City" },
+    { code: "137405000", name: "City of San Juan" },
+    { code: "137607000", name: "City of Taguig" },
+    { code: "137504000", name: "City of Valenzuela" },
   ],
   "072200000": [
     { code: "072217000", name: "Cebu City" },
@@ -61,7 +76,12 @@ export async function fetchProvinces(): Promise<PsgcItem[]> {
     const res = await fetch("https://psgc.gitlab.io/api/provinces/");
     if (!res.ok) throw new Error();
     const data = await res.json();
-    return (data as PsgcItem[]).sort((a, b) => a.name.localeCompare(b.name));
+    const provinces = data as PsgcItem[];
+    const ncr = FALLBACK_PROVINCES.find((p) => p.code === NCR_PROVINCE_CODE);
+    if (ncr && !provinces.some((p) => p.code === ncr.code)) {
+      provinces.push(ncr);
+    }
+    return provinces.sort((a, b) => a.name.localeCompare(b.name));
   } catch {
     return FALLBACK_PROVINCES;
   }
@@ -70,7 +90,11 @@ export async function fetchProvinces(): Promise<PsgcItem[]> {
 export async function fetchCities(provinceCode: string): Promise<PsgcItem[]> {
   if (!provinceCode) return [];
   try {
-    const res = await fetch(`https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`);
+    const url =
+      provinceCode === NCR_PROVINCE_CODE
+        ? NCR_REGION_CITIES_URL
+        : `https://psgc.gitlab.io/api/provinces/${provinceCode}/cities-municipalities/`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error();
     const data = await res.json();
     return (data as PsgcItem[]).sort((a, b) => a.name.localeCompare(b.name));
