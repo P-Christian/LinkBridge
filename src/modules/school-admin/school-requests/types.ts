@@ -13,6 +13,7 @@ export interface LinkedEducationSummary {
   readonly userId: number;
   readonly schoolId: number | null;
   readonly schoolCourseId: number | null;
+  readonly courseNameRaw: string | null;
   readonly schoolNameRaw: string | null;
   readonly educationStatus: "Pending" | "Verified" | "Unverified";
   readonly startDate: string | null;

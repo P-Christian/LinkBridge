@@ -36,7 +36,7 @@ function getHeaders(): Record<string, string> {
 const SCOPED_REQUEST_FIELDS =
   "school_request_id,requested_by,requested_school_name,request_status,matched_school_id,reviewed_by,reviewed_at,routed_by,routed_at,employee_education_id,active_employee_education_id,created_at";
 const EDUCATION_FIELDS =
-  "employee_education_id,user_id,school_id,school_course_id,school_name_raw,education_status,start_date,end_date";
+  "employee_education_id,user_id,school_id,school_course_id,course_name_raw,school_name_raw,education_status,start_date,end_date";
 const COURSE_FIELDS = "school_course_id,school_id,course_name,course_code";
 
 async function fetchRows<T>(operation: string, path: string, schema: ZodType<T>): Promise<readonly T[]> {
@@ -63,6 +63,7 @@ function toEducationSummary(row: LinkedEducationRow): LinkedEducationSummary {
     userId: row.user_id,
     schoolId: row.school_id,
     schoolCourseId: row.school_course_id,
+    courseNameRaw: row.course_name_raw,
     schoolNameRaw: row.school_name_raw,
     educationStatus: row.education_status,
     startDate: row.start_date,

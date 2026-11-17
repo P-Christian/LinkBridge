@@ -67,18 +67,22 @@ export interface CourseDisplay {
 }
 
 /**
- * Course display. The DTO exposes only the linked course; when none is
- * linked the label says so, and no course name is ever guessed or invented.
+ * Course display. The linked catalog course wins; a typed course is the
+ * fallback; only when both are absent the label says so. No course name is
+ * ever guessed or invented.
  */
 export function describeCourse(row: SchoolInboxRow): CourseDisplay {
-  if (row.course === null) {
-    return { label: "No course on file", code: null, resolved: false };
+  if (row.course !== null) {
+    return {
+      label: row.course.courseName,
+      code: hasText(row.course.courseCode) ? row.course.courseCode : null,
+      resolved: true,
+    };
   }
-  return {
-    label: row.course.courseName,
-    code: hasText(row.course.courseCode) ? row.course.courseCode : null,
-    resolved: true,
-  };
+  if (hasText(row.education.courseNameRaw)) {
+    return { label: row.education.courseNameRaw.trim(), code: null, resolved: true };
+  }
+  return { label: "No course on file", code: null, resolved: false };
 }
 
 /**
@@ -112,14 +116,19 @@ export interface ApprovalOutcomeCopy {
 
 /**
  * Approval always saves the decision and marks the education as verified
- * right away. Nothing is left waiting and no extra course request is
- * created; a missing course only means the verified education has no course.
+ * right away, unless the typed course still needs matching. A linked catalog
+ * course is included directly; a typed course is included and sent for
+ * course verification; a missing course only means the verified education
+ * has no course.
  */
 export function describeApprovalOutcome(row: SchoolInboxRow): ApprovalOutcomeCopy {
+  const typedCourse = hasText(row.education.courseNameRaw) ? row.education.courseNameRaw.trim() : null;
   const courseNote =
-    row.course === null
-      ? "No course is linked, so the education will be verified without a course."
-      : `The linked course "${row.course.courseName}" is included.`;
+    row.course !== null
+      ? `The linked course "${row.course.courseName}" is included.`
+      : typedCourse !== null
+        ? `The typed course "${typedCourse}" is included and will be sent for course verification.`
+        : "No course is linked, so the education will be verified without a course.";
   return {
     title: "This marks the education as verified",
     body: `Approving saves your decision and marks the education as verified right away. ${courseNote}`,

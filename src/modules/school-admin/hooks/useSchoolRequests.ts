@@ -39,6 +39,7 @@ export interface SchoolInboxEducation {
   readonly userId: number;
   readonly schoolId: number | null;
   readonly schoolCourseId: number | null;
+  readonly courseNameRaw: string | null;
   readonly schoolNameRaw: string | null;
   readonly educationStatus: SchoolInboxEducationStatus;
   readonly startDate: string | null;
@@ -364,6 +365,7 @@ function parseEducation(value: unknown): SchoolInboxEducation | null {
     userId,
     schoolId,
     schoolCourseId,
+    courseNameRaw,
     schoolNameRaw,
     educationStatus,
     startDate,
@@ -372,7 +374,7 @@ function parseEducation(value: unknown): SchoolInboxEducation | null {
   if (typeof employeeEducationId !== "number" || !Number.isInteger(employeeEducationId)) return null;
   if (typeof userId !== "number" || !Number.isInteger(userId)) return null;
   if (!isNullableNumber(schoolId) || !isNullableNumber(schoolCourseId)) return null;
-  if (!isNullableText(schoolNameRaw) || !isNullableText(startDate) || !isNullableText(endDate)) return null;
+  if (!isNullableText(courseNameRaw) || !isNullableText(schoolNameRaw) || !isNullableText(startDate) || !isNullableText(endDate)) return null;
   if (educationStatus !== "Pending" && educationStatus !== "Verified" && educationStatus !== "Unverified") {
     return null;
   }
@@ -381,6 +383,7 @@ function parseEducation(value: unknown): SchoolInboxEducation | null {
     userId,
     schoolId,
     schoolCourseId,
+    courseNameRaw,
     schoolNameRaw,
     educationStatus,
     startDate,
