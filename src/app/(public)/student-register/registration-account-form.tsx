@@ -59,7 +59,6 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
   const [showConfirmation, setShowConfirmation] = useState(false);
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [humanConfirmed, setHumanConfirmed] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [confirmTouched, setConfirmTouched] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
@@ -153,10 +152,10 @@ export function RegistrationAccountForm(props: RegistrationAccountFormProps) {
         </div>
         <label className="flex min-h-11 items-start gap-3 cursor-pointer"><Checkbox checked={termsAgreed} onCheckedChange={(value) => { setTermsAgreed(Boolean(value)); clearError("terms"); }} aria-invalid={Boolean(errors.terms)} aria-describedby={errors.terms ? "sr-terms-error" : undefined} className={cn("mt-0.5", errors.terms && "border-destructive")} /><span className={cn("text-sm text-muted-foreground", errors.terms && "text-destructive")}>I agree to the <Link href="/terms-of-service" target="_blank" className="text-primary font-medium hover:underline">Terms of Service</Link> and <Link href="/privacy-policy" target="_blank" className="text-primary font-medium hover:underline">Privacy Policy</Link>.</span></label>
         {errors.terms && <p id="sr-terms-error" role="alert" className="text-xs text-destructive font-medium">{errors.terms}</p>}
-        <div className="rounded-xl border border-border bg-muted/20 p-4"><TurnstileWidget onVerify={setTurnstileToken} onExpire={() => { setTurnstileToken(""); setHumanConfirmed(false); }} requireExplicitConfirmation confirmationLabel="I'm human" onConfirmationChange={setHumanConfirmed} /></div>
-        {(!turnstileToken || !humanConfirmed) && <p id="sr-security-help" className="text-center text-xs text-muted-foreground">Complete the security check to enable account creation.</p>}
+        <div className="rounded-xl border border-border bg-muted/20 p-4"><TurnstileWidget onVerify={setTurnstileToken} onExpire={() => setTurnstileToken("")} /></div>
+        {!turnstileToken && <p id="sr-security-help" className="text-center text-xs text-muted-foreground">Complete the security check to enable account creation.</p>}
         {props.submissionError && <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-center text-xs font-medium text-destructive">{props.submissionError}</p>}
-        <Button type="submit" disabled={props.busy || !termsAgreed || !turnstileToken || !humanConfirmed} aria-describedby={(!turnstileToken || !humanConfirmed) ? "sr-security-help" : undefined} className="min-h-11 w-full py-6 rounded-full text-lg">{props.busy ? "Creating..." : "Create account"}</Button>
+        <Button type="submit" disabled={props.busy || !termsAgreed || !turnstileToken} aria-describedby={!turnstileToken ? "sr-security-help" : undefined} className="min-h-11 w-full py-6 rounded-full text-lg">{props.busy ? "Creating..." : "Create account"}</Button>
       </form>
       <p className="mt-8 text-center text-sm text-muted-foreground">Already have an account? <Link href={props.loginHref} className="inline-flex min-h-11 items-center text-primary font-medium hover:underline">Sign in</Link></p>
     </div>

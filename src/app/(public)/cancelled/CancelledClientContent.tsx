@@ -57,6 +57,17 @@ function GoogleIcon({ className = "w-6 h-6" }: { className?: string }) {
   );
 }
 
+function LinkedInIcon({ className = "w-6 h-6" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        fill="#0A66C2"
+        d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 8.76c.94 0 1.7-.76 1.7-1.7s-.76-1.7-1.7-1.7a1.7 1.7 0 0 0-1.7 1.7c0 .94.76 1.7 1.7 1.7m1.39 9.74v-8.37H5.07v8.37h2.78z"
+      />
+    </svg>
+  );
+}
+
 interface ProviderMeta {
   name: string;
   icon: React.ReactNode;
@@ -79,6 +90,7 @@ export function CancelledClientContent() {
 
     if (rawProvider.includes("facebook") || rawError.includes("facebook")) return "facebook";
     if (rawProvider.includes("google") || rawError.includes("google")) return "google";
+    if (rawProvider.includes("linkedin") || rawError.includes("linkedin")) return "linkedin";
     return "social";
   }, [searchParams]);
 
@@ -103,6 +115,8 @@ export function CancelledClientContent() {
         return { name: "Facebook", icon: <FacebookIcon className="w-8 h-8" /> };
       case "google":
         return { name: "Google", icon: <GoogleIcon className="w-8 h-8" /> };
+      case "linkedin":
+        return { name: "LinkedIn", icon: <LinkedInIcon className="w-8 h-8" /> };
       default:
         return {
           name: "Authentication",

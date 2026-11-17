@@ -106,7 +106,9 @@ function LoginForm() {
             (error === "google_not_connected" ||
                 error === "google_not_linked" ||
                 error === "facebook_not_connected" ||
-                error === "facebook_not_linked") &&
+                error === "facebook_not_linked" ||
+                error === "linkedin_not_connected" ||
+                error === "linkedin_not_linked") &&
             queryEmail
         ) {
             queueMicrotask(() => {
@@ -127,19 +129,25 @@ function LoginForm() {
             facebook_not_connected: "This email already has a LinkBridge account, but it isn't connected to Facebook.",
             facebook_identity_conflict: "Facebook identity is linked to a different account than the entered email.",
             facebook_not_linked: "This Facebook account is not connected to an existing account. Sign in using your original login method, then connect Facebook in Security & Auth → Connected Accounts & Social Logins.",
+            linkedin_not_connected: "This email already has a LinkBridge account, but it isn't connected to LinkedIn.",
+            linkedin_identity_conflict: "LinkedIn identity is linked to a different account than the entered email.",
+            linkedin_not_linked: "This LinkedIn account is not connected to an existing account. Sign in using your original login method, then connect LinkedIn in Security & Auth → Connected Accounts & Social Logins.",
             google_already_registered: "This Google account is already registered. Please sign in.",
             email_already_registered: "An account with this email already exists. Please sign in using your existing login method, then connect your social provider in Settings.",
             account_blocked: "Your account is blocked. Please contact support.",
             account_inactive: "Your account is not active or verified.",
             google_cancelled: "Google sign-in was cancelled.",
+            linkedin_cancelled: "LinkedIn sign-in was cancelled.",
             facebook_cancelled: "Facebook sign-in was cancelled.",
             state_mismatch: "Authentication state mismatch. Please try again.",
             invalid_oauth_state: "Authentication session expired or invalid. Please try again.",
             transaction_replayed: "Authentication transaction was already consumed. Please try again.",
             oauth_callback_failed: "Sign in could not be completed.",
             facebook_callback_failed: "Sign in with Facebook could not be completed.",
+            linkedin_callback_failed: "Sign in with LinkedIn could not be completed.",
             oauth_init_failed: "Failed to connect to authentication provider. Please try again.",
             facebook_init_failed: "Failed to connect to Facebook. Please try again.",
+            linkedin_init_failed: "Failed to connect to LinkedIn. Please try again.",
         }
 
         const message = errorMap[error] || "Authentication failed. Please try again."
@@ -420,6 +428,48 @@ function LoginForm() {
                                 </div>
                                 <p className="text-xs text-muted-foreground leading-relaxed">
                                     This Facebook identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
+                                </p>
+                            </div>
+                        )}
+
+                        {(searchParams.get("error") === "linkedin_not_connected" || searchParams.get("error") === "linkedin_not_linked") && (
+                            <div className="mb-5 p-4 rounded-xl border border-destructive/20 bg-destructive/5 text-left space-y-3">
+                                <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
+                                    <span>LinkedIn account not connected</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    This email already has a LinkBridge account, but it isn&apos;t connected to LinkedIn. Sign in using your original login method, then connect your LinkedIn account in <strong>Security &amp; Auth &rarr; Connected Accounts &amp; Social Logins</strong>.
+                                </p>
+                                <div className="pt-1">
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => {
+                                            const queryEmail = searchParams.get("email");
+                                            if (queryEmail) {
+                                                setEmail(queryEmail);
+                                                if (errors.email) setErrors((p) => ({ ...p, email: undefined }));
+                                            }
+                                            passwordInputRef.current?.focus();
+                                        }}
+                                        className="h-8 px-3 text-xs font-medium"
+                                    >
+                                        Use original login
+                                    </Button>
+                                </div>
+                            </div>
+                        )}
+
+                        {searchParams.get("error") === "linkedin_identity_conflict" && (
+                            <div className="mb-5 p-4 rounded-xl border border-destructive/20 bg-destructive/5 text-left space-y-2">
+                                <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
+                                    <AlertCircle className="w-4 h-4 shrink-0" />
+                                    <span>LinkedIn Identity Conflict</span>
+                                </div>
+                                <p className="text-xs text-muted-foreground leading-relaxed">
+                                    This LinkedIn identity is associated with a different LinkBridge account than the entered email address. Please sign in using your original login credentials.
                                 </p>
                             </div>
                         )}

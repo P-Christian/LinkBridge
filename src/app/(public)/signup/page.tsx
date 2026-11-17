@@ -369,7 +369,7 @@ function SignupPageContent() {
   const [socialEmail, setSocialEmail] = useState<string | null>(null);
   const [socialFirstName, setSocialFirstName] = useState<string>('');
   const [socialLastName, setSocialLastName] = useState<string>('');
-  const [socialProvider, setSocialProvider] = useState<'google' | 'facebook' | null>(null);
+  const [socialProvider, setSocialProvider] = useState<'google' | 'linkedin' | 'facebook' | null>(null);
   const [socialAvatar, setSocialAvatar] = useState<string | null>(null);
   const socialHandledRef = useRef(false);
 
@@ -381,13 +381,16 @@ function SignupPageContent() {
         account_blocked: 'Your account is blocked. Please contact support.',
         account_inactive: 'Your account is not active or verified.',
         google_cancelled: 'Google sign-up was cancelled.',
+        linkedin_cancelled: 'LinkedIn sign-up was cancelled.',
         facebook_cancelled: 'Facebook sign-up was cancelled.',
         state_mismatch: 'Authentication state mismatch. Please try again.',
         invalid_oauth_state: 'Authentication session expired or invalid. Please try again.',
         transaction_replayed: 'Authentication transaction was already consumed. Please try again.',
         oauth_callback_failed: 'Sign up could not be completed.',
+        linkedin_callback_failed: 'Sign up with LinkedIn could not be completed.',
         facebook_callback_failed: 'Sign up with Facebook could not be completed.',
         oauth_init_failed: 'Failed to connect to authentication provider. Please try again.',
+        linkedin_init_failed: 'Failed to connect to LinkedIn. Please try again.',
         facebook_init_failed: 'Failed to connect to Facebook. Please try again.',
       };
       const message = errorMap[error] || 'Social authentication failed. Please try again.';
@@ -395,12 +398,13 @@ function SignupPageContent() {
     }
 
     const isGoogle = searchParams.get('google') === '1';
+    const isLinkedIn = searchParams.get('linkedin') === '1';
     const isFacebook = searchParams.get('facebook') === '1';
 
-    if ((isGoogle || isFacebook) && !socialHandledRef.current) {
+    if ((isGoogle || isLinkedIn || isFacebook) && !socialHandledRef.current) {
       socialHandledRef.current = true;
-      const provider = isFacebook ? 'facebook' : 'google';
-      const providerName = isFacebook ? 'Facebook' : 'Google';
+      const provider = isLinkedIn ? 'linkedin' : isFacebook ? 'facebook' : 'google';
+      const providerName = isLinkedIn ? 'LinkedIn' : isFacebook ? 'Facebook' : 'Google';
       setSocialProvider(provider);
       const isNoAccount = searchParams.get('notice') === 'no_account';
 
@@ -501,10 +505,6 @@ function SignupPageContent() {
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string>('');
-  const [clientHumanConfirmed, setClientHumanConfirmed] = useState(false);
-  const [otpCorrectionHumanConfirmed, setOtpCorrectionHumanConfirmed] = useState(false);
-  const [freelancerHumanConfirmed, setFreelancerHumanConfirmed] = useState(false);
-  const [schoolHumanConfirmed, setSchoolHumanConfirmed] = useState(false);
 
   // ── Shared OTP ────────────────────────────────────────────────────────────
   const [otp, setOtp] = useState('');
@@ -765,7 +765,7 @@ function SignupPageContent() {
 
   const handleProceedToForm = () => {
     if (!userType) return;
-    const socialQuery = socialProvider === 'google' ? '&google=1' : socialProvider === 'facebook' ? '&facebook=1' : '';
+    const socialQuery = socialProvider === 'google' ? '&google=1' : socialProvider === 'linkedin' ? '&linkedin=1' : socialProvider === 'facebook' ? '&facebook=1' : '';
 
     if (socialEmail) {
       if (userType === 'client') {
@@ -808,7 +808,7 @@ function SignupPageContent() {
 
   const handleBackToSelection = () => {
     resetRegistrationState(true);
-    const backQuery = socialProvider === 'google' ? '?google=1' : socialProvider === 'facebook' ? '?facebook=1' : '';
+    const backQuery = socialProvider === 'google' ? '?google=1' : socialProvider === 'linkedin' ? '?linkedin=1' : socialProvider === 'facebook' ? '?facebook=1' : '';
     router.replace(`/signup${backQuery}`, { scroll: false });
     setClientStep(1);
     setFreelancerStep(1);
@@ -1302,10 +1302,10 @@ function SignupPageContent() {
           )}
           <div>
             <h4 className="text-sm font-semibold text-foreground">
-              {socialProvider === 'facebook' ? 'Facebook' : 'Google'} Identity Verified
+              {socialProvider === 'linkedin' ? 'LinkedIn' : socialProvider === 'facebook' ? 'Facebook' : 'Google'} Identity Verified
             </h4>
             <p className="text-xs text-muted-foreground mt-0.5">
-              We&apos;ve prefilled your details from {socialProvider === 'facebook' ? 'Facebook' : 'Google'} for <strong className="text-foreground">{socialEmail}</strong>. Select your account type below to finish your registration (you can edit your details anytime).
+              We&apos;ve prefilled your details from {socialProvider === 'linkedin' ? 'LinkedIn' : socialProvider === 'facebook' ? 'Facebook' : 'Google'} for <strong className="text-foreground">{socialEmail}</strong>. Select your account type below to finish your registration (you can edit your details anytime).
             </p>
           </div>
         </div>
@@ -1383,7 +1383,7 @@ function SignupPageContent() {
                 className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', errors.email && 'border-destructive')} />
               {Boolean(socialEmail) ? (
                 <p className="text-xs text-primary font-medium flex items-center gap-1 mt-1">
-                  <Check size={14} /> Prefilled from {socialProvider === 'facebook' ? 'Facebook' : 'Google'}
+                  <Check size={14} /> Prefilled from {socialProvider === 'linkedin' ? 'LinkedIn' : socialProvider === 'facebook' ? 'Facebook' : 'Google'}
                 </p>
               ) : null}
               {errors.email && <p className="text-xs text-destructive mt-1 font-medium">{errors.email}</p>}
@@ -1857,14 +1857,11 @@ function SignupPageContent() {
         <TurnstileWidget
           onVerify={(token) => setTurnstileToken(token)}
           onExpire={() => setTurnstileToken('')}
-          requireExplicitConfirmation
-          confirmationLabel="I'm human"
-          onConfirmationChange={setClientHumanConfirmed}
         />
 
 
         {/* Submit */}
-        <Button type="button" onClick={handleStep4Submit} disabled={loading || !termsAgreed || !turnstileToken || !clientHumanConfirmed}
+        <Button type="button" onClick={handleStep4Submit} disabled={loading || !termsAgreed || !turnstileToken}
           className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-semibold transition-all text-base disabled:opacity-40 disabled:cursor-not-allowed">
           {loading ? 'Creating your account...' : 'Create Employer Account'}
         </Button>
@@ -1973,16 +1970,13 @@ function SignupPageContent() {
                   <TurnstileWidget
                     onVerify={setTurnstileToken}
                     onExpire={() => setTurnstileToken('')}
-                    requireExplicitConfirmation
-                    confirmationLabel="I'm human"
-                    onConfirmationChange={setOtpCorrectionHumanConfirmed}
                   />
 
                   <DialogFooter>
                     <Button type="button" variant="outline" className="max-md:min-h-11" onClick={() => setShowEmailCorrection(false)} disabled={loading}>
                       Keep current email
                     </Button>
-                    <Button type="submit" className="max-md:min-h-11" disabled={loading || !otpCorrectionEmail.trim() || !turnstileToken || !otpCorrectionHumanConfirmed}>
+                    <Button type="submit" className="max-md:min-h-11" disabled={loading || !otpCorrectionEmail.trim() || !turnstileToken}>
                       {loading ? 'Saving...' : 'Save email'}
                     </Button>
                   </DialogFooter>
@@ -2057,7 +2051,7 @@ function SignupPageContent() {
           className={cn('h-12 border-2 border-border focus-visible:ring-0 focus-visible:border-primary', freelancerErrors.email && 'border-destructive focus-visible:border-destructive text-destructive')} />
         {Boolean(socialEmail) ? (
           <p className="text-xs text-primary font-medium flex items-center gap-1 mt-1">
-            <Check size={14} /> Prefilled from {socialProvider === 'facebook' ? 'Facebook' : 'Google'}
+            <Check size={14} /> Prefilled from {socialProvider === 'linkedin' ? 'LinkedIn' : socialProvider === 'facebook' ? 'Facebook' : 'Google'}
           </p>
         ) : null}
         {freelancerErrors.email && <p className="text-xs text-destructive mt-1 font-medium">{freelancerErrors.email}</p>}
@@ -2359,14 +2353,11 @@ function SignupPageContent() {
         <TurnstileWidget
           onVerify={(token) => setTurnstileToken(token)}
           onExpire={() => setTurnstileToken('')}
-          requireExplicitConfirmation
-          confirmationLabel="I'm human"
-          onConfirmationChange={setFreelancerHumanConfirmed}
         />
       </div>
 
       <Button type="submit"
-        disabled={loading || !freelancerTermsAgreed || !turnstileToken || !freelancerHumanConfirmed || (Boolean(freelancerGovIdType || freelancerGovIdFrontFile || freelancerGovIdBackFile) && (!freelancerGovIdType || !freelancerGovIdFrontFile || !freelancerGovIdBackFile))}
+        disabled={loading || !freelancerTermsAgreed || !turnstileToken || (Boolean(freelancerGovIdType || freelancerGovIdFrontFile || freelancerGovIdBackFile) && (!freelancerGovIdType || !freelancerGovIdFrontFile || !freelancerGovIdBackFile))}
         className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-medium transition-colors text-lg disabled:opacity-50 disabled:cursor-not-allowed">
         {loading ? 'Creating...' : 'Create Job Seeker Account'}
       </Button>
@@ -2891,13 +2882,10 @@ function SignupPageContent() {
           <TurnstileWidget
             onVerify={(token) => setTurnstileToken(token)}
             onExpire={() => setTurnstileToken('')}
-            requireExplicitConfirmation
-            confirmationLabel="I'm human"
-            onConfirmationChange={setSchoolHumanConfirmed}
           />
         </div>
 
-        <Button type="submit" disabled={loading || !validatePasswordStrict(schoolFormData.password) || !schoolTermsAgreed || !turnstileToken || !schoolHumanConfirmed}
+        <Button type="submit" disabled={loading || !validatePasswordStrict(schoolFormData.password) || !schoolTermsAgreed || !turnstileToken}
           className="w-full py-6 bg-primary hover:bg-primary/90 text-white rounded-full font-medium transition-colors text-lg disabled:opacity-50">
           {loading ? 'Creating...' : 'Create School Account'}
         </Button>
