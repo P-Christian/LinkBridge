@@ -3,7 +3,7 @@
 "use client";
 
 import React, { useState, useCallback, useMemo } from "react";
-import { CheckCircle2, Plus, Loader2, ShieldAlert, Star, Pencil, Trash2, Sparkles, Check } from "lucide-react";
+import { CheckCircle2, Plus, Loader2, ShieldAlert, Star, Pencil, Sparkles, Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -16,7 +16,7 @@ import type { AiSuggestResult, AiSuggestedSkill } from "@/app/api/vos-admin/job-
 export function RoleSkillManager() {
   const { roles } = useStandardRoles();
   const [selectedRoleId, setSelectedRoleId] = useState<number | undefined>(undefined);
-  const { roleSkills, masterSkills, loading, addRoleSkill, editRoleSkill, removeRoleSkill } = useRoleSkills(selectedRoleId);
+  const { roleSkills, masterSkills, loading, addRoleSkill, editRoleSkill } = useRoleSkills(selectedRoleId);
 
   const [openModal, setOpenModal] = useState(false);
   const [editingSkill, setEditingSkill] = useState<RoleSkillMapping | null>(null);
@@ -96,11 +96,7 @@ export function RoleSkillManager() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (confirm("Are you sure you want to delete this role skill mapping?")) {
-      await removeRoleSkill(id);
-    }
-  };
+  
 
   const handleAiSuggest = useCallback(async (overrideRoleId?: number) => {
     const roleIdToUse = overrideRoleId || selectedRoleId || roles[0]?.role_id;
@@ -324,9 +320,6 @@ export function RoleSkillManager() {
                     <div className="flex items-center justify-end gap-1">
                       <Button variant="ghost" size="sm" onClick={() => openEditModal(s)} className="h-7 w-7 p-0 text-zinc-500 hover:text-violet-600">
                         <Pencil className="h-3.5 w-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => handleDelete(s.id)} className="h-7 w-7 p-0 text-zinc-500 hover:text-rose-600">
-                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   </td>

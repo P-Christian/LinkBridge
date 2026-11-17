@@ -172,7 +172,19 @@ export async function POST(req: NextRequest) {
 
     // Required fields
     const errors: string[] = [];
-    if (!body.job_title?.trim()) errors.push("Job title is required.");
+    const title = typeof body.job_title === "string" ? body.job_title.trim() : "";
+    if (!title) {
+      errors.push("Job title is required.");
+    } else if (title.length < 3 || title.length > 100) {
+      errors.push("Job title must be between 3 and 100 characters.");
+    } else if (!/^[a-zA-Z0-9\s\-/&,.()#+]+$/.test(title) || !/[a-zA-Z0-9]/.test(title)) {
+      errors.push("Job title contains invalid characters. Use letters, numbers, spaces, and standard symbols (- / & , . ( ) + #).");
+    } else {
+      const isDuplicate = await jobService.checkJobTitleExists(companyId, title);
+      if (isDuplicate) {
+        errors.push("A job posting with this title already exists in your company.");
+      }
+    }
     if (!body.job_type?.trim()) errors.push("Job type is required.");
     if (!body.job_location?.trim()) errors.push("Job location is required.");
     if (!body.salary_min && !body.salary_max && !body.salary_negotiable)

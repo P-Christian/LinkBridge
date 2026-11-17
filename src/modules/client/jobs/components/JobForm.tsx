@@ -49,7 +49,8 @@ import {
   ChevronsUpDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { searchMasterSkillsAction, addMasterSkillAction } from "../services/jobs.actions";
+import { motion, AnimatePresence } from "framer-motion";
+import { addMasterSkillAction, getMasterSkillsAction } from "../services/jobs.actions";
 import { JobFormData, JOB_TYPE_LABELS, EXPERIENCE_LEVEL_LABELS, JobType, ExperienceLevel } from "../types";
 import { RichTextEditor } from "./RichTextEditor";
 import { useRoleCategories } from "../hooks/useRoleCategories";
@@ -63,6 +64,8 @@ interface JobFormProps {
   onSubmit: () => void;
   saving: boolean;
   editingJob: boolean;
+  existingJobs?: { job_id: number; job_title: string; is_deleted?: number | boolean; status?: string }[];
+  currentJobId?: number | null;
 }
 
 const BENEFITS_OPTIONS = [
@@ -100,6 +103,66 @@ const EDUCATION_SELECT_OPTIONS = EDUCATION_OPTIONS.map((edu) => ({
   label: edu,
 }));
 
+// Client-side cache for master skills list: only requested once across the session
+let globalSkillsCache: { id: number; skill_name: string }[] | null = null;
+let globalSkillsFetchPromise: Promise<{ id: number; skill_name: string }[]> | null = null;
+
+async function getClientMasterSkills(): Promise<{ id: number; skill_name: string }[]> {
+  if (globalSkillsCache) return globalSkillsCache;
+  if (!globalSkillsFetchPromise) {
+    globalSkillsFetchPromise = getMasterSkillsAction()
+      .then((skills) => {
+        globalSkillsCache = skills;
+        globalSkillsFetchPromise = null;
+        return skills;
+      })
+      .catch((err) => {
+        globalSkillsFetchPromise = null;
+        console.error("Failed to load master skills:", err);
+        return [];
+      });
+  }
+  return globalSkillsFetchPromise;
+}
+
+function filterSkillsInMemory(skills: { id: number; skill_name: string }[], query: string) {
+  const q = query.toLowerCase().trim();
+  if (!q) return [];
+  const matches = skills.filter((s) => s.skill_name.toLowerCase().includes(q));
+  return matches
+    .sort((a, b) => {
+      const nameA = a.skill_name.toLowerCase();
+      const nameB = b.skill_name.toLowerCase();
+
+      // 1. Exact match
+      const exactA = nameA === q;
+      const exactB = nameB === q;
+      if (exactA && !exactB) return -1;
+      if (!exactA && exactB) return 1;
+
+      // 2. Starts with
+      const startsA = nameA.startsWith(q);
+      const startsB = nameB.startsWith(q);
+      if (startsA && !startsB) return -1;
+      if (!startsA && startsB) return 1;
+
+      // If both start with the query, sort by shorter length first
+      if (startsA && startsB) {
+        return nameA.length - nameB.length;
+      }
+
+      // 3. Contains index comparison
+      const idxA = nameA.indexOf(q);
+      const idxB = nameB.indexOf(q);
+      if (idxA !== idxB) {
+        return idxA - idxB;
+      }
+
+      return nameA.localeCompare(nameB);
+    })
+    .slice(0, 20);
+}
+
 export default function JobForm({
   data,
   onChange,
@@ -107,6 +170,8 @@ export default function JobForm({
   onSubmit,
   saving,
   editingJob,
+  existingJobs,
+  currentJobId,
 }: JobFormProps) {
   const { categories: roleCategories, findCategoryById } = useRoleCategories();
   const [step, setStep] = useState(1);
@@ -164,7 +229,24 @@ export default function JobForm({
   const [skillQuery, setSkillQuery] = useState("");
   const [skillResults, setSkillResults] = useState<{ id: number; skill_name: string }[]>([]);
   const [isSearchingSkills, setIsSearchingSkills] = useState(false);
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const [skillDropdownOpen, setSkillDropdownOpen] = useState(false);
+  const skillInputContainerRef = useRef<HTMLDivElement>(null);
+ 
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        skillInputContainerRef.current &&
+        !skillInputContainerRef.current.contains(event.target as Node)
+      ) {
+        setSkillDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, []);
 
   // Recommended Skills State
   const [recommendedSkills, setRecommendedSkills] = useState<{ id: number; skill_name: string; source: "TEMPLATE" | "KEYWORD"; weight: number }[]>([]);
@@ -236,68 +318,40 @@ export default function JobForm({
     }
   }, [data.benefits]);
 
-  // Debounced master skills search
+  // Client-cached master skills search: requests once across the session
   useEffect(() => {
-    if (debounceTimer.current) clearTimeout(debounceTimer.current);
-
-    if (skillQuery.trim().length >= 2) {
-      const seq = ++skillsSeqRef.current;
-      setIsSearchingSkills(true);
-      debounceTimer.current = setTimeout(async () => {
-        try {
-          const res = await searchMasterSkillsAction(skillQuery.trim());
-          if (seq !== skillsSeqRef.current) return;
-          if (res) {
-            const q = skillQuery.toLowerCase().trim();
-            const sorted = [...res].sort((a, b) => {
-              const nameA = a.skill_name.toLowerCase();
-              const nameB = b.skill_name.toLowerCase();
-              
-              // 1. Exact match
-              const exactA = nameA === q;
-              const exactB = nameB === q;
-              if (exactA && !exactB) return -1;
-              if (!exactA && exactB) return 1;
-              
-              // 2. Starts with
-              const startsA = nameA.startsWith(q);
-              const startsB = nameB.startsWith(q);
-              if (startsA && !startsB) return -1;
-              if (!startsA && startsB) return 1;
-              
-              // If both start with the query, sort by shorter length first
-              if (startsA && startsB) {
-                return nameA.length - nameB.length;
-              }
-              
-              // 3. Contains index comparison
-              const idxA = nameA.indexOf(q);
-              const idxB = nameB.indexOf(q);
-              if (idxA !== idxB) {
-                return idxA - idxB;
-              }
-              
-              return nameA.localeCompare(nameB);
-            });
-            setSkillResults(sorted);
-          } else {
-            setSkillResults([]);
-          }
-        } catch (e) {
-          console.error("Failed to query skills:", e);
-        } finally {
-          if (seq === skillsSeqRef.current) setIsSearchingSkills(false);
-        }
-      }, 300);
-    } else {
+    const q = skillQuery.trim();
+    if (q.length < 2) {
       skillsSeqRef.current++;
       setSkillResults([]);
       setIsSearchingSkills(false);
+      return;
     }
 
-    return () => {
-      if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    };
+    if (globalSkillsCache) {
+      const results = filterSkillsInMemory(globalSkillsCache, q);
+      setSkillResults(results);
+      setIsSearchingSkills(false);
+      return;
+    }
+
+    const seq = ++skillsSeqRef.current;
+    setIsSearchingSkills(true);
+    getClientMasterSkills()
+      .then((allSkills) => {
+        if (seq !== skillsSeqRef.current) return;
+        const results = filterSkillsInMemory(allSkills, q);
+        setSkillResults(results);
+      })
+      .catch((err) => {
+        console.error("Failed to query skills:", err);
+        if (seq === skillsSeqRef.current) setSkillResults([]);
+      })
+      .finally(() => {
+        if (seq === skillsSeqRef.current) {
+          setIsSearchingSkills(false);
+        }
+      });
   }, [skillQuery]);
 
   const validateStep = (currentStep: number): boolean => {
@@ -306,6 +360,22 @@ export default function JobForm({
     if (currentStep === 1) {
       if (!data.job_title?.trim()) {
         errors.job_title = "Job title is required.";
+      } else if (data.job_title.trim().length < 3 || data.job_title.trim().length > 100) {
+        errors.job_title = "Job title must be between 3 and 100 characters.";
+      } else if (!/^[a-zA-Z0-9\s\-/&,.()#+]+$/.test(data.job_title.trim()) || !/[a-zA-Z0-9]/.test(data.job_title.trim())) {
+        errors.job_title = "Job title contains invalid characters. Use letters, numbers, spaces, and standard symbols (- / & , . ( ) + #).";
+      } else if (existingJobs && existingJobs.length > 0) {
+        const trimmed = data.job_title.trim().toLowerCase();
+        const isDuplicate = existingJobs.some((j) => {
+          if (!j.job_title) return false;
+          if (currentJobId && j.job_id === currentJobId) return false;
+          if (j.is_deleted === 1 || j.is_deleted === true) return false;
+          if (j.status === "CLOSED") return false;
+          return j.job_title.trim().toLowerCase() === trimmed;
+        });
+        if (isDuplicate) {
+          errors.job_title = "A job posting with this title already exists in your company.";
+        }
       }
       if (!data.job_category) {
         errors.job_category = "Job category is required.";
@@ -378,6 +448,7 @@ export default function JobForm({
     }
     setSkillQuery("");
     setSkillResults([]);
+    setSkillDropdownOpen(false);
   };
 
   const handleAddCustomSkill = async () => {
@@ -393,6 +464,10 @@ export default function JobForm({
     try {
       const savedSkill = await addMasterSkillAction(query);
       if (savedSkill && savedSkill.id) {
+        const newSkill = { id: Number(savedSkill.id), skill_name: savedSkill.skill_name };
+        if (globalSkillsCache && !globalSkillsCache.some((s) => s.id === newSkill.id)) {
+          globalSkillsCache.push(newSkill);
+        }
         onChange("skills", [
           ...currentSkills,
           {
@@ -418,6 +493,7 @@ export default function JobForm({
     }
     setSkillQuery("");
     setSkillResults([]);
+    setSkillDropdownOpen(false);
   };
 
   const handleRemoveSkill = (skillId: number) => {
@@ -589,11 +665,23 @@ export default function JobForm({
           <div className="space-y-4 animate-fadeIn px-1">
             {/* Job Title */}
             <div className="space-y-1.5">
-              <Label htmlFor="jf-title" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Job Title <span className="text-rose-500">*</span>
-              </Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="jf-title" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Job Title <span className="text-rose-500">*</span>
+                </Label>
+                <span
+                  className={`text-[11px] font-mono ${
+                    (data.job_title?.length ?? 0) > 100
+                      ? "text-rose-500 font-bold"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {data.job_title?.length ?? 0}/100
+                </span>
+              </div>
               <Input
                 id="jf-title"
+                maxLength={100}
                 value={data.job_title ?? ""}
                 onChange={(e) => {
                   onChange("job_title", e.target.value);
@@ -839,18 +927,33 @@ export default function JobForm({
             </div>
 
             {/* Autocomplete Master Skills (Moved from Step 2) */}
-            <div className="space-y-2 relative pt-4 border-t border-zinc-200/60 dark:border-zinc-800/80">
+            <div className="space-y-2 pt-4 border-t border-zinc-200/60 dark:border-zinc-800/80">
               <Label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 Required Skills / Technologies
               </Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400" />
+              <div ref={skillInputContainerRef} className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-400 pointer-events-none" />
                 <Input
                   type="text"
                   placeholder="Type skills to search (e.g. React)..."
                   value={skillQuery}
-                  onChange={(e) => setSkillQuery(e.target.value)}
+                  onFocus={() => {
+                    if (!globalSkillsCache) {
+                      getClientMasterSkills();
+                    }
+                    if (skillQuery.trim().length > 0 || skillResults.length > 0) {
+                      setSkillDropdownOpen(true);
+                    }
+                  }}
+                  onChange={(e) => {
+                    setSkillQuery(e.target.value);
+                    setSkillDropdownOpen(true);
+                  }}
                   onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSkillDropdownOpen(false);
+                      return;
+                    }
                     if (e.key === "Enter") {
                       e.preventDefault();
                       const query = skillQuery.trim();
@@ -871,37 +974,55 @@ export default function JobForm({
                   className="pl-9 h-10 md:text-sm border-zinc-200 rounded-lg animate-none focus-visible:ring-emerald-500 max-md:h-10 max-md:text-base"
                 />
                 {isSearchingSkills && (
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent pointer-events-none" />
                 )}
-              </div>
 
-              {/* Dropdown Results list */}
-              {(skillResults.length > 0 || skillQuery.trim().length > 0) && (
-                <ul
-                  className="absolute z-[100] top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto overscroll-contain bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg divide-y divide-zinc-150 dark:divide-zinc-800/80"
-                  onWheel={(e) => e.stopPropagation()}
-                >
-                  {skillResults.map((skill) => (
-                    <li
-                      key={`${skill.id}-${skill.skill_name}`}
-                      onClick={() => handleSelectSkill(skill)}
-                      className="px-4 py-2 text-sm text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer flex items-center justify-between max-md:min-h-10"
+                {/* Dropdown Results list */}
+                <AnimatePresence>
+                  {skillDropdownOpen && (skillResults.length > 0 || skillQuery.trim().length > 0) && (
+                    <motion.ul
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={{ duration: 0.15, ease: "easeOut" }}
+                      className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-y-auto overscroll-contain bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg divide-y divide-zinc-150 dark:divide-zinc-800/80"
+                      onWheel={(e) => e.stopPropagation()}
                     >
-                      <span>{skill.skill_name}</span>
-                      <Plus className="h-3.5 w-3.5 text-zinc-400" />
-                    </li>
-                  ))}
-                  {skillQuery.trim().length > 0 && !skillResults.some(s => s.skill_name.toLowerCase() === skillQuery.trim().toLowerCase()) && (
-                    <li
-                      onClick={handleAddCustomSkill}
-                      className="px-4 py-2.5 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 cursor-pointer flex items-center justify-between font-medium border-t border-zinc-100 dark:border-zinc-800/50 max-md:min-h-10"
-                    >
-                      <span>+ Add &quot;{skillQuery.trim()}&quot; as a custom skill</span>
-                      <Plus className="h-3.5 w-3.5" />
-                    </li>
+                      <AnimatePresence mode="popLayout" initial={false}>
+                        {skillResults.map((skill) => (
+                          <motion.li
+                            key={`${skill.id}-${skill.skill_name}`}
+                            layout
+                            initial={{ opacity: 0, y: -3 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -3 }}
+                            transition={{ duration: 0.12 }}
+                            onClick={() => handleSelectSkill(skill)}
+                            className="px-4 py-2 text-sm text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer flex items-center justify-between max-md:min-h-10"
+                          >
+                            <span>{skill.skill_name}</span>
+                            <Plus className="h-3.5 w-3.5 text-zinc-400" />
+                          </motion.li>
+                        ))}
+                      </AnimatePresence>
+                      {skillQuery.trim().length > 0 && !skillResults.some(s => s.skill_name.toLowerCase() === skillQuery.trim().toLowerCase()) && (
+                        <motion.li
+                          layout
+                          initial={{ opacity: 0, y: -3 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -3 }}
+                          transition={{ duration: 0.12 }}
+                          onClick={handleAddCustomSkill}
+                          className="px-4 py-2.5 text-sm text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/20 cursor-pointer flex items-center justify-between font-medium border-t border-zinc-100 dark:border-zinc-800/50 max-md:min-h-10"
+                        >
+                          <span>+ Add &quot;{skillQuery.trim()}&quot; as a custom skill</span>
+                          <Plus className="h-3.5 w-3.5" />
+                        </motion.li>
+                      )}
+                    </motion.ul>
                   )}
-                </ul>
-              )}
+                </AnimatePresence>
+              </div>
 
               {/* Suggested Skills */}
               <div className="space-y-1.5 pt-2">
@@ -967,22 +1088,32 @@ export default function JobForm({
 
               {/* Selected Skills Chips */}
               <div className="flex flex-wrap gap-1.5 pt-2">
-                {(data.skills || []).map((skill) => (
-                  <Badge
-                    key={`${skill.id}-${skill.skill_name}`}
-                    variant="secondary"
-                    className="px-2.5 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-md border-0 inline-flex items-center gap-1.5 whitespace-normal break-words max-w-full text-left leading-normal h-auto"
-                  >
-                    <span className="break-words">{skill.skill_name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveSkill(skill.id)}
-                      className="text-zinc-400 hover:text-rose-500 transition-colors shrink-0"
+                <AnimatePresence mode="popLayout">
+                  {(data.skills || []).map((skill) => (
+                    <motion.div
+                      key={`${skill.id}-${skill.skill_name}`}
+                      layout
+                      initial={{ opacity: 0, scale: 0.85 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      exit={{ opacity: 0, scale: 0.85 }}
+                      transition={{ duration: 0.15 }}
                     >
-                      <X className="h-3 w-3 max-md:relative max-md:after:absolute max-md:after:-inset-3 max-md:after:content-['']" />
-                    </button>
-                  </Badge>
-                ))}
+                      <Badge
+                        variant="secondary"
+                        className="px-2.5 py-1 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-md border-0 inline-flex items-center gap-1.5 whitespace-normal break-words max-w-full text-left leading-normal h-auto"
+                      >
+                        <span className="break-words">{skill.skill_name}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSkill(skill.id)}
+                          className="text-zinc-400 hover:text-rose-500 transition-colors shrink-0"
+                        >
+                          <X className="h-3 w-3 max-md:relative max-md:after:absolute max-md:after:-inset-3 max-md:after:content-['']" />
+                        </button>
+                      </Badge>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
                 {(data.skills || []).length === 0 && (
                   <p className="text-[11px] text-zinc-400 italic">No skills selected yet.</p>
                 )}

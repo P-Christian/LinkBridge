@@ -371,30 +371,31 @@ export default function ApplicantDetailsModal({
     }
 
     // 1. Instant check from local cache
-    const cached = getCachedApplicantAnalysis(appId);
-    queueMicrotask(() => {
+    let isMounted = true;
+    getCachedApplicantAnalysis(appId).then((cached) => {
+      if (!isMounted) return;
       if (cached) {
         setCachedAnalysis(cached);
-      } else {
-        setCachedAnalysis(null);
+        return; // Cache hit: skip redundant background DB fetch & re-encryption
       }
-    });
 
-    // 2. Query DB to verify if evaluation exists for this exact application_id
-    let isMounted = true;
-    fetch(`/api/client/applicants/${appId}/ai-analysis`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (isMounted) {
-          if (data?.success && data.analysis) {
-            setCachedAnalysis(data.analysis);
-            setCachedApplicantAnalysis(appId, data.analysis);
-          } else if (!cached) {
-            setCachedAnalysis(null);
+      // 2. Cache miss: Query DB to verify if evaluation exists for this exact application_id
+      fetch(`/api/client/applicants/${appId}/ai-analysis`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (isMounted) {
+            if (data?.success && data.analysis) {
+              setCachedAnalysis(data.analysis);
+              void setCachedApplicantAnalysis(appId, data.analysis);
+            } else {
+              setCachedAnalysis(null);
+            }
           }
-        }
-      })
-      .catch(() => { });
+        })
+        .catch(() => {
+          if (isMounted) setCachedAnalysis(null);
+        });
+    });
 
     return () => {
       isMounted = false;

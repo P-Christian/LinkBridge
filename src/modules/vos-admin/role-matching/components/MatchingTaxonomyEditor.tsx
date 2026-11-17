@@ -13,14 +13,14 @@ import {
   CheckCircle2,
   Plus,
   Edit2,
-  Trash2,
+
   Loader2,
   SlidersHorizontal,
   ShieldAlert,
   Power,
   AlertTriangle,
 } from "lucide-react";
-import { toast } from "sonner";
+ 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -52,7 +52,7 @@ export function MatchingTaxonomyEditor() {
     loading: catLoading,
     addCategory,
     editCategory,
-    removeCategory,
+ 
   } = useJobCategories();
 
   const {
@@ -60,7 +60,7 @@ export function MatchingTaxonomyEditor() {
     loading: rolesLoading,
     addRole,
     editRole,
-    removeRole,
+ 
   } = useStandardRoles();
 
   const {
@@ -132,7 +132,7 @@ export function MatchingTaxonomyEditor() {
   const [generalError, setGeneralError] = useState("");
   const [deleteCatTarget, setDeleteCatTarget] = useState<JobCategory | null>(null);
   const [deleteRoleTarget, setDeleteRoleTarget] = useState<StandardRole | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeleting] = useState(false);
 
   const toggleCat = (id: number) => {
     setExpandedCats((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -219,23 +219,7 @@ export function MatchingTaxonomyEditor() {
     }
   };
 
-
-
-  const handleDeleteCategory = (cat: JobCategory, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteCatTarget(cat);
-  };
-
-  const handleConfirmDeleteCategory = async () => {
-    if (!deleteCatTarget) return;
-    setIsDeleting(true);
-    const ok = await removeCategory(deleteCatTarget.category_id);
-    setIsDeleting(false);
-    if (ok) {
-      toast.success(`Category "${deleteCatTarget.category_name}" deleted.`);
-      setDeleteCatTarget(null);
-    }
-  };
+ 
 
   // ── Role CRUD ─────────────────────────────────────────────────────────────
   const openAddRoleForCategory = (catId: number, e: React.MouseEvent) => {
@@ -280,23 +264,7 @@ export function MatchingTaxonomyEditor() {
       setRoleModalOpen(false);
     }
   };
-
-  const handleDeleteRole = (role: StandardRole, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setDeleteRoleTarget(role);
-  };
-
-  const handleConfirmDeleteRole = async () => {
-    if (!deleteRoleTarget) return;
-    setIsDeleting(true);
-    const ok = await removeRole(deleteRoleTarget.role_id);
-    setIsDeleting(false);
-    if (ok) {
-      toast.success(`Role "${deleteRoleTarget.role_name}" deleted.`);
-      setDeleteRoleTarget(null);
-    }
-  };
-
+ 
   // ── Search & Filter Logic ─────────────────────────────────────────────────
   const filteredCategories = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
@@ -471,14 +439,8 @@ export function MatchingTaxonomyEditor() {
                       >
                         <Edit2 className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteCategory(cat, e)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                        title="Delete Category"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+
+
                     </div>
                   </div>
 
@@ -551,14 +513,7 @@ export function MatchingTaxonomyEditor() {
                                       <SlidersHorizontal className="h-3 w-3" />
                                       Manage Details
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={(e) => handleDeleteRole(role, e)}
-                                      className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
-                                      title="Delete Role"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </button>
+ 
                                   </div>
                                 </div>
                                 {/* Inline Skills & Keywords Section */}
@@ -930,16 +885,7 @@ export function MatchingTaxonomyEditor() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={handleConfirmDeleteCategory}
-              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
-            >
-              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Delete Permanently
-            </Button>
+
           </div>
         </DialogContent>
       </Dialog>
@@ -972,16 +918,7 @@ export function MatchingTaxonomyEditor() {
             >
               Cancel
             </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={isDeleting}
-              onClick={handleConfirmDeleteRole}
-              className="h-9 px-4 rounded-xl text-xs bg-rose-600 hover:bg-rose-700 text-white gap-1.5"
-            >
-              {isDeleting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-              Delete Permanently
-            </Button>
+
           </div>
         </DialogContent>
       </Dialog>

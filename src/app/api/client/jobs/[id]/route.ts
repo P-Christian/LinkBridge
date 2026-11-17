@@ -245,6 +245,31 @@ export async function PATCH(
     const nowPH = getPHTimeString();
     safePayload.updated_at = nowPH;
 
+    if ("job_title" in safePayload) {
+      const title = typeof safePayload.job_title === "string" ? (safePayload.job_title as string).trim() : "";
+      if (!title) {
+        return NextResponse.json({ error: "Job title is required." }, { status: 400 });
+      }
+      if (title.length < 3 || title.length > 100) {
+        return NextResponse.json({ error: "Job title must be between 3 and 100 characters." }, { status: 400 });
+      }
+      if (!/^[a-zA-Z0-9\s\-/&,.()#+]+$/.test(title) || !/[a-zA-Z0-9]/.test(title)) {
+        return NextResponse.json(
+          { error: "Job title contains invalid characters. Use letters, numbers, spaces, and standard symbols (- / & , . ( ) + #)." },
+          { status: 400 }
+        );
+      }
+      const targetCompanyId = callerCompanyId ?? Number(existingJob.company_id);
+      const isDuplicate = await jobService.checkJobTitleExists(targetCompanyId, title, Number(id));
+      if (isDuplicate) {
+        return NextResponse.json(
+          { error: "A job posting with this title already exists in your company." },
+          { status: 400 }
+        );
+      }
+      safePayload.job_title = title;
+    }
+
     const { job: updatedJob, warnings } = await jobService.updateJob(id, safePayload);
     const jobWithCompany = await attachCompanyToJob(updatedJob);
 

@@ -148,9 +148,7 @@ export function ContactMessageDetailModal({
                 <MessageSquare className="h-3.5 w-3.5" />
                 <span>Contact Inquiry</span>
               </div>
-              <Badge variant="outline" className={`rounded-full px-3 py-0.5 text-xs font-semibold border ${statusMeta.tone}`}>
-                {statusMeta.label}
-              </Badge>
+
             </div>
             <DialogTitle className="text-xl font-bold tracking-tight text-foreground">
               {message.subject}

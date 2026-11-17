@@ -15,6 +15,30 @@ function getHeaders(): Record<string, string> {
 }
 
 /**
+ * Fetches all master skills for client-side caching
+ */
+export async function getMasterSkillsAction(): Promise<{ id: number; skill_name: string }[]> {
+  try {
+    const url = `${DIRECTUS_BASE}/items/vs_master_skills?fields=id,skill_name&limit=-1&sort=skill_name`;
+    const res = await fetch(url, {
+      headers: getHeaders(),
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      console.error("Failed to fetch master skills", await res.text());
+      return [];
+    }
+
+    const data = await res.json();
+    return data.data || [];
+  } catch (err) {
+    console.error("Error fetching master skills:", err);
+    return [];
+  }
+}
+
+/**
  * Searches for skills in vs_master_skills table
  */
 export async function searchMasterSkillsAction(query: string) {

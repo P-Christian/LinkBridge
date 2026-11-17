@@ -638,6 +638,24 @@ async function syncJobRelations(
 // EXPORTED SERVICE INTERFACES
 // ─────────────────────────────────────────────────────────────────────────────
 
+export async function checkJobTitleExists(
+  companyId: number,
+  jobTitle: string,
+  excludeJobId?: number
+): Promise<boolean> {
+  const normalized = jobTitle.trim().toLowerCase();
+  const url = `${DIRECTUS_BASE}/items/vs_job_posting?filter[company_id][_eq]=${companyId}&filter[is_deleted][_neq]=1&filter[status][_neq]=CLOSED&fields=job_id,job_title&limit=100`;
+  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+  if (!res.ok) return false;
+  const json = await res.json().catch(() => ({}));
+  const list: { job_id: number; job_title: string }[] = json.data ?? [];
+  return list.some(
+    (j) =>
+      (!excludeJobId || Number(j.job_id) !== Number(excludeJobId)) &&
+      j.job_title?.trim().toLowerCase() === normalized
+  );
+}
+
 export async function getJobs(companyId: number, status: string | null): Promise<JobPosting[]> {
   if (status && status !== "ALL" && !ALLOWED_JOB_STATUSES.includes(status)) return [];
 
