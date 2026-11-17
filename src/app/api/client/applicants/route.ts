@@ -1,6 +1,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getJobPipelinesForJobs } from "@/modules/client/pipeline/services/job-pipeline.service";
+import {
+  summarizeAssessmentReadiness,
+  summarizeScreeningReadiness,
+} from "@/modules/client/pipeline/services/stage-readiness";
 import { JobPipelineStage } from "@/modules/client/pipeline/types";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import { checkCompanyVerificationStatus } from "@/lib/status-validator";
@@ -51,6 +55,7 @@ interface RawApplication {
   application_id: number;
   job_id: number;
   user_id: number;
+  resume_id?: number | null;
   application_status: string;
   current_stage_id?: number | null;
   client_notes?: string | null;
@@ -59,10 +64,26 @@ interface RawApplication {
 }
 
 interface AssessmentAttemptRow {
+  id: number;
   application_id: number;
   job_stage_id: number | null;
   attempt_number?: number | null;
   status?: string | null;
+}
+
+interface AssessmentTaskRow {
+  id: number;
+  job_stage_id: number | null;
+  is_required?: boolean | number | null;
+  task_type?: string | null;
+}
+
+interface AssessmentResponseRow {
+  attempt_id: number | null;
+  job_task_id: number | null;
+  selected_choice_key?: string | null;
+  response_text?: string | null;
+  proof_file_id?: string | null;
 }
 
 interface VsUser {
@@ -268,7 +289,7 @@ export async function GET(req: NextRequest) {
       "vs_job_application",
       "job_id",
       jobIds,
-      "application_id,job_id,user_id,application_status,current_stage_id,cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at",
+      "application_id,job_id,user_id,resume_id,application_status,current_stage_id,cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at",
       { extra: `sort[]=-applied_at${extraFilters.length ? `&${extraFilters.join("&")}` : ""}` }
     );
 
@@ -348,11 +369,11 @@ export async function GET(req: NextRequest) {
         "user_id,employee_education_id,school_id.school_name,school_name_raw,school_course_id.course_name,course_name_raw,education_status,start_date,end_date"
       ),
 
-      directusItemsWhereIn<{ application_id: number; question_id: number }>(
+      directusItemsWhereIn<{ application_id: number; question_id: number; answer_text?: string | null }>(
         "vs_job_application_answer",
         "application_id",
         appIds,
-        "application_id,question_id"
+        "application_id,question_id,answer_text"
       ),
 
       directusItemsWhereIn<{
@@ -520,15 +541,43 @@ export async function GET(req: NextRequest) {
     const uniqueJobIds = [...new Set(rawApps.map((a) => a.job_id).filter(Boolean))];
     const jobPipelineMap = await getJobPipelinesForJobs(uniqueJobIds, companyId);
 
+    const screeningQuestionRows = await directusItemsWhereIn<{
+      question_id: number;
+      job_id: number;
+    }>(
+      "vs_job_screening_question",
+      "job_id",
+      uniqueJobIds,
+      "question_id,job_id"
+    );
+    const questionsByJob: Record<number, number[]> = {};
+    for (const row of screeningQuestionRows) {
+      const jobId = Number(row.job_id);
+      const questionId = Number(row.question_id);
+      if (!Number.isSafeInteger(jobId) || !Number.isSafeInteger(questionId)) continue;
+      if (!questionsByJob[jobId]) questionsByJob[jobId] = [];
+      questionsByJob[jobId].push(questionId);
+    }
+    const answeredByApp: Record<number, number[]> = {};
+    for (const row of screeningAnswerRows) {
+      const text = typeof row.answer_text === "string" ? row.answer_text : "";
+      if (!text.trim()) continue;
+      const appId = Number(row.application_id);
+      const questionId = Number(row.question_id);
+      if (!Number.isSafeInteger(appId) || !Number.isSafeInteger(questionId)) continue;
+      if (!answeredByApp[appId]) answeredByApp[appId] = [];
+      answeredByApp[appId].push(questionId);
+    }
+
     // ------------------------------
     // Latest assessment attempt per application (batched, no N+1)
     // ------------------------------
-    const attemptMap: Record<string, string | null> = {};
+    const attemptMap: Record<string, { id: number; status: string | null }> = {};
     const attemptRows = await directusItemsWhereIn<AssessmentAttemptRow>(
       "vs_application_assessment_attempts",
       "application_id",
       appIds,
-      "application_id,job_stage_id,attempt_number,status",
+      "id,application_id,job_stage_id,attempt_number,status",
       { extra: "sort[]=-attempt_number" }
     );
     // Batches split by application id, so each application's attempts all
@@ -537,7 +586,76 @@ export async function GET(req: NextRequest) {
     for (const row of attemptRows) {
       const key = `${Number(row.application_id)}:${Number(row.job_stage_id)}`;
       if (!(key in attemptMap)) {
-        attemptMap[key] = typeof row.status === "string" ? row.status : null;
+        attemptMap[key] = {
+          id: Number(row.id),
+          status: typeof row.status === "string" ? row.status : null,
+        };
+      }
+    }
+
+    // ------------------------------
+    // Assessment readiness inputs (batched, no N+1)
+    // ------------------------------
+    // Current stage per application, resolved exactly as the mapper below
+    // does, so the readiness batch covers the same ASSESSMENT rows rendered.
+    const currentStageByApp = new Map<number, JobPipelineStage | undefined>();
+    for (const application of rawApps) {
+      const pipe = jobPipelineMap[application.job_id];
+      let currentStage: JobPipelineStage | undefined;
+      if (pipe?.stages) {
+        if (application.current_stage_id) {
+          currentStage = pipe.stages.find((s) => s.id === Number(application.current_stage_id));
+        }
+        if (!currentStage) {
+          currentStage =
+            pipe.stages.find((s) => s.stage_type === application.application_status) ||
+            pipe.stages.find((s) => s.stage_type === "APPLIED") ||
+            pipe.stages[0];
+        }
+      }
+      currentStageByApp.set(application.application_id, currentStage);
+    }
+
+    const assessmentStageIds = [
+      ...new Set(
+        [...currentStageByApp.values()]
+          .filter((s): s is JobPipelineStage => s?.stage_type === "ASSESSMENT")
+          .map((s) => s.id)
+      ),
+    ];
+    const latestAttemptIds = [...currentStageByApp.entries()]
+      .filter(([, stage]) => stage?.stage_type === "ASSESSMENT")
+      .map(([appId, stage]) => attemptMap[`${appId}:${stage?.id}`]?.id)
+      .filter((id): id is number => Number.isSafeInteger(id));
+
+    const tasksByStageId: Record<number, AssessmentTaskRow[]> = {};
+    const responsesByAttemptId: Record<number, AssessmentResponseRow[]> = {};
+    if (assessmentStageIds.length > 0) {
+      const [assessmentTaskRows, assessmentResponseRows] = await Promise.all([
+        directusItemsWhereIn<AssessmentTaskRow>(
+          "vs_job_pipeline_assessment_tasks",
+          "job_stage_id",
+          assessmentStageIds,
+          "id,job_stage_id,is_required,task_type"
+        ),
+        directusItemsWhereIn<AssessmentResponseRow>(
+          "vs_application_assessment_responses",
+          "attempt_id",
+          latestAttemptIds,
+          "attempt_id,job_task_id,selected_choice_key,response_text,proof_file_id"
+        ),
+      ]);
+      for (const row of assessmentTaskRows) {
+        const stageId = Number(row.job_stage_id);
+        if (!Number.isSafeInteger(stageId)) continue;
+        if (!tasksByStageId[stageId]) tasksByStageId[stageId] = [];
+        tasksByStageId[stageId].push(row);
+      }
+      for (const row of assessmentResponseRows) {
+        const attemptId = Number(row.attempt_id);
+        if (!Number.isSafeInteger(attemptId)) continue;
+        if (!responsesByAttemptId[attemptId]) responsesByAttemptId[attemptId] = [];
+        responsesByAttemptId[attemptId].push(row);
       }
     }
 
@@ -562,7 +680,7 @@ export async function GET(req: NextRequest) {
       const referralInfo = appReferralMap[application.application_id];
 
       const pipe = jobPipelineMap[application.job_id];
-      let currentStage: JobPipelineStage | undefined;
+      const currentStage = currentStageByApp.get(application.application_id);
       let allowedNextStages: Array<{
         id: number;
         stage_name: string;
@@ -572,15 +690,6 @@ export async function GET(req: NextRequest) {
       }> = [];
 
       if (pipe?.stages) {
-        if (application.current_stage_id) {
-          currentStage = pipe.stages.find((s) => s.id === Number(application.current_stage_id));
-        }
-        if (!currentStage) {
-          currentStage =
-            pipe.stages.find((s) => s.stage_type === application.application_status) ||
-            pipe.stages.find((s) => s.stage_type === "APPLIED") ||
-            pipe.stages[0];
-        }
 
         if (currentStage && !currentStage.is_terminal) {
           const transitions = pipe.transitions ?? [];
@@ -623,14 +732,42 @@ export async function GET(req: NextRequest) {
         stage_type: currentStage?.stage_type ?? application.application_status,
         stage_color: currentStage?.color ?? "sky",
         allowed_next_stages: allowedNextStages,
+        stage_readiness:
+          currentStage?.stage_type === "SCREENING"
+            ? summarizeScreeningReadiness({
+                questionIds: questionsByJob[application.job_id] ?? [],
+                answeredQuestionIds: answeredByApp[application.application_id] ?? [],
+                hasResume: (resumeMap[application.user_id] ?? 0) > 0,
+              })
+            : currentStage?.stage_type === "ASSESSMENT" && currentStage
+              ? summarizeAssessmentReadiness({
+                  tasks: (tasksByStageId[currentStage.id] ?? []).map((t) => ({
+                    id: Number(t.id),
+                    is_required: t.is_required ?? false,
+                    task_type: typeof t.task_type === "string" ? t.task_type : "",
+                  })),
+                  responses: (
+                    responsesByAttemptId[
+                      attemptMap[`${application.application_id}:${currentStage.id}`]?.id ?? -1
+                    ] ?? []
+                  ).map((r) => ({
+                    job_task_id: Number(r.job_task_id),
+                    selected_choice_key: r.selected_choice_key ?? null,
+                    response_text: r.response_text ?? null,
+                    proof_file_id: r.proof_file_id ?? null,
+                  })),
+                  latestStatus:
+                    attemptMap[`${application.application_id}:${currentStage.id}`]?.status ?? null,
+                })
+              : null,
 
         assessment_status:
           currentStage?.stage_type === "ASSESSMENT" && currentStage
-            ? attemptMap[`${application.application_id}:${currentStage.id}`] ?? null
+            ? attemptMap[`${application.application_id}:${currentStage.id}`]?.status ?? null
             : null,
         assessment_needs_review:
           currentStage?.stage_type === "ASSESSMENT" && currentStage
-            ? attemptMap[`${application.application_id}:${currentStage.id}`] === "SUBMITTED"
+            ? attemptMap[`${application.application_id}:${currentStage.id}`]?.status === "SUBMITTED"
             : false,
         
         applicant_profile_image_url: 

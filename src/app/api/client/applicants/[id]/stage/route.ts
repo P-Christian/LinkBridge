@@ -212,7 +212,7 @@ export async function PATCH(
 
     if (!result.success) {
       return NextResponse.json(
-        { error: result.error || "Failed to transition candidate stage." },
+        { error: result.error || "Failed to transition candidate stage.", code: result.code },
         { status: result.statusCode || 422 }
       );
     }

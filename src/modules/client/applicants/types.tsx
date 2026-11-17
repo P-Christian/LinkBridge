@@ -44,6 +44,11 @@ export interface Applicant {
   stage_type?: CanonicalStageType;
   stage_color?: string;
   allowed_next_stages?: ApplicantStageOption[];
+  stage_readiness?: {
+    blocking: boolean;
+    missing: string[];
+    code: string | null;
+  } | null;
   assessment_status?: string | null;
   assessment_needs_review?: boolean;
 
@@ -164,6 +169,11 @@ export interface CandidateDetail {
   stage_type?: CanonicalStageType;
   stage_color?: string;
   allowed_next_stages?: ApplicantStageOption[];
+  stage_readiness?: {
+    blocking: boolean;
+    missing: string[];
+    code: string | null;
+  } | null;
   active_interview_id?: number | null;
 
   applicant_name: string;

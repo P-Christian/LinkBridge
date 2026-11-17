@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sendHiringEmail, sendRejectionEmail, isEmailEnabledForUser } from "@/lib/mail";
 import { createSystemMessage } from "@/lib/messaging/system-message";
 import { getPHTimeString, toPHWallClock } from "@/lib/utils";
-import { transitionApplicationStage } from "@/modules/client/pipeline/services/job-pipeline.service";
+import { transitionApplicationStage, getJobPipeline } from "@/modules/client/pipeline/services/job-pipeline.service";
 import {
   authenticateRequest,
   isAdministratorSession,
@@ -367,27 +367,58 @@ export async function PATCH(
             );
           }
         } else if (decision === "HIRED" || decision === "REJECTED") {
-          // Fallback legacy status transition
-          const targetStatus = decision;
-
-          const statusRes = await fetch(
-            `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}`,
-            {
-              method: "PATCH",
-              headers: getHeaders(),
-              body: JSON.stringify({
-                application_status: targetStatus,
-                client_notes: feedbackText ? `Interview feedback: ${feedbackText}` : undefined,
-              }),
+          let pipelineJobId: number | null = null;
+          try {
+            const appReadRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_job_application/${jaData.application_id}?fields=job_id,current_stage_id,application_status`,
+              { headers: getHeaders(), cache: "no-store" }
+            );
+            if (appReadRes.ok) {
+              const appData = (await appReadRes.json()).data;
+              if (appData?.job_id) pipelineJobId = Number(appData.job_id);
             }
-          );
-          if (!statusRes.ok) {
-            const text = await statusRes.text().catch(() => "");
-            console.error("Directus patch application status error:", text);
+          } catch (err) {
+            console.error("Directus fetch application for pipeline resolution error:", err);
+          }
+          if (!pipelineJobId) {
             decisionWriteFailed = true;
             warnings.push(
-              `The feedback was saved, but the application was not marked ${targetStatus}.`
+              "The feedback was saved, but the candidate's pipeline could not be resolved."
             );
+          } else {
+            let decisionStageId: number | null = null;
+            try {
+              const pipe = await getJobPipeline(pipelineJobId);
+              const matched = pipe?.stages?.find((s) => s.stage_type === decision);
+              if (matched) decisionStageId = matched.id;
+            } catch (err) {
+              console.error("Error resolving pipeline stage for decision:", err);
+            }
+            if (!decisionStageId) {
+              decisionWriteFailed = true;
+              warnings.push(
+                "The feedback was saved, but the candidate's pipeline could not be resolved."
+              );
+            } else {
+              const moveResult = await transitionApplicationStage({
+                applicationId: jaData.application_id,
+                toStageId: decisionStageId,
+                changedByUserId: userId,
+                changeReason: feedbackText
+                  ? `Interview feedback: ${feedbackText}`
+                  : "Interview evaluation recorded",
+                notes: feedbackText,
+              });
+              if (!moveResult.success) {
+                console.error("transitionApplicationStage error in evaluation:", moveResult.error);
+                decisionWriteFailed = true;
+                warnings.push(
+                  `The feedback was saved, but the application was not marked ${decision}${
+                    moveResult.error ? `: ${moveResult.error}` : "."
+                  }`
+                );
+              }
+            }
           }
           } else if (feedbackText) {
             // NO_ACTION: only update feedback notes, not the status

@@ -22,7 +22,7 @@ import {
   ALLOWED_STATUS_TRANSITIONS,
 } from "../types";
 import { STAGE_COLOR_CLASSES } from "@/modules/client/pipeline/types";
-import { AlertCircle, Info } from "lucide-react";
+import { AlertCircle, Info, ShieldAlert } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface StatusUpdateDrawerProps {
@@ -41,6 +41,7 @@ interface StatusUpdateDrawerProps {
   ) => Promise<void>;
   saving: boolean;
   error: string;
+  onOverride?: (applicant: Applicant) => void;
 }
 
 export default function StatusUpdateDrawer({
@@ -51,10 +52,13 @@ export default function StatusUpdateDrawer({
   onSaveStage,
   saving,
   error,
+  onOverride,
 }: StatusUpdateDrawerProps) {
   const currentStatus = applicant?.application_status ?? "APPLIED";
   const currentStageName = applicant?.stage_name || STATUS_LABELS[currentStatus] || currentStatus;
   const currentStageColor = applicant?.stage_color || "sky";
+  const readinessBlocking = Boolean(applicant?.stage_readiness?.blocking);
+  const readinessMissing = applicant?.stage_readiness?.missing ?? [];
 
   const hasDynamicStages = Boolean(
     applicant?.allowed_next_stages !== undefined && applicant?.allowed_next_stages !== null
@@ -239,9 +243,26 @@ export default function StatusUpdateDrawer({
               className="resize-none md:text-sm max-md:text-base"
             />
           </div>
+
+          {readinessBlocking && (
+            <div className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive md:text-xs">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              Cannot advance: {readinessMissing.join(", ")} required.
+            </div>
+          )}
         </div>
 
-        <DialogFooter>
+        <DialogFooter className="flex flex-row flex-wrap items-center justify-end gap-2 max-md:flex-col-reverse max-md:items-stretch">
+          {readinessBlocking && onOverride && applicant && (
+            <Button
+              variant="outline"
+              onClick={() => onOverride(applicant)}
+              className="h-9 max-md:min-h-10 text-sm rounded-lg gap-1.5 border-amber-300 text-amber-700 hover:bg-amber-50 hover:text-amber-800 dark:border-amber-800 dark:text-amber-400 dark:hover:bg-amber-950/30 max-md:w-full"
+            >
+              <ShieldAlert className="h-3.5 w-3.5" />
+              Advance without requirements…
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={onClose}
@@ -253,7 +274,7 @@ export default function StatusUpdateDrawer({
           {canSave && (
             <Button
               onClick={handleSave}
-              disabled={saving}
+              disabled={saving || readinessBlocking}
               className="h-9 max-md:min-h-10 text-sm rounded-lg"
             >
               {saving ? "Saving..." : "Save Stage"}

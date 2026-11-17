@@ -57,6 +57,11 @@ export default function InterviewEvaluationModal({
 
   const activeApp = applications.find((a) => a.interview_application_id === selectedAppId) || applications[0];
 
+  const readinessBlocking = Boolean(activeApp?.stage_readiness?.blocking);
+  const readinessReason = activeApp?.stage_readiness?.missing?.length
+    ? `Cannot advance candidate: ${activeApp.stage_readiness.missing.join(", ")} required.`
+    : "Cannot advance candidate: required items for the current stage have not been completed.";
+
   const forwardStages = useMemo(() => {
     return (
       activeApp?.allowed_next_stages?.filter(
@@ -98,7 +103,7 @@ export default function InterviewEvaluationModal({
     let targetStageId: number | null = null;
     let decision: "HIRED" | "REJECTED" | "NO_ACTION" = "NO_ACTION";
 
-    if (decisionAction === "ADVANCE") {
+    if (decisionAction === "ADVANCE" && !readinessBlocking) {
       targetStageId = effectiveSelectedToStageId;
       const targetStage = activeApp?.allowed_next_stages?.find((s) => s.id === effectiveSelectedToStageId);
       if (targetStage?.stage_type === "HIRED") {
@@ -279,12 +284,15 @@ export default function InterviewEvaluationModal({
 
                 <button
                   type="button"
+                  disabled={readinessBlocking}
+                  title={readinessBlocking ? readinessReason : undefined}
                   onClick={() => setDecisionAction("ADVANCE")}
                   className={cn(
                     "py-2 px-3 max-md:min-h-10 text-sm md:text-xs font-medium rounded-lg border transition-all flex items-center justify-center gap-1.5",
                     decisionAction === "ADVANCE"
                       ? "border-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold shadow-xs"
-                      : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+                      : "border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-50 dark:hover:bg-zinc-900",
+                    readinessBlocking && "cursor-not-allowed opacity-60"
                   )}
                 >
                   <ArrowRightCircle className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -325,12 +333,15 @@ export default function InterviewEvaluationModal({
                           <button
                             key={stage.id}
                             type="button"
+                            disabled={readinessBlocking}
+                            title={readinessBlocking ? readinessReason : undefined}
                             onClick={() => setSelectedToStageId(stage.id)}
                             className={cn(
                               "flex items-center gap-2 p-2.5 rounded-lg border text-xs font-medium text-left transition-all",
                               isSelected
                                 ? "border-emerald-600 bg-emerald-500/10 text-emerald-900 dark:text-emerald-200 ring-2 ring-emerald-500/20"
-                                : "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-700"
+                                : "border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-700",
+                              readinessBlocking && "cursor-not-allowed opacity-60"
                             )}
                           >
                             <span className={cn("h-2.5 w-2.5 rounded-full shrink-0", palette.dot)} />
