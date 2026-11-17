@@ -67,14 +67,12 @@ export interface ApplicantFiltersState {
   experience: ExperienceBucket[];
   profile: ProfileBucket[];
   appliedWithin: AppliedWindow | null;
-  stageTypes: CanonicalStageType[];
 }
 
 export const EMPTY_APPLICANT_FILTERS: ApplicantFiltersState = {
   experience: [],
   profile: [],
   appliedWithin: null,
-  stageTypes: [],
 };
 
 export const EXPERIENCE_BUCKETS: Array<{
@@ -110,22 +108,10 @@ export const APPLIED_WINDOWS: Array<{
   { id: "90d", label: "Last 90 days", hours: 24 * 90 },
 ];
 
-export const STAGE_TAG_OPTIONS: Array<{ id: CanonicalStageType; label: string }> = [
-  { id: "APPLIED", label: "Applied" },
-  { id: "SCREENING", label: "Screening" },
-  { id: "ASSESSMENT", label: "Assessment" },
-  { id: "INTERVIEW", label: "Interview" },
-  { id: "OFFER", label: "Offer" },
-  { id: "HIRED", label: "Hired" },
-  { id: "REJECTED", label: "Rejected" },
-  { id: "WITHDRAWN", label: "Withdrawn" },
-];
-
 export function countActiveFilters(filters: ApplicantFiltersState): number {
   return (
     filters.experience.length +
     filters.profile.length +
-    filters.stageTypes.length +
     (filters.appliedWithin ? 1 : 0)
   );
 }
@@ -160,11 +146,6 @@ export function matchesAdvancedFilters(
     const window = APPLIED_WINDOWS.find((w) => w.id === filters.appliedWithin);
     if (!window) return false;
     if (now - appliedAt > window.hours * 60 * 60 * 1000) return false;
-  }
-
-  if (filters.stageTypes.length) {
-    const stage = effectiveStageType(applicant);
-    if (!stage || !filters.stageTypes.includes(stage)) return false;
   }
 
   return true;
