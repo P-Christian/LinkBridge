@@ -173,6 +173,7 @@ export function DashboardSidebar({
     const [unreadMessages, setUnreadMessages] = React.useState(0);
     const [unreadNotifications, setUnreadNotifications] = React.useState(0);
     const [unreadContactMessages, setUnreadContactMessages] = React.useState(0);
+    const [pendingRequests, setPendingRequests] = React.useState(0);
     const loggingOut = React.useRef(false);
 
     const currentTheme = theme === "system" ? systemTheme : theme;
@@ -205,6 +206,7 @@ export function DashboardSidebar({
         const hasMessagesItem = config.navItems.some((item) => item.label === "Messages");
         const hasNotificationsItem = config.navItems.some((item) => item.label === "Notifications");
         const hasContactMessagesItem = config.navItems.some((item) => item.label === "Contact Messages");
+        const hasRequestsItem = config.navItems.some((item) => item.label === "Requests");
 
         let isCircuitBroken = false;
         let controller: AbortController | null = null;
@@ -252,6 +254,20 @@ export function DashboardSidebar({
                             id: "sidebar-fetch-error",
                             duration: 3000,
                         });
+                    }
+                }
+
+                if (hasRequestsItem) {
+                    try {
+                        const res = await fetch("/api/school-admin/requests/summary", { signal });
+                        if (res.ok) {
+                            const data = await res.json();
+                            const school = typeof data?.school === "number" ? data.school : 0;
+                            const course = typeof data?.course === "number" ? data.course : 0;
+                            setPendingRequests(school + course);
+                        }
+                    } catch {
+                        if (signal.aborted) return;
                     }
                 }
 
@@ -470,12 +486,15 @@ export function DashboardSidebar({
                                         const isMessages = item.label === "Messages";
                                         const isNotifications = item.label === "Notifications";
                                         const isContactMessages = item.label === "Contact Messages";
+                                        const isRequests = item.label === "Requests";
                                         const badgeCount = isMessages
                                             ? unreadMessages
                                             : isNotifications
                                             ? unreadNotifications
                                             : isContactMessages
                                             ? unreadContactMessages
+                                            : isRequests
+                                            ? pendingRequests
                                             : 0;
 
                                         return (
@@ -531,7 +550,9 @@ export function DashboardSidebar({
                                                                     {badgeCount > 9 ? "9+" : badgeCount}
                                                                 </span>
                                                                 <span className="sr-only">
-                                                                    {badgeCount} unread {item.label.toLowerCase()}
+                                                                    {isRequests
+                                                                        ? `${badgeCount} pending request${badgeCount === 1 ? "" : "s"}`
+                                                                        : `${badgeCount} unread ${item.label.toLowerCase()}`}
                                                                 </span>
                                                             </>
                                                         )}

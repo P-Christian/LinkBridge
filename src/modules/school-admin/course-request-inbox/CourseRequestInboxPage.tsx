@@ -71,9 +71,10 @@ function showFeedbackToast(feedback: CourseRequestFeedback): void {
 interface CourseRequestInboxPageProps {
   /** Rendered directly below the header card, above the scope line. */
   readonly belowHeader?: ReactNode;
+  readonly onCountsChanged?: () => void;
 }
 
-export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPageProps) {
+export function CourseRequestInboxPage({ belowHeader, onCountsChanged }: CourseRequestInboxPageProps) {
   const {
     inbox,
     routed,
@@ -118,21 +119,25 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
   }, [loadInbox]);
 
   /** True when the calling dialog may close; false keeps it open on failure. */
-  const settleOutcome = useCallback((outcome: CourseRequestOutcome): boolean => {
-    showFeedbackToast(feedbackForCourseRequestOutcome(outcome));
-    switch (outcome.kind) {
-      case "approved":
-      case "rejected":
-      case "stale":
-      case "removed":
-      case "finalizing":
-        return true;
-      case "failed":
-        return false;
-      default:
-        return assertNeverCourseRequestVariant(outcome);
-    }
-  }, []);
+  const settleOutcome = useCallback(
+    (outcome: CourseRequestOutcome): boolean => {
+      showFeedbackToast(feedbackForCourseRequestOutcome(outcome));
+      switch (outcome.kind) {
+        case "approved":
+        case "rejected":
+        case "stale":
+        case "removed":
+        case "finalizing":
+          onCountsChanged?.();
+          return true;
+        case "failed":
+          return false;
+        default:
+          return assertNeverCourseRequestVariant(outcome);
+      }
+    },
+    [onCountsChanged],
+  );
 
   const handleApprove = useCallback(
     async (row: CourseRequestInboxRow, courseId: number): Promise<boolean> => {

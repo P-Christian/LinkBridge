@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { ReactNode } from "react";
-import { ClipboardCheck, Inbox, RefreshCw, RotateCcw } from "lucide-react";
+import type { ChangeEvent, ReactNode } from "react";
+import { ClipboardCheck, Inbox, RefreshCw, RotateCcw, Search, SearchX, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { EmptyPlaceholder } from "@/components/shared/EmptyPlaceholder";
 import { SchoolAdminModuleHeader } from "@/modules/school-admin/components/SchoolAdminModuleHeader";
 import {
@@ -20,13 +21,18 @@ import {
   type SchoolInboxRow,
 } from "@/modules/school-admin/hooks/useSchoolRequests";
 import { ApproveAttendanceDialog, RejectAttendanceDialog } from "./components/SchoolRequestDecisionDialogs";
+import { SchoolRequestInboxPagination } from "./components/SchoolRequestInboxPagination";
 import { SchoolRequestInboxTable } from "./components/SchoolRequestInboxTable";
 import {
   SchoolRequestInboxAccessPanel,
   SchoolRequestInboxErrorBanner,
   SchoolRequestInboxSkeleton,
 } from "./components/SchoolRequestInboxStates";
-import { classifyInboxLoadError, visibleInboxRows } from "./services/school-request-inbox.helpers";
+import {
+  classifyInboxLoadError,
+  describeCourse,
+  visibleInboxRows,
+} from "./services/school-request-inbox.helpers";
 
 /**
  * Privacy-limited School Admin attendance inbox.
@@ -66,9 +72,13 @@ function showFeedbackToast(feedback: SchoolAttendanceFeedback): void {
 interface SchoolRequestInboxPageProps {
   /** Rendered directly below the header card, above the scope paragraph. */
   readonly belowHeader?: ReactNode;
+  /** Refreshes the tab/sidebar pending counts after the inbox shrinks. */
+  readonly onCountsChanged?: () => void;
 }
 
-export function SchoolRequestInboxPage({ belowHeader }: SchoolRequestInboxPageProps) {
+const PAGE_SIZE = 10;
+
+export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolRequestInboxPageProps) {
   const {
     inbox,
     routed,
@@ -89,27 +99,34 @@ export function SchoolRequestInboxPage({ belowHeader }: SchoolRequestInboxPagePr
 
   const [approveRow, setApproveRow] = useState<SchoolInboxRow | null>(null);
   const [rejectRow, setRejectRow] = useState<SchoolInboxRow | null>(null);
+  const [search, setSearch] = useState("");
+  const [routedPage, setRoutedPage] = useState(1);
+  const [finalizingPage, setFinalizingPage] = useState(1);
 
   useEffect(() => {
     void loadInbox();
   }, [loadInbox]);
 
   /** True when the calling dialog may close; false keeps it open on failure. */
-  const settleOutcome = useCallback((outcome: SchoolAttendanceOutcome): boolean => {
-    showFeedbackToast(feedbackForSchoolAttendanceOutcome(outcome));
-    switch (outcome.kind) {
-      case "approved":
-      case "rejected":
-      case "stale":
-      case "removed":
-      case "finalizing":
-        return true;
-      case "failed":
-        return false;
-      default:
-        return assertNeverSchoolAdminVariant(outcome);
-    }
-  }, []);
+  const settleOutcome = useCallback(
+    (outcome: SchoolAttendanceOutcome): boolean => {
+      showFeedbackToast(feedbackForSchoolAttendanceOutcome(outcome));
+      switch (outcome.kind) {
+        case "approved":
+        case "rejected":
+        case "stale":
+        case "removed":
+        case "finalizing":
+          onCountsChanged?.();
+          return true;
+        case "failed":
+          return false;
+        default:
+          return assertNeverSchoolAdminVariant(outcome);
+      }
+    },
+    [onCountsChanged],
+  );
 
   const handleApprove = useCallback(
     async (row: SchoolInboxRow, academics: SchoolAttendanceAcademics): Promise<boolean> => {
@@ -138,14 +155,55 @@ export function SchoolRequestInboxPage({ belowHeader }: SchoolRequestInboxPagePr
   const handleReconcile = useCallback(async (): Promise<void> => {
     const outcome = await reconcileSchoolAttendance();
     showFeedbackToast(feedbackForSchoolReconcileOutcome(outcome));
-  }, [reconcileSchoolAttendance]);
+    if (outcome.kind === "reconciled") onCountsChanged?.();
+  }, [reconcileSchoolAttendance, onCountsChanged]);
+
+  const handleSearchChange = useCallback((event: ChangeEvent<HTMLInputElement>): void => {
+    setSearch(event.target.value);
+    setRoutedPage(1);
+    setFinalizingPage(1);
+  }, []);
+
+  const handleClearSearch = useCallback((): void => {
+    setSearch("");
+    setRoutedPage(1);
+    setFinalizingPage(1);
+  }, []);
 
   const schoolId = inbox?.schoolId ?? null;
   // Defense in depth: a row may render only when its PERSISTED matched school
   // equals the inbox's own school. Foreign rows never reach a cell.
   const routedRows = schoolId === null ? [] : visibleInboxRows(routed, schoolId);
   const finalizingRows = schoolId === null ? [] : visibleInboxRows(finalizing, schoolId);
+
+  const query = search.trim().toLowerCase();
+  const isSearching = query.length > 0;
+  const matchesSearch = (row: SchoolInboxRow): boolean =>
+    !isSearching ||
+    row.submitterName.toLowerCase().includes(query) ||
+    row.requestedSchoolName.toLowerCase().includes(query) ||
+    describeCourse(row).label.toLowerCase().includes(query);
+
+  const filteredRoutedRows = routedRows.filter(matchesSearch);
+  const filteredFinalizingRows = finalizingRows.filter(matchesSearch);
+
   const isEmpty = inbox !== null && routedRows.length === 0 && finalizingRows.length === 0;
+  const hasNoSearchMatches =
+    isSearching && filteredRoutedRows.length === 0 && filteredFinalizingRows.length === 0;
+
+  const routedPageCount = Math.max(1, Math.ceil(filteredRoutedRows.length / PAGE_SIZE));
+  const safeRoutedPage = Math.min(routedPage, routedPageCount);
+  const pagedRoutedRows = filteredRoutedRows.slice(
+    (safeRoutedPage - 1) * PAGE_SIZE,
+    safeRoutedPage * PAGE_SIZE,
+  );
+
+  const finalizingPageCount = Math.max(1, Math.ceil(filteredFinalizingRows.length / PAGE_SIZE));
+  const safeFinalizingPage = Math.min(finalizingPage, finalizingPageCount);
+  const pagedFinalizingRows = filteredFinalizingRows.slice(
+    (safeFinalizingPage - 1) * PAGE_SIZE,
+    safeFinalizingPage * PAGE_SIZE,
+  );
 
   const headerActions = (
     <div className="flex items-center gap-2">
@@ -192,9 +250,9 @@ export function SchoolRequestInboxPage({ belowHeader }: SchoolRequestInboxPagePr
       <>
         {schoolId !== null ? (
           <p className="text-xs text-muted-foreground" data-testid="school-request-scope">
-            {routedRows.length === 1
+            {filteredRoutedRows.length === 1
               ? "1 request waiting for your decision."
-              : `${String(routedRows.length)} requests waiting for your decision.`}
+              : `${String(filteredRoutedRows.length)} requests waiting for your decision.`}
           </p>
         ) : null}
 
@@ -218,53 +276,106 @@ export function SchoolRequestInboxPage({ belowHeader }: SchoolRequestInboxPagePr
           </div>
         ) : (
           <>
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Inbox className="h-4 w-4 text-muted-foreground" />
-                <h2 className="text-sm font-semibold">Waiting for your decision</h2>
-                <Badge variant="secondary">{routedRows.length}</Badge>
-              </div>
-              {routedRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground" data-testid="school-request-routed-empty">
-                  No requests need your decision right now.
-                </p>
-              ) : (
-                <SchoolRequestInboxTable
-                  rows={routedRows}
-                  variant="routed"
-                  feedbackByRow={feedbackByRow}
-                  busyByRow={busyByRow}
-                  claims={claims}
-                  onApprove={setApproveRow}
-                  onReject={setRejectRow}
-                  onResume={(row) => void handleResume(row)}
-                />
-              )}
-            </section>
+            <div className="relative max-w-md" data-testid="school-request-search">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="text"
+                value={search}
+                onChange={handleSearchChange}
+                placeholder="Search by student name, school, or course..."
+                aria-label="Search requests"
+                className="pl-9 pr-9"
+              />
+              {search.length > 0 ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleClearSearch}
+                  aria-label="Clear search"
+                  data-testid="school-request-search-clear"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              ) : null}
+            </div>
 
-            {finalizingRows.length > 0 ? (
-              <section className="space-y-3" data-testid="school-request-finalizing">
-                <div className="flex items-center gap-2">
-                  <RotateCcw className="h-4 w-4 text-amber-600" />
-                  <h2 className="text-sm font-semibold">Unfinished approvals</h2>
-                  <Badge variant="secondary">{finalizingRows.length}</Badge>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  These approvals were saved but did not finish. Use Finish saved approvals to
-                  complete them. Saved student details can no longer be edited.
-                </p>
-                <SchoolRequestInboxTable
-                  rows={finalizingRows}
-                  variant="finalizing"
-                  feedbackByRow={feedbackByRow}
-                  busyByRow={busyByRow}
-                  claims={claims}
-                  onApprove={setApproveRow}
-                  onReject={setRejectRow}
-                  onResume={(row) => void handleResume(row)}
+            {hasNoSearchMatches ? (
+              <div data-testid="school-request-search-empty">
+                <EmptyPlaceholder
+                  icon={SearchX}
+                  title="No requests match your search."
+                  description="Try a different name, school, or course."
                 />
-              </section>
-            ) : null}
+              </div>
+            ) : (
+              <>
+                <section className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Inbox className="h-4 w-4 text-muted-foreground" />
+                    <h2 className="text-sm font-semibold">Waiting for your decision</h2>
+                    <Badge variant="secondary">{filteredRoutedRows.length}</Badge>
+                  </div>
+                  {filteredRoutedRows.length === 0 ? (
+                    <p className="text-sm text-muted-foreground" data-testid="school-request-routed-empty">
+                      {isSearching
+                        ? "No requests match your search."
+                        : "No requests need your decision right now."}
+                    </p>
+                  ) : (
+                    <>
+                      <SchoolRequestInboxTable
+                        rows={pagedRoutedRows}
+                        variant="routed"
+                        feedbackByRow={feedbackByRow}
+                        busyByRow={busyByRow}
+                        claims={claims}
+                        onApprove={setApproveRow}
+                        onReject={setRejectRow}
+                        onResume={(row) => void handleResume(row)}
+                      />
+                      <SchoolRequestInboxPagination
+                        page={safeRoutedPage}
+                        pageSize={PAGE_SIZE}
+                        total={filteredRoutedRows.length}
+                        onPageChange={setRoutedPage}
+                      />
+                    </>
+                  )}
+                </section>
+
+                {filteredFinalizingRows.length > 0 ? (
+                  <section className="space-y-3" data-testid="school-request-finalizing">
+                    <div className="flex items-center gap-2">
+                      <RotateCcw className="h-4 w-4 text-amber-600" />
+                      <h2 className="text-sm font-semibold">Unfinished approvals</h2>
+                      <Badge variant="secondary">{filteredFinalizingRows.length}</Badge>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      These approvals were saved but did not finish. Use Finish saved approvals to
+                      complete them. Saved student details can no longer be edited.
+                    </p>
+                    <SchoolRequestInboxTable
+                      rows={pagedFinalizingRows}
+                      variant="finalizing"
+                      feedbackByRow={feedbackByRow}
+                      busyByRow={busyByRow}
+                      claims={claims}
+                      onApprove={setApproveRow}
+                      onReject={setRejectRow}
+                      onResume={(row) => void handleResume(row)}
+                    />
+                    <SchoolRequestInboxPagination
+                      page={safeFinalizingPage}
+                      pageSize={PAGE_SIZE}
+                      total={filteredFinalizingRows.length}
+                      onPageChange={setFinalizingPage}
+                    />
+                  </section>
+                ) : null}
+              </>
+            )}
           </>
         )}
       </>
