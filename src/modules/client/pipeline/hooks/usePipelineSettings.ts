@@ -112,7 +112,7 @@ export function usePipelineSettings() {
       color?: string;
       description?: string;
     }) => {
-      if (!selectedPipeline) return false;
+      if (!selectedPipeline) return null;
       setSaving(true);
       setError("");
       setSuccess("");
@@ -131,12 +131,13 @@ export function usePipelineSettings() {
         setSuccess(msg);
         toast.success(msg);
         await fetchPipelines();
-        return true;
+        const stageId = Number(json?.stage?.id ?? 0);
+        return Number.isInteger(stageId) && stageId > 0 ? stageId : null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to add stage.";
         setError(msg);
         toast.error(msg);
-        return false;
+        return null;
       } finally {
         setSaving(false);
       }

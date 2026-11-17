@@ -741,7 +741,7 @@ export async function deletePipelineStage(
   pipelineId: number,
   stageId: number,
   companyId: number
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; statusCode?: number }> {
   try {
     const pipeline = await getPipelineWithDetails(pipelineId, companyId);
     if (!pipeline) return { success: false, error: "Pipeline not found." };
@@ -751,6 +751,23 @@ export async function deletePipelineStage(
 
     if (stage.is_system) {
       return { success: false, error: "System stages are required and cannot be deleted." };
+    }
+
+    try {
+      const taskRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_company_pipeline_assessment_tasks?filter[company_stage_id][_eq]=${stageId}&fields=id&limit=1`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!taskRes.ok) {
+        return { success: false, statusCode: 503, error: "Stage usage could not be verified. Please try again." };
+      }
+      const taskJson = (await taskRes.json()) as { data?: Array<{ id: number }> };
+      if ((taskJson.data ?? []).length > 0) {
+        return { success: false, statusCode: 409, error: "This stage has assessment tasks. Delete them before deleting the stage." };
+      }
+    } catch (guardErr) {
+      console.error("[pipeline.service] deletePipelineStage reference guard error:", guardErr);
+      return { success: false, statusCode: 503, error: "Stage usage could not be verified. Please try again." };
     }
 
     // 1. Delete transitions referencing this stage from pipeline.transitions

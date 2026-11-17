@@ -1,9 +1,19 @@
 // src/modules/client/pipeline/components/PipelineSettingsTab.tsx
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { motion, Reorder, useDragControls } from "framer-motion";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { usePipelineSettings } from "../hooks/usePipelineSettings";
 import {
   CanonicalStageType,
@@ -49,6 +59,7 @@ interface ReorderableStageItemProps {
   totalStages: number;
   stageMap: Map<number, PipelineStage>;
   isDeleting: boolean;
+  isHighlighted: boolean;
   deletingStageId: number | null;
   onMoveUp: () => void;
   onMoveDown: () => void;
@@ -65,6 +76,7 @@ function ReorderableStageItem({
   totalStages,
   stageMap,
   isDeleting,
+  isHighlighted,
   deletingStageId,
   onMoveUp,
   onMoveDown,
@@ -277,6 +289,7 @@ function ReorderableStageItem({
 
   return (
     <Reorder.Item
+      id={`pipeline-stage-${stage.id}`}
       value={stage}
       dragListener={false}
       dragControls={dragControls}
@@ -290,7 +303,7 @@ function ReorderableStageItem({
       }}
       className={`group relative rounded-xl transition-colors select-none ${isDeleting
         ? "overflow-visible pointer-events-none border-transparent bg-transparent shadow-none"
-        : "border border-border/80 bg-card hover:border-primary/40 hover:shadow-xs"
+        : `border border-border/80 bg-card hover:border-primary/40 hover:shadow-xs ${isHighlighted ? "ring-2 ring-primary/40 border-primary/50" : ""}`
         }`}
     >
       {isDeleting ? (
@@ -413,6 +426,10 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
 
   // Deletion crack & split animation state
   const [deletingStageId, setDeletingStageId] = useState<number | null>(null);
+  const [pendingDeleteStage, setPendingDeleteStage] = useState<PipelineStage | null>(null);
+
+  const [lastCreatedStageId, setLastCreatedStageId] = useState<number | null>(null);
+  const [highlightedStageId, setHighlightedStageId] = useState<number | null>(null);
 
   const handleDeleteStage = (stageId: number) => {
     if (deletingStageId !== null) return;
@@ -421,6 +438,13 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
       await deleteStage(stageId);
       setDeletingStageId(null);
     }, 420);
+  };
+
+  const handleConfirmDeleteStage = () => {
+    const stage = pendingDeleteStage;
+    if (!stage) return;
+    setPendingDeleteStage(null);
+    handleDeleteStage(stage.id);
   };
 
   const handleOpenAddStage = () => {
@@ -455,8 +479,12 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
       });
       if (ok) setStageModalOpen(false);
     } else {
-      const ok = await addStage(data);
-      if (ok) setStageModalOpen(false);
+      const stageId = await addStage(data);
+      if (stageId !== null) {
+        setStageModalOpen(false);
+        setLastCreatedStageId(stageId);
+        setHighlightedStageId(stageId);
+      }
     }
   };
 
@@ -481,6 +509,17 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
   const stages = selectedPipeline?.stages ?? [];
   const sortedStages = [...stages].sort((a, b) => a.stage_order - b.stage_order);
   const stageMap = new Map(stages.map((s) => [s.id, s]));
+
+  useEffect(() => {
+    if (lastCreatedStageId === null) return;
+    const target = document.getElementById(`pipeline-stage-${lastCreatedStageId}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = window.setTimeout(() => {
+      setHighlightedStageId(null);
+      setLastCreatedStageId(null);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [lastCreatedStageId, sortedStages]);
 
   const pipelineOptions = useMemo(() => {
     return pipelines.map((p) => ({
@@ -748,12 +787,13 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
                     totalStages={sortedStages.length}
                     stageMap={stageMap}
                     isDeleting={deletingStageId === stage.id}
+                    isHighlighted={highlightedStageId === stage.id}
                     deletingStageId={deletingStageId}
                     onMoveUp={() => moveStageOrder(stage.id, "up")}
                     onMoveDown={() => moveStageOrder(stage.id, "down")}
                     onOpenTransitions={() => handleOpenTransitions(stage)}
                     onOpenEditStage={() => handleOpenEditStage(stage)}
-                    onDeleteStage={() => handleDeleteStage(stage.id)}
+                    onDeleteStage={() => setPendingDeleteStage(stage)}
                     belowCard={
                       stage.stage_type === "ASSESSMENT" && selectedPipeline ? (
                         <AssessmentTaskEditor
@@ -884,6 +924,33 @@ export default function PipelineSettingsTab({ isStandalonePage = true }: Pipelin
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Delete Stage Confirmation */}
+      <AlertDialog
+        open={pendingDeleteStage !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteStage(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete stage?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deleting &ldquo;{pendingDeleteStage?.stage_name}&rdquo; permanently removes the
+              stage and its transition routes. Stages with candidates, history, or assessment
+              tasks cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteStage}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Delete stage
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
