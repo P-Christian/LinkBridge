@@ -91,6 +91,13 @@ export const SCHOOL_DOCUMENT_UPLOAD_POLICY: FileUploadPolicy = {
   extensions: ["pdf", "doc", "docx", "jpg", "jpeg", "png", "webp"],
 };
 
+export const EDUCATION_PROOF_UPLOAD_POLICY: FileUploadPolicy = {
+  label: "education proof document",
+  maxBytes: 10 * 1024 * 1024,
+  mimeTypes: ["application/pdf", "image/jpeg", "image/png"],
+  extensions: ["pdf", "jpg", "jpeg", "png"],
+};
+
 export const CAREER_ARTICLE_ASSET_UPLOAD_POLICY: FileUploadPolicy = {
   label: "article asset",
   maxBytes: 10 * 1024 * 1024,

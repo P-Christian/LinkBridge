@@ -53,6 +53,15 @@ export interface SchoolInboxCourse {
   readonly courseCode: string | null;
 }
 
+/** Proof-document metadata; the protected read-route URL replaces any file id. */
+export interface SchoolInboxDocument {
+  readonly documentId: number;
+  readonly type: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly url: string;
+}
+
 export interface SchoolInboxRow {
   readonly schoolRequestId: number;
   readonly requestStatus: SchoolInboxRowStatus;
@@ -68,6 +77,7 @@ export interface SchoolInboxRow {
   readonly reviewedAt: string | null;
   readonly education: SchoolInboxEducation;
   readonly course: SchoolInboxCourse | null;
+  readonly documents: readonly SchoolInboxDocument[];
 }
 
 export interface SchoolInbox {
@@ -401,6 +411,28 @@ function parseCourse(value: unknown): SchoolInboxCourse | null {
   return { schoolCourseId, schoolId, courseName, courseCode };
 }
 
+function parseDocument(value: unknown): SchoolInboxDocument | null {
+  if (!isRecord(value)) return null;
+  const { documentId, type, fileName, mimeType, url } = value;
+  if (typeof documentId !== "number" || !Number.isInteger(documentId) || documentId <= 0) return null;
+  if (typeof type !== "string") return null;
+  if (typeof fileName !== "string") return null;
+  if (typeof mimeType !== "string") return null;
+  if (typeof url !== "string") return null;
+  return { documentId, type, fileName, mimeType, url };
+}
+
+function parseDocuments(value: unknown): readonly SchoolInboxDocument[] | null {
+  if (!Array.isArray(value)) return null;
+  const documents: SchoolInboxDocument[] = [];
+  for (const entry of value) {
+    const document = parseDocument(entry);
+    if (document === null) return null;
+    documents.push(document);
+  }
+  return documents;
+}
+
 export function parseSchoolInboxRow(value: unknown): SchoolInboxRow | null {
   if (!isRecord(value)) return null;
   const {
@@ -417,6 +449,7 @@ export function parseSchoolInboxRow(value: unknown): SchoolInboxRow | null {
     reviewedAt,
     education,
     course,
+    documents,
   } = value;
   if (typeof schoolRequestId !== "number" || !Number.isInteger(schoolRequestId)) return null;
   if (requestStatus !== "RoutedToSchool" && requestStatus !== "Approved") return null;
@@ -430,6 +463,8 @@ export function parseSchoolInboxRow(value: unknown): SchoolInboxRow | null {
   const parsedEducation = parseEducation(education);
   if (parsedEducation === null) return null;
   if (course !== null && parseCourse(course) === null) return null;
+  const parsedDocuments = parseDocuments(documents);
+  if (parsedDocuments === null) return null;
   return {
     schoolRequestId,
     requestStatus,
@@ -444,6 +479,7 @@ export function parseSchoolInboxRow(value: unknown): SchoolInboxRow | null {
     reviewedAt,
     education: parsedEducation,
     course: course === null ? null : parseCourse(course),
+    documents: parsedDocuments,
   };
 }
 

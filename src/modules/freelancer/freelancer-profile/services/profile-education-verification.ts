@@ -6,11 +6,13 @@ import type {
   FreelancerProfile,
   VsEducation,
 } from "../types/freelancer-profile.types";
+import { classifySchoolRoute } from "@/modules/school-request-routing/records";
+import type { SchoolRouteClassification } from "@/modules/school-request-routing/types";
 
 const COURSE_REQUEST_FIELDS =
   "course_request_id,employee_education_id,request_status,admin_remarks,created_at";
 const SCHOOL_REQUEST_FIELDS =
-  "school_request_id,employee_education_id,request_status,city_municipality,province,created_at";
+  "school_request_id,employee_education_id,request_status,matched_school_id,city_municipality,province,created_at";
 
 const courseRequestRowSchema = z.object({
   course_request_id: z.number().int().positive(),
@@ -25,6 +27,7 @@ const schoolRequestRowSchema = z.object({
   employee_education_id: z.number().int().positive(),
   // Tolerant read: an unrecognized status is never treated as a rejection.
   request_status: z.string(),
+  matched_school_id: z.number().int().positive().nullable(),
   city_municipality: z.string().nullable(),
   province: z.string().nullable(),
   created_at: z.string(),
@@ -130,6 +133,23 @@ export async function attachEducationVerification(
     ),
   ]);
 
+  const matchedSchoolIds = new Set<number>();
+  for (const row of schoolRequests.values()) {
+    if (typeof row.matched_school_id === "number") {
+      matchedSchoolIds.add(row.matched_school_id);
+    }
+  }
+  const schoolRoutes = new Map<number, SchoolRouteClassification | null>();
+  await Promise.all(
+    [...matchedSchoolIds].map(async (schoolId) => {
+      try {
+        schoolRoutes.set(schoolId, await classifySchoolRoute(schoolId));
+      } catch {
+        schoolRoutes.set(schoolId, null);
+      }
+    }),
+  );
+
   return {
     ...profile,
     education: education.map((item) => {
@@ -137,11 +157,32 @@ export async function attachEducationVerification(
       const courseRequest = id === null ? undefined : courseRequests.get(id);
       const schoolRequest = id === null ? undefined : schoolRequests.get(id);
       const attendanceRejected = schoolRequest?.request_status === "Rejected";
+      const matchedSchoolId = schoolRequest?.matched_school_id ?? null;
+      const matchedRoute =
+        matchedSchoolId === null ? undefined : (schoolRoutes.get(matchedSchoolId) ?? null);
+      const verification_state = attendanceRejected
+        ? "REJECTED"
+        : item.education_status === "Verified"
+          ? "VERIFIED"
+          : schoolRequest?.request_status === "AwaitingOptIn"
+            ? matchedRoute === "DIRECT_REVIEW"
+              ? "INVITED"
+              : "AWAITING_SCHOOL"
+            : schoolRequest?.request_status === "RoutedToSchool"
+              ? "PENDING"
+              : schoolRequest?.request_status === "Pending"
+                ? matchedRoute === undefined || matchedRoute === "DIRECT_REVIEW"
+                  ? "PENDING"
+                  : "AWAITING_SCHOOL"
+                : item.education_status === "Unverified"
+                  ? "UNVERIFIED"
+                  : "PENDING";
       return {
         ...item,
         school_city_raw: schoolRequest?.city_municipality ?? null,
         school_province_raw: schoolRequest?.province ?? null,
         attendance_rejected: attendanceRejected,
+        verification_state,
         course_verification: !attendanceRejected && courseRequest
           ? {
               status: courseRequest.request_status,

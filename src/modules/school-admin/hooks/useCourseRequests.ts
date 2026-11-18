@@ -39,6 +39,14 @@ import type { CreateCourseDTO } from "@/modules/school-admin/school-courses/type
 // src/modules/school-admin/course-requests/schemas.ts + types.ts)
 // --------------------------------------------------------------------------
 
+export interface CourseRequestDocument {
+  readonly documentId: number;
+  readonly type: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly url: string;
+}
+
 export interface CourseRequestActionableRow {
   readonly courseRequestId: number;
   readonly requestStatus: "RoutedToSchool";
@@ -52,6 +60,7 @@ export interface CourseRequestActionableRow {
   readonly matchedSchoolCourseId: null;
   readonly reviewedBy: null;
   readonly reviewedAt: null;
+  readonly documents: readonly CourseRequestDocument[];
 }
 
 export interface CourseRequestFinalizingRow {
@@ -67,6 +76,7 @@ export interface CourseRequestFinalizingRow {
   readonly matchedSchoolCourseId: number;
   readonly reviewedBy: number;
   readonly reviewedAt: null;
+  readonly documents: readonly CourseRequestDocument[];
 }
 
 export type CourseRequestInboxRow = CourseRequestActionableRow | CourseRequestFinalizingRow;
@@ -284,6 +294,28 @@ function isNonBlankText(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function parseDocument(value: unknown): CourseRequestDocument | null {
+  if (!isRecord(value)) return null;
+  const { documentId, type, fileName, mimeType, url } = value;
+  if (!isPositiveInteger(documentId)) return null;
+  if (typeof type !== "string") return null;
+  if (typeof fileName !== "string") return null;
+  if (typeof mimeType !== "string") return null;
+  if (typeof url !== "string") return null;
+  return { documentId, type, fileName, mimeType, url };
+}
+
+function parseDocuments(value: unknown): readonly CourseRequestDocument[] | null {
+  if (!Array.isArray(value)) return null;
+  const documents: CourseRequestDocument[] = [];
+  for (const entry of value) {
+    const document = parseDocument(entry);
+    if (document === null) return null;
+    documents.push(document);
+  }
+  return documents;
+}
+
 function hasExactKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
   return Object.keys(value).every((key) => allowed.includes(key));
 }
@@ -306,6 +338,7 @@ const ACTIONABLE_ROW_KEYS = [
   "matchedSchoolCourseId",
   "reviewedBy",
   "reviewedAt",
+  "documents",
 ] as const;
 
 const ALLOWED_ROW_KEYS: readonly string[] = ACTIONABLE_ROW_KEYS;
@@ -353,6 +386,7 @@ export function parseCourseRequestInboxRow(value: unknown): CourseRequestInboxRo
     matchedSchoolCourseId,
     reviewedBy,
     reviewedAt,
+    documents,
   } = value;
   if (!isPositiveInteger(courseRequestId)) return null;
   if (requestStatus !== "RoutedToSchool") return null;
@@ -362,6 +396,8 @@ export function parseCourseRequestInboxRow(value: unknown): CourseRequestInboxRo
   if (!isPositiveInteger(routedBy)) return null;
   if (!isNonBlankText(routedAt)) return null;
   if (reviewedAt !== null) return null;
+  const parsedDocuments = parseDocuments(documents);
+  if (parsedDocuments === null) return null;
   if (matchedSchoolCourseId === null && reviewedBy === null) {
     return {
       courseRequestId,
@@ -374,6 +410,7 @@ export function parseCourseRequestInboxRow(value: unknown): CourseRequestInboxRo
       matchedSchoolCourseId: null,
       reviewedBy: null,
       reviewedAt: null,
+      documents: parsedDocuments,
     };
   }
   if (isPositiveInteger(matchedSchoolCourseId) && isPositiveInteger(reviewedBy)) {
@@ -388,6 +425,7 @@ export function parseCourseRequestInboxRow(value: unknown): CourseRequestInboxRo
       matchedSchoolCourseId,
       reviewedBy,
       reviewedAt: null,
+      documents: parsedDocuments,
     };
   }
   // Mixed-claim hybrids (one null, one set) never cross the boundary.

@@ -22,7 +22,7 @@ export interface NormalizedSchoolDisplay {
   readonly normalizedKey: string;
 }
 
-/** Pending rows for one exact school id; rows stay individually actionable. */
+/** Matched requests for one exact school id; rows stay individually actionable. */
 export interface AwaitingSchoolGroup {
   readonly matchedSchoolId: number;
   readonly requests: readonly VsSchoolRequest[];
@@ -89,9 +89,16 @@ function matchedSchoolIdOf(request: VsSchoolRequest): number | null {
   return typeof id === "number" && Number.isInteger(id) ? id : null;
 }
 
-/** Unmatched queue in input order: Pending with no matched school. */
+/** VOS work: every unresolved request, matched or not. */
+function isActionableDemand(request: VsSchoolRequest): boolean {
+  return request.request_status === "Pending" || request.request_status === "AwaitingOptIn";
+}
+
+/** Unmatched queue in input order: Pending or claims with no matched school. */
 export function selectUnroutedRequests(requests: readonly VsSchoolRequest[]): readonly VsSchoolRequest[] {
-  return requests.filter((request) => request.request_status === "Pending" && matchedSchoolIdOf(request) === null);
+  return requests.filter(
+    (request) => isActionableDemand(request) && matchedSchoolIdOf(request) === null
+  );
 }
 
 /** Millis for a valid timestamp, else null; invalid dates never throw. */
@@ -111,12 +118,12 @@ function byOldestFirst(a: VsSchoolRequest, b: VsSchoolRequest): number {
   return a.school_request_id - b.school_request_id;
 }
 
-/** Pending rows with a matched school, grouped by exact school id. Count desc, */
-/** oldest asc (dateless last), display key, then numeric school id ascending. */
+/** Matched Pending or AwaitingOptIn requests, grouped by exact school id. Count */
+/** desc, oldest asc (dateless last), display key, then numeric school id ascending. */
 export function groupAwaitingAccountDemand(requests: readonly VsSchoolRequest[]): readonly AwaitingSchoolGroup[] {
   const buckets = new Map<number, VsSchoolRequest[]>();
   for (const request of requests) {
-    if (request.request_status !== "Pending") continue;
+    if (request.request_status !== "Pending" && request.request_status !== "AwaitingOptIn") continue;
     const id = matchedSchoolIdOf(request);
     if (id === null) continue;
     const bucket = buckets.get(id);
@@ -170,7 +177,7 @@ export function deriveSchoolDemandKpis(
   let oldestUnresolvedAt: string | null = null;
   let oldestMillis: number | null = null;
   for (const request of requests) {
-    if (request.request_status !== "Pending") continue;
+    if (!isActionableDemand(request)) continue;
     seen.add(extractRequesterIdentity(request.requested_by).requesterKey);
     const millis = timeOf(request.created_at);
     if (millis === null) continue;

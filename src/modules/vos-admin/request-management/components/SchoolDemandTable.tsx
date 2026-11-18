@@ -269,7 +269,7 @@ export function SchoolDemandTable({
         searchKey="school"
         isLoading={isLoading}
         emptyTitle="No schools awaiting account"
-        emptyDescription="Pending requests that name an exact school appear here once they are matched. Requests without a matched school stay in the unrouted queue."
+        emptyDescription="Requests that name an exact school appear here once they are matched. Requests without a matched school stay in the unrouted queue."
       />
     </div>
   );

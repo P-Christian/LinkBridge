@@ -4,7 +4,7 @@
 // selector's deterministic oldest-first order and show only the requester name
 // fields already present in the DTO. Edit delegates to the shared per-request
 // action controller owned by the composing sheet, so a click can only ever act
-// on one concrete `school_request_id`; frozen and legacy modes and non-Pending
+// on one concrete `school_request_id`; frozen and legacy modes and terminal
 // rows render read-only.
 "use client";
 
@@ -51,7 +51,7 @@ export interface SchoolDemandDetailRequestsProps {
   readonly readOnly: boolean;
   readonly feedbackFor: (requestId: number) => SchoolDecisionFeedback | undefined;
   readonly decisionBusyFor: (requestId: number) => boolean;
-  // Edit opens the review dialog restricted to Route / Group for one request.
+  // Edit opens the decision dialog for one request (Match for claims, Route / Group for Pending).
   readonly onEdit: (request: VsSchoolRequest) => void;
 }
 
@@ -69,7 +69,10 @@ export function SchoolDemandDetailRequests({
         const requestId = request.school_request_id;
         const feedback = feedbackFor(requestId);
         const busy = decisionBusyFor(requestId);
-        const actionable = !readOnly && mode === "attendance" && request.request_status === "Pending";
+        const actionable =
+          !readOnly &&
+          (mode === "attendance" || mode === "opt-in") &&
+          (request.request_status === "Pending" || request.request_status === "AwaitingOptIn");
         const requested = request.requested_school_name.trim();
         return (
           <li

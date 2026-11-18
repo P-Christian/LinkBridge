@@ -3,6 +3,7 @@ import "server-only";
 import { z } from "zod";
 
 import { classifySchoolRoute } from "@/modules/school-request-routing/records";
+import { getEducationVerificationMode } from "@/modules/education-verification/attendance-flow-gate";
 import { releaseGroupedSchoolRequest } from "@/modules/school-request-routing/transitions";
 
 import type { PersistedPendingEducation } from "./education-persistence.repo";
@@ -40,7 +41,7 @@ const requestSchema = z.object({
   requested_school_name: z.string().trim().min(1),
   city_municipality: z.string().nullable(),
   province: z.string().nullable(),
-  request_status: z.enum(["Pending", "Approved", "Rejected", "RoutedToSchool"]),
+  request_status: z.enum(["Pending", "Approved", "Rejected", "RoutedToSchool", "AwaitingOptIn"]),
   matched_school_id: z.coerce.number().int().positive().nullable().optional(),
   routed_by: z.coerce.number().int().positive().nullable().optional(),
   routed_at: z.string().nullable().optional(),
@@ -247,6 +248,22 @@ async function repointLinkedRequest(
     );
   }
   if (education.school_id === null) {
+    if (request.request_status === "AwaitingOptIn") {
+      const rawName = (education.school_name_raw ?? "").trim();
+      if (!rawName) {
+        throw new AttendanceRequestError("A school name is required.", "INVALID_INPUT");
+      }
+      return patchLinkedRequest(request, education, withLocation(request, {
+        requested_school_name: rawName,
+        matched_school_id: null,
+        request_status: "AwaitingOptIn",
+        routed_by: null,
+        routed_at: null,
+        reviewed_by: null,
+        reviewed_at: null,
+        admin_remarks: null,
+      }, location?.city ?? null, location?.province ?? null));
+    }
     const rawName = (education.school_name_raw ?? "").trim();
     if (!rawName) {
       throw new AttendanceRequestError("A school name is required.", "INVALID_INPUT");
@@ -263,6 +280,18 @@ async function repointLinkedRequest(
     }, location?.city ?? null, location?.province ?? null));
   }
   const school = await fetchCanonicalSchool(education.school_id);
+  if (request.request_status === "AwaitingOptIn") {
+    return patchLinkedRequest(request, education, withLocation(request, {
+      requested_school_name: school.school_name,
+      matched_school_id: school.school_id,
+      request_status: "AwaitingOptIn",
+      routed_by: null,
+      routed_at: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      admin_remarks: null,
+    }, school.city_municipality, school.province));
+  }
   let classification: string | null = null;
   try {
     classification = await classifySchoolRoute(school.school_id);
@@ -329,6 +358,26 @@ function requireLinkedRequest(
     );
   }
   if (education.school_id !== null) {
+    if (request.request_status === "AwaitingOptIn") {
+      if (request.matched_school_id !== education.school_id) {
+        throw new AttendanceRequestError(
+          "Attendance request school linkage is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      if (
+        (request.routed_at !== null && request.routed_at !== undefined) ||
+        (request.reviewed_by !== null && request.reviewed_by !== undefined) ||
+        (request.reviewed_at !== null && request.reviewed_at !== undefined) ||
+        (request.admin_remarks !== null && request.admin_remarks !== undefined)
+      ) {
+        throw new AttendanceRequestError(
+          "Attendance request route state is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      return request;
+    }
     if (request.request_status === "RoutedToSchool") {
       if (request.matched_school_id !== education.school_id) {
         throw new AttendanceRequestError(
@@ -359,6 +408,38 @@ function requireLinkedRequest(
       "LINKAGE_INVALID"
     );
   } else {
+    if (request.request_status === "AwaitingOptIn") {
+      if (request.matched_school_id !== null && request.matched_school_id !== undefined) {
+        throw new AttendanceRequestError(
+          "Attendance request school linkage is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      if (request.routed_at !== null && request.routed_at !== undefined) {
+        throw new AttendanceRequestError(
+          "Attendance request route time is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      if (
+        (request.reviewed_by !== null && request.reviewed_by !== undefined) ||
+        (request.reviewed_at !== null && request.reviewed_at !== undefined) ||
+        (request.admin_remarks !== null && request.admin_remarks !== undefined)
+      ) {
+        throw new AttendanceRequestError(
+          "Attendance request route state is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      const expectedRaw = (education.school_name_raw ?? "").trim();
+      if (!expectedRaw || request.requested_school_name.trim() !== expectedRaw) {
+        throw new AttendanceRequestError(
+          "Attendance request school identity is invalid.",
+          "LINKAGE_INVALID"
+        );
+      }
+      return request;
+    }
     if (request.request_status !== "Pending") {
       throw new AttendanceRequestError(
         "Attendance request route state is invalid.",
@@ -472,6 +553,34 @@ export async function ensureEducationAttendanceRequest(
 ): Promise<PersistedAttendanceRequest> {
   const existing = await fetchActiveRequest(education.employee_education_id);
   if (existing) {
+    if (getEducationVerificationMode() === "opt-in") {
+      if (existing.request_status !== "AwaitingOptIn") {
+        if (needsSchoolRepoint(existing, education)) {
+          throw new AttendanceRequestError(
+            "This education is already under review. Its school cannot be changed.",
+            "INVALID_INPUT"
+          );
+        }
+        return requireLinkedRequest(existing, education);
+      }
+      if (needsSchoolRepoint(existing, education)) {
+        const repointed = await repointLinkedRequest(existing, education, location);
+        return requireLinkedRequest(repointed, education);
+      }
+      if (
+        education.school_id === null &&
+        location !== undefined &&
+        (existing.city_municipality !== (location.city ?? null) ||
+          existing.province !== (location.province ?? null))
+      ) {
+        const relocated = await patchLinkedRequest(existing, education, {
+          city_municipality: location.city ?? null,
+          province: location.province ?? null,
+        });
+        return requireLinkedRequest(relocated, education);
+      }
+      return requireLinkedRequest(existing, education);
+    }
     if (needsSchoolRepoint(existing, education)) {
       const repointed = await repointLinkedRequest(existing, education, location);
       return requireLinkedRequest(repointed, education);
@@ -493,7 +602,7 @@ export async function ensureEducationAttendanceRequest(
     if (
       education.school_id === null &&
       location !== undefined &&
-      existing.request_status === "Pending" &&
+      (existing.request_status === "Pending" || existing.request_status === "AwaitingOptIn") &&
       (existing.reviewed_by === null || existing.reviewed_by === undefined) &&
       (existing.city_municipality !== (location.city ?? null) ||
         existing.province !== (location.province ?? null))
@@ -513,6 +622,45 @@ export async function ensureEducationAttendanceRequest(
   const requestedSchoolName = school?.school_name ?? education.school_name_raw?.trim();
   if (!requestedSchoolName) {
     throw new AttendanceRequestError("A school name is required.", "INVALID_INPUT");
+  }
+  if (getEducationVerificationMode() === "opt-in") {
+    const payload = {
+      requested_by: education.user_id,
+      requested_school_name: requestedSchoolName,
+      city_municipality: school ? school.city_municipality : location?.city ?? null,
+      province: school ? school.province : location?.province ?? null,
+      request_status: "AwaitingOptIn",
+      matched_school_id: school?.school_id ?? null,
+      routed_by: null,
+      routed_at: null,
+      employee_education_id: education.employee_education_id,
+      active_employee_education_id: education.employee_education_id,
+    };
+    const { baseUrl, headers } = config();
+    try {
+      const response = await fetch(
+        `${baseUrl}/items/vs_school_request?fields=${encodeURIComponent(REQUEST_FIELDS)}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        }
+      );
+      if (response.ok) {
+        const parsed = z.object({ data: requestSchema }).safeParse(await response.json());
+        if (parsed.success) return requireLinkedRequest(parsed.data.data, education);
+      }
+    } catch (error: unknown) {
+      if (error instanceof AttendanceRequestError) throw error;
+    }
+
+    const recovered = await fetchActiveRequest(education.employee_education_id);
+    if (recovered) return requireLinkedRequest(recovered, education);
+    throw new AttendanceRequestError(
+      "Attendance request could not be saved.",
+      "DEPENDENCY_FAILURE"
+    );
   }
   const reviewReady = school === null ? false : await isReviewReadySchool(school.school_id);
 

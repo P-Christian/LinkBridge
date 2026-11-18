@@ -5,6 +5,7 @@ import { parseRouteAudit } from "./route-audit";
 import type {
   EducationRecord,
   GroupSchoolInput,
+  MatchSchoolInput,
   RejectSchoolRequestInput,
   RouteSchoolInput,
   SchoolRecord,
@@ -84,6 +85,21 @@ export function groupReplay(
 ): boolean {
   return (
     request.request_status === "Pending" &&
+    request.matched_school_id === input.targetSchoolId &&
+    request.routed_by === null &&
+    request.routed_at === null &&
+    request.reviewed_by === null &&
+    request.reviewed_at === null &&
+    request.admin_remarks === null
+  );
+}
+
+export function matchReplay(
+  request: SchoolRequestRecord,
+  input: MatchSchoolInput
+): boolean {
+  return (
+    request.request_status === "AwaitingOptIn" &&
     request.matched_school_id === input.targetSchoolId &&
     request.routed_by === null &&
     request.routed_at === null &&

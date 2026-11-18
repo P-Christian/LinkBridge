@@ -26,6 +26,7 @@ export {
 export {
   claimScopedCourseRequest,
   completeScopedRegisteredRosterCourse,
+  fetchDocumentsByEducationIds,
   fetchRosterCoursePrerequisite,
   fetchScopedCourseRequestForDecision,
   fetchScopedTerminalReplay,
@@ -55,6 +56,7 @@ export type {
   CourseRequestDecisionInput,
   CourseRequestDecisionResponse,
   CourseRequestDecisionResult,
+  CourseRequestDocument,
   CourseRequestFinalizingRow,
   CourseRequestInbox,
   CourseRequestInboxResponse,

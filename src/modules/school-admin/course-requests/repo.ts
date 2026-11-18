@@ -15,7 +15,9 @@ import {
   CourseRequestSchoolAdminError,
   type CourseRequestSchoolAdminErrorCode,
 } from "./errors";
-import type { CourseRequestCandidate } from "./types";
+import { fetchDocumentsBySchoolRequestIds } from "../school-requests/documents";
+import { SchoolRequestSchoolAdminError } from "../school-requests/errors";
+import type { CourseRequestCandidate, CourseRequestDocument } from "./types";
 
 /**
  * School-scoped reads and atomically guarded
@@ -447,6 +449,72 @@ export async function listCourseRequestInbox(
   );
 
   return { schoolId, actionable: actionableRows, finalizing: finalizingRows };
+}
+
+/**
+ * Latest own-school `vs_school_request` link per education id. The
+ * `matched_school_id` filter keeps the lookup inside the caller's school so
+ * no cross-school document set can resolve.
+ */
+const schoolRequestLinkSchema = z
+  .object({
+    school_request_id: z.number().int().positive(),
+    employee_education_id: z.number().int().positive(),
+  })
+  .strict();
+
+/**
+ * Proof documents for the inbox's education ids, resolved through each
+ * education's latest own-school request and the shared batched document
+ * lookup. One request-link query plus the shared helper's two queries for
+ * the whole batch, never per-row N+1. Educations with no own-school request
+ * resolve to an empty list.
+ */
+export async function fetchDocumentsByEducationIds(
+  ctx: CourseRequestSchoolContext,
+  educationIds: readonly number[],
+): Promise<ReadonlyMap<number, readonly CourseRequestDocument[]>> {
+  const operation = "courseRequest.documents";
+  const { schoolId } = requireContext(operation, ctx);
+  const unique = [...new Set(educationIds)].filter((id) => Number.isInteger(id) && id > 0);
+  const byEducation = new Map<number, readonly CourseRequestDocument[]>();
+  for (const id of unique) byEducation.set(id, []);
+  if (unique.length === 0) return byEducation;
+
+  const linkQuery = new URLSearchParams({
+    "filter[employee_education_id][_in]": unique.join(","),
+    "filter[matched_school_id][_eq]": String(schoolId),
+    "filter[request_status][_in]": "RoutedToSchool,Approved",
+    fields: "school_request_id,employee_education_id",
+    sort: "-school_request_id",
+    limit: "-1",
+  });
+  const links = await fetchRows(
+    `${operation}.requests`,
+    `/items/vs_school_request?${linkQuery.toString()}`,
+    schoolRequestLinkSchema,
+  );
+  const latestByEducation = new Map<number, number>();
+  for (const link of links) {
+    if (!latestByEducation.has(link.employee_education_id)) {
+      latestByEducation.set(link.employee_education_id, link.school_request_id);
+    }
+  }
+  if (latestByEducation.size === 0) return byEducation;
+
+  let shared: ReadonlyMap<number, readonly CourseRequestDocument[]>;
+  try {
+    shared = await fetchDocumentsBySchoolRequestIds([...latestByEducation.values()]);
+  } catch (error: unknown) {
+    if (error instanceof SchoolRequestSchoolAdminError) {
+      throw dependencyError(operation, error.status, error);
+    }
+    throw error;
+  }
+  for (const [educationId, requestId] of latestByEducation) {
+    byEducation.set(educationId, shared.get(requestId) ?? []);
+  }
+  return byEducation;
 }
 
 /** Allowlisted Active same-school course candidates (exactly five fields). */

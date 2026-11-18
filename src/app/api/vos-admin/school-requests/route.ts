@@ -4,14 +4,15 @@ import { getSchoolRequests } from "@/modules/vos-admin/request-management";
 import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
 
 // Plan 2 Todo 4: the school-request LIST status filter is exactly
-// 'ALL' | RequestStatus (FOUR statuses). Line 133 (Final contract override)
-// supersedes any five-status/SchoolRequestStatus wording elsewhere.
+// 'ALL' | RequestStatus (FIVE statuses). Line 133 (Final contract override)
+// supersedes any four-status/SchoolRequestStatus wording elsewhere.
 const listStatusSchema = z.enum([
   "ALL",
   "Pending",
   "Approved",
   "Rejected",
   "RoutedToSchool",
+  "AwaitingOptIn",
 ]);
 
 export async function GET(req: NextRequest) {

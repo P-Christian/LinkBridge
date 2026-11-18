@@ -1,6 +1,6 @@
 // src/modules/vos-admin/request-management/types/request.types.ts
 
-export type RequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'RoutedToSchool';
+export type RequestStatus = 'Pending' | 'Approved' | 'Rejected' | 'RoutedToSchool' | 'AwaitingOptIn';
 
 export interface VsSchoolRequest {
   school_request_id: number;

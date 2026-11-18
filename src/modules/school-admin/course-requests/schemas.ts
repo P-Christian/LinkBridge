@@ -51,6 +51,17 @@ const actionableRowBase = {
   reviewedAt: z.null(),
 };
 
+/** Proof-document metadata. The Directus file id never appears here. */
+export const courseRequestDocumentSchema = z
+  .object({
+    documentId: positiveInteger,
+    type: z.string(),
+    fileName: z.string(),
+    mimeType: z.string(),
+    url: z.string(),
+  })
+  .strict();
+
 /**
  * Actionable inbox row: own-school `RoutedToSchool` with a complete manual
  * route audit and null claim fields. Closed world: unknown keys fail.
@@ -60,6 +71,7 @@ export const courseRequestActionableRowSchema = z
     ...actionableRowBase,
     matchedSchoolCourseId: z.null(),
     reviewedBy: z.null(),
+    documents: z.array(courseRequestDocumentSchema),
   })
   .strict();
 
@@ -73,6 +85,7 @@ export const courseRequestFinalizingRowSchema = z
     ...actionableRowBase,
     matchedSchoolCourseId: positiveInteger,
     reviewedBy: positiveInteger,
+    documents: z.array(courseRequestDocumentSchema),
   })
   .strict();
 

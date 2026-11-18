@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { ClipboardCheck, Inbox, RefreshCw, RotateCcw, Search, SearchX, X } from "lucide-react";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ import {
   type SchoolAttendanceOutcome,
   type SchoolInboxRow,
 } from "@/modules/school-admin/hooks/useSchoolRequests";
-import { ApproveAttendanceDialog, RejectAttendanceDialog } from "./components/SchoolRequestDecisionDialogs";
+import { SchoolRequestReviewDialog } from "./components/SchoolRequestDecisionDialogs";
 import { SchoolRequestInboxPagination } from "./components/SchoolRequestInboxPagination";
 import { SchoolRequestInboxTable } from "./components/SchoolRequestInboxTable";
 import {
@@ -97,11 +97,26 @@ export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolR
     reconcileSchoolAttendance,
   } = useSchoolRequests();
 
-  const [approveRow, setApproveRow] = useState<SchoolInboxRow | null>(null);
-  const [rejectRow, setRejectRow] = useState<SchoolInboxRow | null>(null);
+  const [reviewRow, setReviewRow] = useState<SchoolInboxRow | null>(null);
   const [search, setSearch] = useState("");
   const [routedPage, setRoutedPage] = useState(1);
   const [finalizingPage, setFinalizingPage] = useState(1);
+  // The dialog unmounts synchronously on close, so remember the Review button
+  // and restore focus to it (when still connected) for keyboard users.
+  const triggerRef = useRef<HTMLElement | null>(null);
+
+  const rememberTrigger = useCallback(() => {
+    const active = document.activeElement;
+    triggerRef.current = active instanceof HTMLElement ? active : null;
+  }, []);
+
+  const restoreTriggerFocus = useCallback(() => {
+    const target = triggerRef.current;
+    triggerRef.current = null;
+    window.setTimeout(() => {
+      if (target !== null && target.isConnected) target.focus();
+    }, 0);
+  }, []);
 
   useEffect(() => {
     void loadInbox();
@@ -145,9 +160,9 @@ export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolR
   );
 
   const handleResume = useCallback(
-    async (row: SchoolInboxRow): Promise<void> => {
+    async (row: SchoolInboxRow): Promise<boolean> => {
       const outcome = await resumeSchoolAttendance(row.schoolRequestId);
-      settleOutcome(outcome);
+      return settleOutcome(outcome);
     },
     [resumeSchoolAttendance, settleOutcome],
   );
@@ -331,9 +346,10 @@ export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolR
                         feedbackByRow={feedbackByRow}
                         busyByRow={busyByRow}
                         claims={claims}
-                        onApprove={setApproveRow}
-                        onReject={setRejectRow}
-                        onResume={(row) => void handleResume(row)}
+                        onReview={(row) => {
+                          rememberTrigger();
+                          setReviewRow(row);
+                        }}
                       />
                       <SchoolRequestInboxPagination
                         page={safeRoutedPage}
@@ -362,9 +378,10 @@ export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolR
                       feedbackByRow={feedbackByRow}
                       busyByRow={busyByRow}
                       claims={claims}
-                      onApprove={setApproveRow}
-                      onReject={setRejectRow}
-                      onResume={(row) => void handleResume(row)}
+                      onReview={(row) => {
+                        rememberTrigger();
+                        setReviewRow(row);
+                      }}
                     />
                     <SchoolRequestInboxPagination
                       page={safeFinalizingPage}
@@ -395,27 +412,20 @@ export function SchoolRequestInboxPage({ belowHeader, onCountsChanged }: SchoolR
 
       {content}
 
-      {approveRow !== null ? (
-        <ApproveAttendanceDialog
-          key={approveRow.schoolRequestId}
-          row={approveRow}
-          busy={busyByRow[approveRow.schoolRequestId] === true}
+      {reviewRow !== null ? (
+        <SchoolRequestReviewDialog
+          key={reviewRow.schoolRequestId}
+          row={reviewRow}
+          busy={busyByRow[reviewRow.schoolRequestId] === true}
           onOpenChange={(open) => {
-            if (!open) setApproveRow(null);
+            if (!open) {
+              setReviewRow(null);
+              restoreTriggerFocus();
+            }
           }}
-          onConfirm={handleApprove}
-        />
-      ) : null}
-
-      {rejectRow !== null ? (
-        <RejectAttendanceDialog
-          key={rejectRow.schoolRequestId}
-          row={rejectRow}
-          busy={busyByRow[rejectRow.schoolRequestId] === true}
-          onOpenChange={(open) => {
-            if (!open) setRejectRow(null);
-          }}
-          onConfirm={handleReject}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onResume={handleResume}
         />
       ) : null}
     </div>

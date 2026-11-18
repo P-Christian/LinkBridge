@@ -31,6 +31,19 @@ export interface LinkedCourseSummary {
 export type SchoolRequestInboxStatus = "RoutedToSchool" | "Approved";
 
 /**
+ * Proof-document metadata for one `vs_education_document` row. Carries only
+ * the display fields plus the protected read-route URL; the Directus file id
+ * never crosses this boundary.
+ */
+export interface SchoolRequestDocument {
+  readonly documentId: number;
+  readonly type: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly url: string;
+}
+
+/**
  * Privacy-limited inbox row. Expands ONLY the linked education fields, the
  * linked course, relevant dates, the persisted reviewer/time claim, and the
  * requester id (needed later for review/recovery). Authoritative user
@@ -50,6 +63,7 @@ export interface SchoolRequestInboxRow {
   readonly reviewedAt: string | null;
   readonly education: LinkedEducationSummary;
   readonly course: LinkedCourseSummary | null;
+  readonly documents: readonly SchoolRequestDocument[];
 }
 
 /**

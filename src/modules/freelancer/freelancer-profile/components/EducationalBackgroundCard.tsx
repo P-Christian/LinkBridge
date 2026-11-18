@@ -1,18 +1,41 @@
 "use client";
 
 import React, { useState } from "react";
-import { GraduationCap, Plus, Pencil, CircleCheck } from "lucide-react";
+import { GraduationCap, Plus, Pencil, CircleCheck, ShieldAlert } from "lucide-react";
 import { useFreelancerProfileContext } from "../providers/FreelancerProfileProvider";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EducationModal } from "./EducationModal";
+import { EducationVerificationModal } from "./EducationVerificationModal";
 import { VsEducation } from "../types/freelancer-profile.types";
 
+type EducationVerificationState = NonNullable<VsEducation["verification_state"]>;
+
+function isUnsavedEducationDraft(education: VsEducation): boolean {
+    return typeof education.id === "number" && education.id < 0;
+}
+
+function resolveVerificationState(education: VsEducation): EducationVerificationState | null {
+    if (education.verification_state) return education.verification_state;
+    if (isUnsavedEducationDraft(education)) return null;
+    switch (education.education_status) {
+        case "Verified":
+            return "VERIFIED";
+        case "Pending":
+            return "PENDING";
+        case "Unverified":
+            return "UNVERIFIED";
+        default:
+            return null;
+    }
+}
+
 export function EducationalBackgroundCard() {
-    const { data: profile, pendingEducation, isAutofilling } = useFreelancerProfileContext();
+    const { data: profile, pendingEducation, isAutofilling, refresh } = useFreelancerProfileContext();
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [editingEducation, setEditingEducation] = useState<VsEducation | null>(null);
+    const [verificationEducation, setVerificationEducation] = useState<VsEducation | null>(null);
 
     if (!profile) return null;
 
@@ -20,7 +43,9 @@ export function EducationalBackgroundCard() {
     const visibleEducation = educationList.filter((education) => education.attendance_rejected !== true);
     const attendanceFullyVerified =
         visibleEducation.length > 0 &&
-        visibleEducation.every((education) => education.education_status === "Verified");
+        visibleEducation.every((education) => resolveVerificationState(education) === "VERIFIED");
+    const verificationEducationId =
+        verificationEducation?.employee_education_id ?? verificationEducation?.id ?? null;
 
     const handleAddClick = () => {
         setEditingEducation(null);
@@ -76,7 +101,14 @@ export function EducationalBackgroundCard() {
                             </div>
                         </div>
                     ))
-                ) : visibleEducation.map((edu) => (
+                ) : visibleEducation.map((edu) => {
+                    const verificationState = resolveVerificationState(edu);
+                    const educationId = edu.employee_education_id ?? edu.id;
+                    const canVerify =
+                        verificationState === "INVITED" &&
+                        typeof educationId === "number" &&
+                        educationId > 0;
+                    return (
                     <div key={edu.id} className="flex gap-4">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">
                             <GraduationCap className="h-5 w-5 text-primary" />
@@ -86,22 +118,33 @@ export function EducationalBackgroundCard() {
                                 <div className="flex flex-wrap items-center gap-2">
                                     <span className="inline-flex min-w-0 items-center gap-2">
                                         <h4 className="font-medium text-foreground break-words">{edu.school_name || edu.school_name_raw || "Unknown School"}</h4>
-                                        {edu.education_status === 'Verified' && (
+                                        {verificationState === 'VERIFIED' && (
                                             <span className="shrink-0 inline-flex items-center text-green-600 dark:text-green-500" title="Attendance verified">
                                                 <CircleCheck className="h-4 w-4" />
                                                 <span className="sr-only">Attendance verified</span>
                                             </span>
                                         )}
                                     </span>
-                                    {edu.education_status === 'Pending' && (
+                                    {verificationState === 'PENDING' && (
                                         <StatusBadge tone="warning">
                                             Pending Verification
                                         </StatusBadge>
                                     )}
-                                    {edu.education_status === 'Unverified' && (
+                                    {verificationState === 'UNVERIFIED' && (
                                         <StatusBadge tone="destructive">
                                             Unverified
                                         </StatusBadge>
+                                    )}
+                                    {canVerify && (
+                                        <button
+                                            type="button"
+                                            aria-label="Verify this education"
+                                            title="This school can verify your education."
+                                            onClick={() => setVerificationEducation(edu)}
+                                            className="relative inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-destructive transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 after:absolute after:-inset-2 after:content-['']"
+                                        >
+                                            <ShieldAlert className="h-4 w-4 animate-pulse motion-reduce:animate-none" aria-hidden="true" />
+                                        </button>
                                     )}
                                 </div>
                                 <Button 
@@ -123,7 +166,8 @@ export function EducationalBackgroundCard() {
                             </div>
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
 
             <EducationModal
@@ -132,6 +176,17 @@ export function EducationalBackgroundCard() {
                 userId={profile.user_id}
                 educationToEdit={editingEducation}
             />
+
+            {verificationEducation && verificationEducationId !== null && (
+                <EducationVerificationModal
+                    isOpen
+                    onClose={() => setVerificationEducation(null)}
+                    educationId={verificationEducationId}
+                    schoolName={verificationEducation.school_name || verificationEducation.school_name_raw}
+                    courseName={verificationEducation.course_name || verificationEducation.course_name_raw}
+                    onSubmitted={refresh}
+                />
+            )}
         </div>
     );
 }

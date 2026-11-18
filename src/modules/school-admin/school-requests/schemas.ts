@@ -85,6 +85,15 @@ const courseSummarySchema = z.object({
   courseCode: nullableText,
 });
 
+/** Outbound proof-document metadata. The Directus file id never appears here. */
+export const schoolRequestDocumentSchema = z.object({
+  documentId: z.number().int(),
+  type: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  url: z.string(),
+});
+
 /**
  * Outbound inbox-row shape. Closed world: unknown keys are stripped so
  * academics and user identity can never leak through this boundary even if a
@@ -103,4 +112,5 @@ export const schoolRequestInboxRowSchema = z.object({
   reviewedAt: nullableText,
   education: educationSummarySchema,
   course: courseSummarySchema.nullable(),
+  documents: z.array(schoolRequestDocumentSchema),
 });

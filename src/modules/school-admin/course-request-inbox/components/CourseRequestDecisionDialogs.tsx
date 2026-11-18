@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AlertTriangle, Check, Loader2, Lock } from "lucide-react";
+import { AlertTriangle, Check, Loader2, Lock, RotateCcw } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -15,29 +15,22 @@ import {
 import { Label } from "@/components/ui/label";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
+import { EducationRequestDocuments } from "@/modules/school-admin/components/EducationRequestDocuments";
 import type {
   CourseRequestCandidate,
   CourseRequestInboxRow,
 } from "@/modules/school-admin/hooks/useCourseRequests";
 import {
   candidateOptions,
+  describeLockedCourse,
   findCandidateById,
   formatInboxDateTime,
+  isFinalizingRow,
   requestReference,
   validateRejectRemarks,
 } from "../services/course-request-inbox.helpers";
 
-/**
- * Course-request decision dialogs.
- *
- * The approval dialog collects ONLY the selected Active same-school course id
- * that the strict PATCH body accepts (`{ action: "approve",
- * matched_school_course_id }`). It never renders or submits identity, school,
- * education, roster, reviewer, or status fields, and Approve stays disabled
- * until a candidate is explicitly selected. The rejection dialog requires a
- * trimmed nonblank reason and blocks whitespace-only input before any network
- * call. Both dialogs close only when the page reports a settled outcome.
- */
+type ReviewMode = "view" | "approve" | "reject";
 
 interface SubmissionSummaryProps {
   readonly row: CourseRequestInboxRow;
@@ -74,39 +67,72 @@ function SubmissionSummary({ row }: SubmissionSummaryProps) {
   );
 }
 
-interface ApproveCourseRequestDialogProps {
+interface CourseRequestReviewDialogProps {
   readonly row: CourseRequestInboxRow;
   /** Active same-school candidates from the own-school inbox DTO. */
   readonly courses: readonly CourseRequestCandidate[];
   readonly busy: boolean;
   readonly onOpenChange: (open: boolean) => void;
   /** Resolves true when the dialog may close (settled: approved/stale/removed/finalizing). */
-  readonly onConfirm: (row: CourseRequestInboxRow, courseId: number) => Promise<boolean>;
+  readonly onApprove: (row: CourseRequestInboxRow, courseId: number) => Promise<boolean>;
+  readonly onReject: (row: CourseRequestInboxRow, remarks: string) => Promise<boolean>;
+  readonly onResume: (row: CourseRequestInboxRow) => Promise<boolean>;
 }
 
-/** Mounted only while a row is selected (keyed by request id); unmount resets the selection. */
-export function ApproveCourseRequestDialog({
+/** Mounted only while a row is selected (keyed by request id); unmount resets the mode. */
+export function CourseRequestReviewDialog({
   row,
   courses,
   busy,
   onOpenChange,
-  onConfirm,
-}: ApproveCourseRequestDialogProps) {
+  onApprove,
+  onReject,
+  onResume,
+}: CourseRequestReviewDialogProps) {
+  const [mode, setMode] = useState<ReviewMode>("view");
   const [selectedCourseId, setSelectedCourseId] = useState<number | null>(null);
+  const [remarks, setRemarks] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const selectedCandidate = selectedCourseId === null ? undefined : findCandidateById(courses, selectedCourseId);
+  const finalizing = isFinalizingRow(row);
+  const locked = finalizing ? describeLockedCourse(row, courses) : null;
+  const selectedCandidate =
+    selectedCourseId === null ? undefined : findCandidateById(courses, selectedCourseId);
   const options = candidateOptions(courses);
   const noCandidates = courses.length === 0;
 
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const handleApprove = async (): Promise<void> => {
     setError(null);
     if (selectedCandidate === undefined) {
       setError("Select a course before approving.");
       return;
     }
-    const shouldClose = await onConfirm(row, selectedCandidate.schoolCourseId);
+    const shouldClose = await onApprove(row, selectedCandidate.schoolCourseId);
+    if (shouldClose) {
+      onOpenChange(false);
+    } else {
+      setError("The approval did not finish. Check the message on this request, then try again.");
+    }
+  };
+
+  const handleReject = async (): Promise<void> => {
+    setError(null);
+    const validationError = validateRejectRemarks(remarks);
+    if (validationError !== null) {
+      setError(validationError);
+      return;
+    }
+    const shouldClose = await onReject(row, remarks.trim());
+    if (shouldClose) {
+      onOpenChange(false);
+    } else {
+      setError("The rejection did not finish. Check the message on this request, then try again.");
+    }
+  };
+
+  const handleResume = async (): Promise<void> => {
+    setError(null);
+    const shouldClose = await onResume(row);
     if (shouldClose) {
       onOpenChange(false);
     } else {
@@ -116,214 +142,247 @@ export function ApproveCourseRequestDialog({
 
   return (
     <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto" data-testid="approve-dialog">
+      <DialogContent
+        className="max-w-3xl max-h-[90vh] overflow-y-auto"
+        data-testid="course-request-review-dialog"
+      >
         <DialogHeader>
-          <DialogTitle>Approve course request</DialogTitle>
+          <DialogTitle>Review course request</DialogTitle>
           <DialogDescription>
-            Choose the course your school will use for this request. Approving finishes the request
-            with the course you select.
+            Check the student&apos;s details and submitted documents before you decide.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} noValidate className="space-y-4 pt-1">
+
+        <div className="space-y-4 pt-1">
           <SubmissionSummary row={row} />
 
-          {noCandidates ? (
-            <div
-              data-testid="approve-no-candidates"
-              className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800"
-            >
-              <p className="font-semibold">No courses available</p>
-              <p className="mt-1">
-                Your school has no available courses right now. Add a course first, then come back
-                to approve this request.
-              </p>
-            </div>
-          ) : (
-            <div className="rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800">
-              <p className="font-semibold">What happens when you approve</p>
-              <p className="mt-1">
-                The course you select is saved on the student&apos;s record, and their education is
-                marked as verified.
-              </p>
-            </div>
-          )}
+          <EducationRequestDocuments documents={row.documents} />
 
-          <div className="space-y-2">
-            <Label htmlFor="course_request_candidate">Course *</Label>
-            <div data-testid="approve-course-select">
-              <SearchableSelect
-                options={options}
-                value={selectedCourseId === null ? "" : String(selectedCourseId)}
-                onValueChange={(value) => {
-                  setError(null);
-                  setSelectedCourseId(value.length > 0 ? Number(value) : null);
-                }}
-                placeholder="Select a course"
-                disabled={busy || noCandidates}
-              />
-            </div>
-            {selectedCandidate !== undefined ? (
-              <p className="text-xs text-muted-foreground" data-testid="approve-selected-course">
-                Selected: {selectedCandidate.courseName}
-                {selectedCandidate.courseCode !== null ? ` (${selectedCandidate.courseCode})` : ""}
+          {finalizing ? (
+            <div className="rounded-lg border bg-muted/30 p-3 text-sm">
+              <p className="flex items-center gap-2 font-semibold">
+                <Lock className="h-4 w-4" aria-hidden="true" />
+                Approval saved
               </p>
+              <p className="mt-1 text-muted-foreground">
+                A course was saved but the approval did not finish. Resume to complete it. The saved
+                course cannot be changed.
+              </p>
+              {locked !== null ? (
+                <p className="mt-1 text-xs text-muted-foreground" data-testid="dialog-locked-course">
+                  {locked.label}
+                  {locked.code !== null ? ` (${locked.code})` : ""}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {mode === "view" && !finalizing ? (
+            noCandidates ? (
+              <div
+                data-testid="approve-no-candidates"
+                className="rounded-lg border bg-muted/30 p-3 text-sm"
+              >
+                <p className="font-semibold">No courses available</p>
+                <p className="mt-1 text-muted-foreground">
+                  Your school has no available courses right now. Add a course first, then come
+                  back to approve this request.
+                </p>
+              </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                Choose a course to enable Approve.
-              </p>
-            )}
-          </div>
+              <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-sm">
+                <p className="font-semibold">What happens when you approve</p>
+                <p className="mt-1 text-muted-foreground">
+                  The course you select is saved on the student&apos;s record, and their education is
+                  marked as verified.
+                </p>
+              </div>
+            )
+          ) : null}
+
+          {mode === "approve" ? (
+            <div className="space-y-2">
+              <Label htmlFor="course_request_candidate">Course *</Label>
+              <div data-testid="approve-course-select">
+                <SearchableSelect
+                  options={options}
+                  value={selectedCourseId === null ? "" : String(selectedCourseId)}
+                  onValueChange={(value) => {
+                    setError(null);
+                    setSelectedCourseId(value.length > 0 ? Number(value) : null);
+                  }}
+                  placeholder="Select a course"
+                  disabled={busy || noCandidates}
+                />
+              </div>
+              {selectedCandidate !== undefined ? (
+                <p className="text-xs text-muted-foreground" data-testid="approve-selected-course">
+                  Selected: {selectedCandidate.courseName}
+                  {selectedCandidate.courseCode !== null ? ` (${selectedCandidate.courseCode})` : ""}
+                </p>
+              ) : (
+                <p className="text-xs text-muted-foreground">Choose a course to enable Approve.</p>
+              )}
+            </div>
+          ) : null}
+
+          {mode === "reject" ? (
+            <div className="space-y-4">
+              <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <p>
+                  Only reject if your school cannot complete this request with a course. Your
+                  reason is saved with the request.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="course_request_reject_reason">Reason *</Label>
+                <Textarea
+                  id="course_request_reject_reason"
+                  data-testid="reject-remarks"
+                  placeholder="Explain why you are rejecting this request."
+                  value={remarks}
+                  onChange={(event) => {
+                    setError(null);
+                    setRemarks(event.target.value);
+                  }}
+                  aria-invalid={error !== null}
+                  rows={4}
+                />
+                {validateRejectRemarks(remarks) !== null ? (
+                  <p className="text-xs text-muted-foreground" data-testid="reject-blocked-hint">
+                    A reason is required to enable Reject.
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {error !== null ? (
             <div
-              data-testid="approve-error"
+              data-testid="review-error"
               className="text-sm font-medium text-destructive bg-destructive/10 p-2 rounded-md"
             >
               {error}
             </div>
           ) : null}
+        </div>
 
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={busy}
-              data-testid="approve-cancel"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={busy || selectedCandidate === undefined}
-              data-testid="approve-confirm"
-            >
-              {busy ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        <DialogFooter>
+          {mode === "view" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={busy}
+                data-testid="review-close"
+              >
+                Close
+              </Button>
+              {finalizing ? (
+                <Button
+                  type="button"
+                  onClick={() => void handleResume()}
+                  disabled={busy}
+                  data-testid="review-resume"
+                >
+                  {busy ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                  )}
+                  Resume approval
+                </Button>
               ) : (
-                <Check className="mr-2 h-4 w-4" />
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={() => {
+                      setError(null);
+                      setMode("reject");
+                    }}
+                    disabled={busy}
+                    data-testid="review-reject"
+                  >
+                    Reject
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => {
+                      setError(null);
+                      setMode("approve");
+                    }}
+                    disabled={busy || noCandidates}
+                    data-testid="review-approve"
+                  >
+                    <Check className="mr-2 h-4 w-4" />
+                    Approve
+                  </Button>
+                </>
               )}
-              Approve request
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-interface RejectCourseRequestDialogProps {
-  readonly row: CourseRequestInboxRow;
-  readonly busy: boolean;
-  readonly onOpenChange: (open: boolean) => void;
-  /** Resolves true when the dialog may close (settled: rejected/removed/stale). */
-  readonly onConfirm: (row: CourseRequestInboxRow, remarks: string) => Promise<boolean>;
-}
-
-/** Mounted only while a row is selected (keyed by request id). */
-export function RejectCourseRequestDialog({
-  row,
-  busy,
-  onOpenChange,
-  onConfirm,
-}: RejectCourseRequestDialogProps) {
-  const [remarks, setRemarks] = useState("");
-  const [error, setError] = useState<string | null>(null);
-
-  const blockingError = validateRejectRemarks(remarks);
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setError(null);
-    const validationError = validateRejectRemarks(remarks);
-    if (validationError !== null) {
-      setError(validationError);
-      return;
-    }
-    const shouldClose = await onConfirm(row, remarks.trim());
-    if (shouldClose) {
-      onOpenChange(false);
-    } else {
-      setError("The rejection did not finish. Check the message on this request, then try again.");
-    }
-  };
-
-  return (
-    <Dialog open onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto" data-testid="reject-dialog">
-        <DialogHeader>
-          <DialogTitle>Reject course request</DialogTitle>
-          <DialogDescription>
-            Rejecting cannot be undone. The student&apos;s education record stays the same. If the
-            request is corrected, it can be sent again later.
-          </DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4 pt-1">
-          <SubmissionSummary row={row} />
-
-          <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>
-              Only reject if your school cannot complete this request with a course. Your reason is
-              saved with the request.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="course_request_reject_reason">Reason *</Label>
-            <Textarea
-              id="course_request_reject_reason"
-              data-testid="reject-remarks"
-              placeholder="Explain why you are rejecting this request."
-              value={remarks}
-              onChange={(event) => {
-                setError(null);
-                setRemarks(event.target.value);
-              }}
-              aria-invalid={error !== null}
-              rows={4}
-            />
-            {blockingError !== null ? (
-              <p className="text-xs text-muted-foreground" data-testid="reject-blocked-hint">
-                A reason is required to enable Reject.
-              </p>
-            ) : null}
-          </div>
-
-          {error !== null ? (
-            <div
-              data-testid="reject-error"
-              className="text-sm font-medium text-destructive bg-destructive/10 p-2 rounded-md"
-            >
-              {error}
-            </div>
-          ) : null}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={busy}
-              data-testid="reject-cancel"
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              disabled={busy || blockingError !== null}
-              variant="destructive"
-              data-testid="reject-confirm"
-            >
-              {busy ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <Lock className="mr-2 h-4 w-4" />
-              )}
-              Reject request
-            </Button>
-          </DialogFooter>
-        </form>
+            </>
+          ) : mode === "approve" ? (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setMode("view");
+                }}
+                disabled={busy}
+                data-testid="review-back"
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleApprove()}
+                disabled={busy || selectedCandidate === undefined}
+                data-testid="approve-confirm"
+              >
+                {busy ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Check className="mr-2 h-4 w-4" />
+                )}
+                Approve request
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setError(null);
+                  setMode("view");
+                }}
+                disabled={busy}
+                data-testid="review-back"
+              >
+                Back
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={() => void handleReject()}
+                disabled={busy || validateRejectRemarks(remarks) !== null}
+                data-testid="reject-confirm"
+              >
+                {busy ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Lock className="mr-2 h-4 w-4" />
+                )}
+                Reject request
+              </Button>
+            </>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

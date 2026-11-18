@@ -129,7 +129,8 @@ export function UnroutedSchoolRequestsSection({
         <p className="max-w-3xl text-sm text-muted-foreground">
           These requests are for schools that are not in the system yet, so they could not be
           matched automatically. Match a request to an existing school, set the school up as a draft
-          if it is not a VOS partner yet, or reject it. Each request is reviewed on its own.
+          if it is not a VOS partner yet, or reject it. A claim only needs a matching school; its
+          freelancer has not submitted verification yet.
         </p>
       </div>
 

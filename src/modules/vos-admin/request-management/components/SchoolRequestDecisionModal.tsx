@@ -74,6 +74,7 @@ interface Props {
   mutating: boolean;
   onRoute: (schoolId: number) => Promise<boolean>;
   onGroup: (schoolId: number) => Promise<boolean>;
+  onMatch: (schoolId: number) => Promise<boolean>;
   onReject: (adminRemarks: string) => Promise<boolean>;
   onCreatePlaceholder: (input: SchoolPlaceholderInput) => Promise<SchoolDraftOutcome | null>;
   allowReject?: boolean;
@@ -125,12 +126,14 @@ export function SchoolRequestDecisionModal({
   mutating,
   onRoute,
   onGroup,
+  onMatch,
   onReject,
   onCreatePlaceholder,
   allowReject = true,
 }: Props) {
-  const effectiveInitialTab: SchoolDecisionTab = allowReject ? initialTab : "correct";
-  const decisionTabs: readonly SchoolDecisionTab[] = allowReject ? ["correct", "reject"] : ["correct"];
+  const isClaim = request?.request_status === "AwaitingOptIn";
+  const effectiveInitialTab: SchoolDecisionTab = allowReject && !isClaim ? initialTab : "correct";
+  const decisionTabs: readonly SchoolDecisionTab[] = isClaim || !allowReject ? [] : ["correct", "reject"];
   const [tab, setTab] = useState<SchoolDecisionTab>(effectiveInitialTab);
   const [selectedSchoolId, setSelectedSchoolId] = useState<string | undefined>(undefined);
   const [remarks, setRemarks] = useState("");
@@ -190,8 +193,9 @@ export function SchoolRequestDecisionModal({
   );
 
   const busy = mutating || submitting;
-  // The selected route state alone determines Route vs Group — never a toggle.
-  const selectedAction = selected === null ? null : selected.verification_route === "DIRECT_REVIEW" ? "Route" : "Group";
+  // A claim only matches; other rows pick Route vs Group from the server route state.
+  const selectedAction =
+    selected === null ? null : isClaim ? "Match" : selected.verification_route === "DIRECT_REVIEW" ? "Route" : "Group";
   const correctDisabled = busy || candidatesLoading || candidatesError !== null || selected === null;
   const rejectDisabled = busy || remarks.trim() === "";
 
@@ -217,8 +221,9 @@ export function SchoolRequestDecisionModal({
     if (selected === null) return;
     setSubmitting(true);
     try {
-      const ok =
-        selected.verification_route === "DIRECT_REVIEW"
+      const ok = isClaim
+        ? await onMatch(selected.school_id)
+        : selected.verification_route === "DIRECT_REVIEW"
           ? await onRoute(selected.school_id)
           : await onGroup(selected.school_id);
       if (ok) {
@@ -267,15 +272,20 @@ export function SchoolRequestDecisionModal({
   return (
     <>
       <Dialog open={open} onOpenChange={busy ? () => undefined : handleOpenChange}>
-        <DialogContent className="max-w-md">
+        <DialogContent className={isClaim ? "max-w-2xl" : "max-w-md"}>
           <DialogHeader>
-            <DialogTitle>Review school request</DialogTitle>
+            <DialogTitle>{isClaim ? "Match claim to a school" : "Review school request"}</DialogTitle>
           </DialogHeader>
 
           <div className="min-w-0 space-y-4 py-4">
             <div className="min-w-0 rounded-md border p-3 text-sm" data-testid="school-decision-identity">
               <div className="break-words font-medium">Requested school: {requestedIdentity(request)}</div>
               <div className="mt-1 break-words text-muted-foreground">Submitted by {submitterLabel(request)}</div>
+              {isClaim ? (
+                <div className="mt-1 break-words text-muted-foreground">
+                  The freelancer has not submitted verification yet.
+                </div>
+              ) : null}
             </div>
 
             {decisionTabs.length > 1 ? (
@@ -333,23 +343,20 @@ export function SchoolRequestDecisionModal({
                 ) : candidates.length === 0 ? (
                   <div className="space-y-2" data-testid="school-decision-empty">
                     <p className="text-sm text-muted-foreground">
-                      No matching school found. If the school is not in the system yet, add it as a draft.
+                      {isClaim
+                        ? "No matching school found. Try another school name."
+                        : "No matching school found. If the school is not in the system yet, add it as a draft."}
                     </p>
                   </div>
                 ) : null}
 
-                {!candidatesLoading && candidatesError === null && candidates.length > 1 ? (
-                  <p className="text-sm text-amber-700" data-testid="school-decision-ambiguous">
-                    Multiple schools match — select the exact school. Nothing is applied until
-                    you confirm.
-                  </p>
-                ) : null}
-
                 {selected !== null && (
                   <p className="break-words text-sm text-muted-foreground" data-testid="school-decision-selected-route">
-                    {selected.verification_route === "DIRECT_REVIEW"
-                      ? "This school has an account and can review requests now. Confirming will send this request to them."
-                      : "This school does not have an account yet. Confirming will keep this request waiting for them."}
+                    {isClaim
+                      ? `Matching links this education to ${selected.school_name}.`
+                      : selected.verification_route === "DIRECT_REVIEW"
+                        ? "This school has an account and can review requests now. Confirming will send this request to them."
+                        : "This school does not have an account yet. Confirming will keep this request waiting for them."}
                   </p>
                 )}
 
@@ -365,18 +372,22 @@ export function SchoolRequestDecisionModal({
                       ? "Processing..."
                       : selectedAction === null
                         ? "Select a school"
-                        : selectedAction === "Route"
-                          ? "Send to school"
-                          : "Keep waiting for school"}
+                        : selectedAction === "Match"
+                          ? "Match school"
+                          : selectedAction === "Route"
+                            ? "Send to school"
+                            : "Keep waiting for school"}
                   </Button>
                 ) : (
                   selected !== null &&
                   selectedAction !== null && (
                     <div className="space-y-2" data-testid="school-decision-correct-confirm">
                       <p className="break-words text-sm font-medium">
-                        {selectedAction === "Route"
-                          ? `Send this request to ${selected.school_name}?`
-                          : `Keep this request waiting for ${selected.school_name}?`}
+                        {selectedAction === "Match"
+                          ? `Match this claim to ${selected.school_name}?`
+                          : selectedAction === "Route"
+                            ? `Send this request to ${selected.school_name}?`
+                            : `Keep this request waiting for ${selected.school_name}?`}
                       </p>
                       <div className="flex gap-2">
                         <Button type="button" variant="outline" className="flex-1" disabled={busy} onClick={resetArmed}>
@@ -396,20 +407,22 @@ export function SchoolRequestDecisionModal({
                   )
                 )}
 
-                <Button
-                  type="button"
-                  variant="link"
-                  className="h-auto w-full justify-start whitespace-normal p-0 text-left text-sm"
-                  disabled={busy}
-                  onClick={() => setDraftOpen(true)}
-                  data-testid="school-decision-placeholder-start"
-                >
-                  Requested school not in the list? Create a draft.
-                </Button>
+                {!isClaim ? (
+                  <Button
+                    type="button"
+                    variant="link"
+                    className="h-auto w-full justify-start whitespace-normal p-0 text-left text-sm"
+                    disabled={busy}
+                    onClick={() => setDraftOpen(true)}
+                    data-testid="school-decision-placeholder-start"
+                  >
+                    Requested school not in the list? Create a draft.
+                  </Button>
+                ) : null}
               </div>
             )}
 
-            {allowReject && tab === "reject" && (
+            {!isClaim && allowReject && tab === "reject" && (
               <div className="space-y-2" data-testid="school-decision-reject">
                 <Label>Reason for rejection (required)</Label>
                 <p className="text-sm text-muted-foreground">Provide a reason for rejecting this request.</p>

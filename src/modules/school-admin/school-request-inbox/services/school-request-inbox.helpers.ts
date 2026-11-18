@@ -115,23 +115,22 @@ export interface ApprovalOutcomeCopy {
 }
 
 /**
- * Approval always saves the decision and marks the education as verified
- * right away, unless the typed course still needs matching. A linked catalog
- * course is included directly; a typed course is included and sent for
- * course verification; a missing course only means the verified education
- * has no course.
+ * Approval adds the student to the school's alumni list with the course they
+ * studied. A linked catalog course is included directly; a typed course is
+ * included and sent for course verification; a missing course leaves the
+ * alumni record without a course.
  */
 export function describeApprovalOutcome(row: SchoolInboxRow): ApprovalOutcomeCopy {
   const typedCourse = hasText(row.education.courseNameRaw) ? row.education.courseNameRaw.trim() : null;
   const courseNote =
     row.course !== null
-      ? `The linked course "${row.course.courseName}" is included.`
+      ? `The linked course "${row.course.courseName}" will be included in their alumni record.`
       : typedCourse !== null
-        ? `The typed course "${typedCourse}" is included and will be sent for course verification.`
-        : "No course is linked, so the education will be verified without a course.";
+        ? `Their course "${typedCourse}" will be included and sent for course verification.`
+        : "No course is linked; their alumni record will have no course.";
   return {
-    title: "This marks the education as verified",
-    body: `Approving saves your decision and marks the education as verified right away. ${courseNote}`,
+    title: "Approving adds this student to your alumni list",
+    body: `Approving adds them to your alumni list with the course they studied here. ${courseNote}`,
   };
 }
 

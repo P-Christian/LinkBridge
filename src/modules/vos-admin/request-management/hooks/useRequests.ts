@@ -34,6 +34,20 @@ function readDecisionErrorMessage(json: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Queue statuses: submitted requests plus educations that are still claims. */
+const QUEUE_STATUSES = ['Pending', 'AwaitingOptIn'] as const;
+
+/** Newest-first merge order for the two queue reads; bad dates sort last. */
+function newestFirst(a: VsSchoolRequest, b: VsSchoolRequest): number {
+  const aTime = Date.parse(a.created_at);
+  const bTime = Date.parse(b.created_at);
+  if (Number.isNaN(aTime) && Number.isNaN(bTime)) return b.school_request_id - a.school_request_id;
+  if (Number.isNaN(aTime)) return 1;
+  if (Number.isNaN(bTime)) return -1;
+  if (aTime !== bTime) return bTime - aTime;
+  return b.school_request_id - a.school_request_id;
+}
+
 export class CourseCandidatesLoadError extends Error {
   public readonly name = 'CourseCandidatesLoadError';
   public constructor(
@@ -138,6 +152,7 @@ export function availableCourseActions(
     case 'Approved':
     case 'Rejected':
     case 'RoutedToSchool':
+    case 'AwaitingOptIn':
       return [];
     default:
       return assertNeverCourseVariant(status);
@@ -362,12 +377,13 @@ export function assertNeverSchoolVariant(value: never): never {
 }
 
 /** Every VOS school decision variant (mirrors PATCH /api/vos-admin/school-requests/[id]/review). */
-export type SchoolDecisionAction = 'Route' | 'Group' | 'Rejected';
+export type SchoolDecisionAction = 'Route' | 'Group' | 'Match' | 'Rejected';
 
 /** Discriminated decision input accepted by the school review endpoint. */
 export type SchoolRequestDecision =
   | { action: 'Route'; matched_school_id: number; admin_remarks?: string }
   | { action: 'Group'; matched_school_id: number; admin_remarks?: string }
+  | { action: 'Match'; matched_school_id: number }
   | { action: 'Rejected'; admin_remarks: string };
 
 /**
@@ -516,6 +532,8 @@ export function buildSchoolDecisionBody(decision: SchoolRequestDecision): Record
       if (decision.admin_remarks !== undefined) body.admin_remarks = decision.admin_remarks;
       return body;
     }
+    case 'Match':
+      return { action: 'Match', matched_school_id: decision.matched_school_id };
     case 'Rejected':
       return { action: 'Rejected', admin_remarks: decision.admin_remarks };
     default:
@@ -529,6 +547,8 @@ export function schoolDecisionVerb(action: SchoolDecisionAction): string {
       return 'routed';
     case 'Group':
       return 'grouped';
+    case 'Match':
+      return 'matched';
     case 'Rejected':
       return 'rejected';
     default:
@@ -550,6 +570,7 @@ export function availableSchoolActions(status: RequestStatus): readonly SchoolAv
     case 'Approved':
     case 'Rejected':
     case 'RoutedToSchool':
+    case 'AwaitingOptIn':
       return [];
     default:
       return assertNeverSchoolVariant(status);
@@ -708,6 +729,34 @@ export function useRequests() {
       if (!signal.aborted) {
         setLoading(false);
       }
+    }
+  }, [abortRead]);
+
+  // The list endpoint filters one status per call; both queue reads share one abort signal.
+  const fetchSchoolRequestsForQueue = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    const signal = abortRead();
+    try {
+      const pages = await Promise.all(
+        QUEUE_STATUSES.map(async (status) => {
+          const res = await fetch(`/api/vos-admin/school-requests?status=${status}`, { signal });
+          const json: unknown = await res.json();
+          if (!res.ok) {
+            throw new Error(readDecisionErrorMessage(json, 'Failed to fetch school requests'));
+          }
+          if (!isRecord(json) || !Array.isArray(json.requests)) return [];
+          return json.requests as VsSchoolRequest[];
+        }),
+      );
+      if (signal.aborted) return;
+      setSchoolRequests(pages.flat().sort(newestFirst));
+    } catch (err: unknown) {
+      if (signal.aborted) return;
+      setError((err as Error).message);
+      setSchoolRequests([]);
+    } finally {
+      if (!signal.aborted) setLoading(false);
     }
   }, [abortRead]);
 
@@ -933,6 +982,7 @@ export function useRequests() {
     loading,
     error,
     fetchSchoolRequests,
+    fetchSchoolRequestsForQueue,
     fetchCourseRequests,
     reviewSchoolRequest,
     generateSchoolInvite,

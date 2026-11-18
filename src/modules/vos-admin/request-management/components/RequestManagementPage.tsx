@@ -1,10 +1,10 @@
 // src/modules/vos-admin/request-management/components/RequestManagementPage.tsx
 //
 // School-demand dashboard for unresolved school requests. The hook loads the
-// Pending rows once; the pure selectors under `dashboard/` split them into the
-// unrouted queue and the exact-school-id awaiting-account groups. One tab
-// selection drives both the tab strip and the KPI cards, so exactly one demand
-// section renders at a time. Group rows only summarize: the grouped table hands
+// Pending rows and unmatched claims once; the pure selectors under `dashboard/`
+// split them into the unrouted queue and the exact-school-id awaiting-account
+// groups. One tab selection drives both the tab strip and the KPI cards, so
+// exactly one demand section renders at a time. Group rows only summarize: the grouped table hands
 // one exact group to the detail sheet, and every decision remains scoped to one
 // concrete `school_request_id`.
 "use client";
@@ -83,7 +83,7 @@ export function RequestManagementPage({ mode }: Props) {
     schoolRequests,
     loading,
     error,
-    fetchSchoolRequests,
+    fetchSchoolRequestsForQueue,
     reviewSchoolRequest,
     generateSchoolInvite,
     decideSchoolRequest,
@@ -102,14 +102,14 @@ export function RequestManagementPage({ mode }: Props) {
   // need no newer clock, and render stays free of impure calls.
   const [now] = useState(() => Date.now());
 
-  // The dashboard's single fetch site: only Pending unresolved demand loads.
+  // The dashboard's single fetch site: Pending rows plus unmatched claims load together.
   useEffect(() => {
-    void fetchSchoolRequests("Pending");
-  }, [fetchSchoolRequests]);
+    void fetchSchoolRequestsForQueue();
+  }, [fetchSchoolRequestsForQueue]);
 
   const refetchSchools = useCallback(() => {
-    void fetchSchoolRequests("Pending");
-  }, [fetchSchoolRequests]);
+    void fetchSchoolRequestsForQueue();
+  }, [fetchSchoolRequestsForQueue]);
 
   // Age comes from the newest rows; recomputed only when the rows change.
   const kpis = useMemo(() => deriveSchoolDemandKpis(schoolRequests, now), [schoolRequests, now]);

@@ -2,13 +2,14 @@
 // unrouted queue and grouped-demand detail surfaces (requested school,
 // location, submitter, target, route audit, status, submitted date, and the
 // per-request action cell). The action cell offers attendance Route/Group
-// entry points, the legacy review entry points, or a read-only indicator with
-// any per-request feedback; frozen mode never renders a mutation control.
+// entry points, a Match entry point for an unmatched claim, the legacy review
+// entry points, or a read-only indicator with any per-request feedback; frozen
+// mode never renders a mutation control.
 "use client";
 
 import React from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Check, X } from "lucide-react";
+import { Check, Link2, X } from "lucide-react";
 import { VsSchoolRequest } from "../../types/request.types";
 import {
   describeSchoolRouteAudit,
@@ -61,6 +62,36 @@ function ReadOnlyActionCell({ feedback }: { feedback: SchoolDecisionFeedback | u
   return (
     <div className="flex flex-col items-end gap-1">
       <span className="text-xs text-muted-foreground">Read-only</span>
+      <SchoolRequestFeedbackNote feedback={feedback} />
+    </div>
+  );
+}
+
+function ClaimActionCell({
+  request,
+  feedback,
+  busy,
+  onOpenDecision,
+}: {
+  request: VsSchoolRequest;
+  feedback: SchoolDecisionFeedback | undefined;
+  busy: boolean;
+  onOpenDecision: (request: VsSchoolRequest, tab: SchoolDecisionTab) => void;
+}) {
+  const requestId = request.school_request_id;
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => onOpenDecision(request, "correct")}
+        disabled={busy}
+        aria-label={`Match claim #${requestId} to a school`}
+        data-testid="school-request-match"
+      >
+        <Link2 className="mr-2 h-4 w-4" aria-hidden="true" />
+        Match school
+      </Button>
       <SchoolRequestFeedbackNote feedback={feedback} />
     </div>
   );
@@ -156,11 +187,26 @@ export function buildSchoolRequestColumns({
       accessorKey: "requested_school_name",
       header: "Requested School",
       // Long unbroken names stay inside the cell; full text stays in the title.
-      cell: ({ row }) => (
-        <span className="block max-w-[18rem] truncate" title={row.original.requested_school_name}>
-          {row.original.requested_school_name}
-        </span>
-      ),
+      cell: ({ row }) => {
+        const isClaim = row.original.request_status === "AwaitingOptIn";
+        return (
+          <div className="flex max-w-[18rem] flex-col gap-1">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 truncate" title={row.original.requested_school_name}>
+                {row.original.requested_school_name}
+              </span>
+              {isClaim ? (
+                <span className="inline-flex shrink-0 items-center rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning ring-1 ring-inset ring-warning/30">
+                  Claim
+                </span>
+              ) : null}
+            </div>
+            {isClaim ? (
+              <span className="text-xs text-muted-foreground">Verification not submitted yet</span>
+            ) : null}
+          </div>
+        );
+      },
     },
     {
       id: "location",
@@ -231,12 +277,27 @@ export function buildSchoolRequestColumns({
       cell: ({ row }) => {
         const request = row.original;
         const requestId = request.school_request_id;
+        const isClaim = request.request_status === "AwaitingOptIn";
+        const claimActionable =
+          isClaim &&
+          request.matched_school_id === null &&
+          (mode === "attendance" || mode === "opt-in");
         const actionable = request.request_status === "Pending";
         const feedback = feedbackFor(requestId);
-        if (readOnly || !actionable) {
+        if (readOnly || (!actionable && !claimActionable)) {
           return <ReadOnlyActionCell feedback={feedback} />;
         }
-        if (mode === "attendance") {
+        if (claimActionable) {
+          return (
+            <ClaimActionCell
+              request={request}
+              feedback={feedback}
+              busy={decisionBusyFor(requestId)}
+              onOpenDecision={onOpenDecision}
+            />
+          );
+        }
+        if (mode === "attendance" || mode === "opt-in") {
           return (
             <AttendanceActionCell
               request={request}

@@ -3,6 +3,7 @@ import "server-only";
 import { z, type ZodType } from "zod";
 
 import { resolveExactSchoolAssignment } from "./assignment.resolver";
+import { fetchDocumentsBySchoolRequestIds } from "./documents";
 import { dependencyError, scopedNotFound, SchoolRequestSchoolAdminError } from "./errors";
 import {
   courseRequestLinkSchema,
@@ -18,6 +19,7 @@ import type {
   LinkedCourseSummary,
   LinkedEducationSummary,
   SchoolAssignment,
+  SchoolRequestDocument,
   SchoolRequestInboxRow,
 } from "./types";
 
@@ -138,6 +140,7 @@ async function expandRow(
   operation: string,
   row: ScopedSchoolRequestRow,
   expectedSchoolId: number,
+  documents: readonly SchoolRequestDocument[],
 ): Promise<SchoolRequestInboxRow | null> {
   if (row.matched_school_id !== expectedSchoolId) return null;
   if (row.employee_education_id === null) return null;
@@ -159,6 +162,7 @@ async function expandRow(
     reviewedAt: row.reviewed_at,
     education: toEducationSummary(education),
     course: course === null ? null : toCourseSummary(course),
+    documents: [...documents],
   });
   if (!parsed.success) throw dependencyError(`${operation}.shape`);
   return parsed.data;
@@ -184,9 +188,17 @@ export async function listRoutedForAssignment(
     `/items/vs_school_request?${query.toString()}`,
     scopedSchoolRequestRowSchema,
   );
+  const documents = await fetchDocumentsBySchoolRequestIds(
+    rows.map((row) => row.school_request_id),
+  );
   const expanded: SchoolRequestInboxRow[] = [];
   for (const row of rows) {
-    const dto = await expandRow("schoolRequest.listRouted", row, assignment.schoolId);
+    const dto = await expandRow(
+      "schoolRequest.listRouted",
+      row,
+      assignment.schoolId,
+      documents.get(row.school_request_id) ?? [],
+    );
     if (dto !== null && dto.requestStatus === "RoutedToSchool") expanded.push(dto);
   }
   return expanded;
@@ -212,9 +224,17 @@ export async function listFinalizingForAssignment(
     `/items/vs_school_request?${query.toString()}`,
     scopedSchoolRequestRowSchema,
   );
+  const documents = await fetchDocumentsBySchoolRequestIds(
+    rows.map((row) => row.school_request_id),
+  );
   const recovering: SchoolRequestInboxRow[] = [];
   for (const row of rows) {
-    const dto = await expandRow("schoolRequest.listFinalizing", row, assignment.schoolId);
+    const dto = await expandRow(
+      "schoolRequest.listFinalizing",
+      row,
+      assignment.schoolId,
+      documents.get(row.school_request_id) ?? [],
+    );
     if (dto === null || dto.requestStatus !== "Approved") continue;
     if (dto.education.educationStatus !== "Pending") continue;
     if (await hasLinkedCourseRequest(dto.education.employeeEducationId)) continue;
@@ -249,7 +269,13 @@ export async function fetchScopedRequest(
   const only = rows[0];
   if (only === undefined) throw dependencyError("schoolRequest.fetchScoped.response");
   if (only.request_status !== "RoutedToSchool" && only.request_status !== "Approved") throw scopedNotFound();
-  const dto = await expandRow("schoolRequest.fetchScoped", only, assignment.schoolId);
+  const documents = await fetchDocumentsBySchoolRequestIds([only.school_request_id]);
+  const dto = await expandRow(
+    "schoolRequest.fetchScoped",
+    only,
+    assignment.schoolId,
+    documents.get(only.school_request_id) ?? [],
+  );
   if (dto === null) throw scopedNotFound();
   return { assignment, row: dto };
 }

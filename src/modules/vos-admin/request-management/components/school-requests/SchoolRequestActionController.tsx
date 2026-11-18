@@ -1,6 +1,6 @@
 // Concrete-request decision/review controller for school requests. Holds the
-// per-request dialog state (legacy review, attendance Route/Group/Reject, and
-// guarded draft-school creation) and renders the matching modal tree.
+// per-request dialog state (legacy review, attendance Route/Group/Match/Reject,
+// and guarded draft-school creation) and renders the matching modal tree.
 // Every mutation targets one exact `school_request_id`; candidate lookup,
 // last-search-query memory, busy/feedback state, and the stale-response
 // refetch/close behavior stay keyed by that id. Frozen mode renders no modal
@@ -172,6 +172,14 @@ export function useSchoolRequestActionController({
     });
   };
 
+  const handleMatch = async (schoolId: number): Promise<boolean> => {
+    if (!decisionRequest) return false;
+    return settleDecision(decisionRequest.school_request_id, {
+      action: "Match",
+      matched_school_id: schoolId,
+    });
+  };
+
   const handleDecisionReject = async (adminRemarks: string): Promise<boolean> => {
     if (!decisionRequest) return false;
     return settleDecision(decisionRequest.school_request_id, {
@@ -202,7 +210,7 @@ export function useSchoolRequestActionController({
         />
       ) : null}
 
-      {mode === "attendance" ? (
+      {mode === "attendance" || mode === "opt-in" ? (
         <SchoolRequestDecisionModal
           key={`${decisionRequestId ?? "none"}:${decisionEpoch}`}
           open={decisionOpen}
@@ -217,6 +225,7 @@ export function useSchoolRequestActionController({
           mutating={decisionRequestId === null ? false : decisionBusyFor(decisionRequestId)}
           onRoute={handleRoute}
           onGroup={handleGroup}
+          onMatch={handleMatch}
           onReject={handleDecisionReject}
           onCreatePlaceholder={handleCreatePlaceholder}
           allowReject={allowReject}

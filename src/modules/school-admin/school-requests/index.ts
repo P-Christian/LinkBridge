@@ -10,6 +10,7 @@ export {
   scopedNotFound,
 } from "./errors";
 export { fetchScopedRequest, listFinalizingForAssignment, listRoutedForAssignment } from "./repo";
+export { fetchDocumentsBySchoolRequestIds } from "./documents";
 export { schoolRequestInboxRowSchema } from "./schemas";
 export { fetchSchoolRequestForSchool, listSchoolRequestInbox } from "./service";
 export {
@@ -28,6 +29,7 @@ export type {
   LinkedCourseSummary,
   LinkedEducationSummary,
   SchoolAssignment,
+  SchoolRequestDocument,
   SchoolRequestInbox,
   SchoolRequestInboxRow,
   SchoolRequestInboxStatus,

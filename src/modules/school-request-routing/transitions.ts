@@ -17,6 +17,7 @@ import {
   assertPendingEducation,
   groupReplay,
   hasNoAuditOrRemarks,
+  matchReplay,
   rejectReplay,
   requireEducationLink,
   routeReplay,
@@ -25,6 +26,7 @@ import {
 } from "./transition-guards";
 import type {
   GroupSchoolInput,
+  MatchSchoolInput,
   RejectSchoolRequestInput,
   RouteSchoolInput,
   SchoolRequestRecord,
@@ -148,6 +150,60 @@ export async function groupSchoolRequest(input: GroupSchoolInput): Promise<Trans
   const current = await fetchSchoolRequest(input.requestId);
   if (groupReplay(current, input)) return { kind: "converged", request: current };
   throw routingError("STALE_CONFLICT", "The school request changed before grouping completed.");
+}
+
+export async function matchSchoolRequest(input: MatchSchoolInput): Promise<TransitionOutcome> {
+  const request = await fetchSchoolRequest(input.requestId);
+  if (matchReplay(request, input)) return { kind: "converged", request };
+  if (
+    request.request_status !== "AwaitingOptIn" ||
+    request.matched_school_id !== null ||
+    request.routed_by !== null ||
+    request.routed_at !== null ||
+    request.reviewed_by !== null ||
+    request.reviewed_at !== null ||
+    request.admin_remarks !== null
+  ) {
+    throw routingError("STALE_CONFLICT", "The school request is no longer matchable.");
+  }
+  const educationId = requireEducationLink(request);
+  const [schoolRoute, education] = await Promise.all([
+    fetchSchoolRoute(input.targetSchoolId),
+    fetchEducation(educationId),
+  ]);
+  if (
+    schoolRoute.classification !== "DIRECT_REVIEW" &&
+    schoolRoute.classification !== "AWAITING_ACTIVATION" &&
+    schoolRoute.classification !== "AWAITING_REGISTRATION"
+  ) {
+    throw routingError("TARGET_INELIGIBLE", "The target school is not eligible for matching.");
+  }
+  assertPendingEducation(education, request, schoolRoute.school);
+  const updated = await patchRequest(
+    "schoolRequest.match",
+    {
+      school_request_id: { _eq: input.requestId },
+      request_status: { _eq: "AwaitingOptIn" },
+      matched_school_id: { _null: true },
+      routed_by: { _null: true },
+      routed_at: { _null: true },
+      reviewed_by: { _null: true },
+      reviewed_at: { _null: true },
+      admin_remarks: { _null: true },
+      employee_education_id: { _eq: educationId },
+      active_employee_education_id: { _eq: educationId },
+    },
+    { matched_school_id: input.targetSchoolId }
+  );
+  if (updated) {
+    if (education.school_id === null) {
+      await bindEducationSchool(educationId, input.targetSchoolId);
+    }
+    return { kind: "mutated", request: updated };
+  }
+  const current = await fetchSchoolRequest(input.requestId);
+  if (matchReplay(current, input)) return { kind: "converged", request: current };
+  throw routingError("STALE_CONFLICT", "The school request changed before matching completed.");
 }
 
 export async function releaseGroupedSchoolRequest(input: SystemReleaseInput): Promise<SystemReleaseOutcome> {

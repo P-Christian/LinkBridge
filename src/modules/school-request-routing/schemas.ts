@@ -13,7 +13,7 @@ export const schoolRequestSchema = z.object({
   requested_school_name: z.string(),
   city_municipality: z.string().nullable(),
   province: z.string().nullable(),
-  request_status: z.enum(["Pending", "Approved", "Rejected", "RoutedToSchool"]),
+  request_status: z.enum(["Pending", "Approved", "Rejected", "RoutedToSchool", "AwaitingOptIn"]),
   matched_school_id: nullableInteger,
   admin_remarks: z.string().nullable(),
   reviewed_by: nullableInteger,
