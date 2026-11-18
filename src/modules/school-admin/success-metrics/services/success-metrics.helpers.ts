@@ -193,26 +193,35 @@ export function buildFunnelStageStats(applications: Record<string, unknown>[]): 
   const hiredCount = counts.HIRED;
 
   const stages: { stage: FunnelStageStat['stage']; label: string; count: number }[] = [
-    { stage: 'APPLIED', label: 'Applied', count: appliedCount },
-    { stage: 'UNDER_REVIEW', label: 'Under Review', count: underReviewCount },
-    { stage: 'INTERVIEWING', label: 'Interviewing', count: interviewingCount },
+    { stage: 'APPLIED', label: 'Applications', count: appliedCount },
+    { stage: 'UNDER_REVIEW', label: 'Reached review', count: underReviewCount },
+    { stage: 'INTERVIEWING', label: 'Reached interview', count: interviewingCount },
     { stage: 'HIRED', label: 'Hired', count: hiredCount },
   ];
 
-  return stages.map((s) => ({
-    stage: s.stage,
-    label: s.label,
-    count: s.count,
-    percentageOfTotal: total > 0 ? Number(((s.count / total) * 100).toFixed(1)) : 0,
-  }));
+  return stages.map((s, index) => {
+    const previousCount = index === 0 ? null : (stages[index - 1]?.count ?? 0);
+    return {
+      stage: s.stage,
+      label: s.label,
+      count: s.count,
+      percentageOfTotal: total > 0 ? Number(((s.count / total) * 100).toFixed(1)) : 0,
+      conversionFromPrevious:
+        previousCount === null
+          ? null
+          : previousCount > 0
+            ? Number(((s.count / previousCount) * 100).toFixed(1))
+            : 0,
+    };
+  });
 }
 
 export function buildTopHiringCompanies(
   applications: Record<string, unknown>[]
 ): TopHiringCompanyStat[] {
-  const compStats = new Map<string, { companyId: number; companyName: string; companyLogo: string | null; hiredCount: number; jobTitles: Set<string> }>();
+  const compStats = new Map<string, { companyId: number; companyName: string; companyLogo: string | null; hiredKeys: Set<string>; jobTitles: Set<string> }>();
 
-  applications.forEach((app) => {
+  applications.forEach((app, index) => {
     const status = String(app.application_status || '').toUpperCase();
     if (status === 'HIRED' && app.job_id && typeof app.job_id === 'object') {
       const job = app.job_id as Record<string, unknown>;
@@ -235,12 +244,16 @@ export function buildTopHiringCompanies(
           companyId: compId,
           companyName: compName,
           companyLogo: compLogo,
-          hiredCount: 0,
+          hiredKeys: new Set(),
           jobTitles: new Set(),
         };
         compStats.set(key, item);
       }
-      item.hiredCount++;
+      if (item.companyLogo === null && compLogo !== null) item.companyLogo = compLogo;
+      const userId = Number(app.user_id);
+      item.hiredKeys.add(
+        Number.isSafeInteger(userId) && userId > 0 ? `user:${userId}` : `row:${index}`,
+      );
       item.jobTitles.add(jobTitle);
     }
   });
@@ -251,7 +264,7 @@ export function buildTopHiringCompanies(
       companyId: val.companyId,
       companyName: val.companyName,
       companyLogo: val.companyLogo,
-      hiredCount: val.hiredCount,
+      hiredCount: val.hiredKeys.size,
       topJobTitles: Array.from(val.jobTitles).slice(0, 3),
     });
   });

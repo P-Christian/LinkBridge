@@ -39,13 +39,17 @@ export interface FunnelStageStat {
   stage: 'APPLIED' | 'UNDER_REVIEW' | 'SHORTLISTED' | 'INTERVIEWING' | 'HIRED';
   label: string;
   count: number;
+  /** Share of all applications, not the previous stage. */
   percentageOfTotal: number;
+  /** Share of the previous stage that reached this stage; null for the first stage. */
+  conversionFromPrevious: number | null;
 }
 
 export interface TopHiringCompanyStat {
   companyId: number;
   companyName: string;
   companyLogo: string | null;
+  /** Unique graduates hired at this company. */
   hiredCount: number;
   topJobTitles: string[];
 }
