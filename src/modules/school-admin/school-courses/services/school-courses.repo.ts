@@ -1,12 +1,13 @@
 import { VsSchoolCourse } from '@/modules/school-admin/types/school-admin.types';
+import { readJsonResponse, responseErrorMessage } from '@/lib/read-json-response';
 
 export async function fetchSchoolCoursesRepo(): Promise<VsSchoolCourse[]> {
   const res = await fetch('/api/school-admin/school/courses', { cache: 'no-store' });
-  const json = await res.json();
+  const json = await readJsonResponse(res);
   if (!res.ok) {
-    throw new Error(json.error || 'Failed to fetch courses');
+    throw new Error(responseErrorMessage(json, `Failed to fetch courses (${res.status})`));
   }
-  return json.courses || json.data || [];
+  return (json.courses || json.data || []) as VsSchoolCourse[];
 }
 
 export async function createSchoolCourseRepo(payload: Partial<VsSchoolCourse>): Promise<VsSchoolCourse> {
@@ -15,11 +16,11 @@ export async function createSchoolCourseRepo(payload: Partial<VsSchoolCourse>): 
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  const json = await res.json();
+  const json = await readJsonResponse(res);
   if (!res.ok) {
-    throw new Error(json.error || 'Failed to add course');
+    throw new Error(responseErrorMessage(json, `Failed to add course (${res.status})`));
   }
-  return json.course || json.data;
+  return (json.course || json.data) as VsSchoolCourse;
 }
 
 export async function updateSchoolCourseRepo(courseId: number, payload: Partial<VsSchoolCourse>): Promise<VsSchoolCourse> {
@@ -28,20 +29,9 @@ export async function updateSchoolCourseRepo(courseId: number, payload: Partial<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  const json = await res.json();
+  const json = await readJsonResponse(res);
   if (!res.ok) {
-    throw new Error(json.error || 'Failed to update course');
+    throw new Error(responseErrorMessage(json, `Failed to update course (${res.status})`));
   }
-  return json.course || json.data;
-}
-
-export async function deleteSchoolCourseRepo(courseId: number): Promise<boolean> {
-  const res = await fetch(`/api/school-admin/school/courses/${courseId}`, {
-    method: 'DELETE'
-  });
-  const json = await res.json();
-  if (!res.ok) {
-    throw new Error(json.error || 'Failed to delete course');
-  }
-  return true;
+  return (json.course || json.data) as VsSchoolCourse;
 }

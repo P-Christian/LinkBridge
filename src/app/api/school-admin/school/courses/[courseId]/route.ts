@@ -10,6 +10,7 @@ import {
   getCourseById,
   updateMyCourse,
 } from "@/modules/school-admin/services/school-admin.service";
+import { updateCourseSchema } from "@/modules/school-admin/school-courses/types/school-courses.schema";
 
 import { safeErrorMessage } from "@/lib/api-error";
 export const runtime = "nodejs";
@@ -67,8 +68,18 @@ export async function PATCH(
       }
     }
 
-    const body = await req.json().catch(() => ({}));
-    const updated = await updateMyCourse(courseId, body, userId);
+    const rawBody: unknown = await req.json().catch(() => null);
+    if (rawBody === null) {
+      return NextResponse.json({ error: "Malformed request body." }, { status: 400 });
+    }
+    const parsed = updateCourseSchema.safeParse(rawBody);
+    if (!parsed.success) {
+      return NextResponse.json(
+        { error: parsed.error.issues[0]?.message ?? "Invalid course payload." },
+        { status: 400 },
+      );
+    }
+    const updated = await updateMyCourse(courseId, parsed.data, userId);
 
     return NextResponse.json({ course: updated });
   } catch (error: unknown) {

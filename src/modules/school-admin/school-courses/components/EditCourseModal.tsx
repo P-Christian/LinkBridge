@@ -52,6 +52,7 @@ function EditCourseForm({
       course_name: course.course_name,
       degree: course.degree ?? null,
       course_code: course.course_code ?? null,
+      course_category: course.course_category ?? null,
     })
   );
   const [status, setStatus] = useState<CourseStatus>(
@@ -78,6 +79,7 @@ function EditCourseForm({
     const success = await onSubmit(course.school_course_id, {
       course_name: input.course_name,
       course_code: input.course_code,
+      course_category: input.course_category,
       degree: input.degree,
       course_status: status,
     });

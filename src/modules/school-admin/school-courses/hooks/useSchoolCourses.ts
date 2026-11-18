@@ -5,13 +5,12 @@ import {
   executeCreateSchoolCourse, 
   executeUpdateSchoolCourse, 
   executeToggleCourseStatus, 
-  executeDeleteSchoolCourse 
 } from '../services/school-courses.service';
 import { toast } from 'sonner';
 
 export function useSchoolCourses(
   initialCourses: VsSchoolCourse[] = [],
-  onAddCourseProp?: (data: Partial<VsSchoolCourse>) => Promise<boolean>,
+  onAddCourseProp?: (data: Partial<VsSchoolCourse>) => Promise<VsSchoolCourse | null>,
   onToggleStatusProp?: (courseId: number, status: string) => Promise<boolean>
 ) {
   const [courses, setCourses] = useState<VsSchoolCourse[]>(initialCourses);
@@ -22,11 +21,13 @@ export function useSchoolCourses(
     setSaving(true);
     try {
       if (onAddCourseProp) {
-        const success = await onAddCourseProp(data);
-        if (success) {
+        const created = await onAddCourseProp(data);
+        if (created) {
+          setCourses(prev => [created, ...prev]);
           toast.success('Course added successfully.');
+          return true;
         }
-        return success;
+        return false;
       }
 
       const created = await executeCreateSchoolCourse(data);
@@ -87,19 +88,6 @@ export function useSchoolCourses(
     }
   };
 
-  const deleteCourse = async (courseId: number): Promise<boolean> => {
-    try {
-      await executeDeleteSchoolCourse(courseId);
-      setCourses(prev => prev.filter(c => c.school_course_id !== courseId));
-      toast.success('Course deleted successfully.');
-      return true;
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to delete course.';
-      toast.error(msg);
-      return false;
-    }
-  };
-
   return {
     courses,
     setCourses,
@@ -109,6 +97,5 @@ export function useSchoolCourses(
     addCourse,
     updateCourse,
     toggleStatus,
-    deleteCourse
   };
 }

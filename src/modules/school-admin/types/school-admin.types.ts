@@ -64,6 +64,7 @@ export interface VsSchoolCourse {
   school_id: number;
   course_name: string;
   course_code: string | null;
+  course_category?: string | null;
   degree?: CourseDegree | null;
   course_status: CourseStatus | SchoolStatus;
   created_by: number;
