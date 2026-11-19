@@ -1,7 +1,7 @@
 // src/modules/matching-engine/evaluators/experienceEvaluator.ts
 
 import { NormalizedProfile } from "../types/profileTypes";
-import { MatchContext } from "../types/matchTypes";
+import { MatchContext, MatchMode } from "../types/matchTypes";
 import { EvaluatorResult, EvidenceItem } from "../types/evaluatorTypes";
 
 function cleanTitle(str: string | null | undefined): string {
@@ -34,6 +34,9 @@ export function evaluateExperience(profile: NormalizedProfile, context: MatchCon
     expandedAliases.push("developer");
   }
 
+  const requestedSkills = (context.requestedSkills ?? []).map((s) => cleanTitle(s)).filter((s) => s.length > 2);
+  const isBrowseMode = context.mode === MatchMode.BROWSE || (!keyword && requestedSkills.length === 0);
+
   let relevantMonths = 0;
   let totalMonths = 0;
   const matchedRoles: string[] = [];
@@ -54,7 +57,13 @@ export function evaluateExperience(profile: NormalizedProfile, context: MatchCon
           (alias.includes("full stack") && titleClean.includes("full stack")))
     );
 
-    if (isMatch || !keyword) {
+    const isSkillMatch =
+      requestedSkills.length > 0 &&
+      requestedSkills.some(
+        (s) => titleClean.includes(s) || descClean.includes(s)
+      );
+
+    if (isMatch || isSkillMatch || isBrowseMode) {
       relevantMonths += Math.round(work.years * 12);
       matchedRoles.push(work.title);
     }
