@@ -100,6 +100,7 @@ export function CourseRequestReviewDialog({
     selectedCourseId === null ? undefined : findCandidateById(courses, selectedCourseId);
   const options = candidateOptions(courses);
   const noCandidates = courses.length === 0;
+  const missingSelection = selectedCandidate === undefined && !noCandidates;
 
   const handleApprove = async (): Promise<void> => {
     setError(null);
@@ -202,7 +203,9 @@ export function CourseRequestReviewDialog({
 
           {mode === "approve" ? (
             <div className="space-y-2">
-              <Label htmlFor="course_request_candidate">Course *</Label>
+              <Label htmlFor="course_request_candidate">
+                Course {missingSelection ? <span className="text-destructive">*</span> : "*"}
+              </Label>
               <div data-testid="approve-course-select">
                 <SearchableSelect
                   options={options}
@@ -213,6 +216,11 @@ export function CourseRequestReviewDialog({
                   }}
                   placeholder="Select a course"
                   disabled={busy || noCandidates}
+                  className={
+                    missingSelection
+                      ? "border-destructive focus-visible:ring-destructive/40"
+                      : undefined
+                  }
                 />
               </div>
               {selectedCandidate !== undefined ? (
@@ -220,9 +228,15 @@ export function CourseRequestReviewDialog({
                   Selected: {selectedCandidate.courseName}
                   {selectedCandidate.courseCode !== null ? ` (${selectedCandidate.courseCode})` : ""}
                 </p>
-              ) : (
-                <p className="text-xs text-muted-foreground">Choose a course to enable Approve.</p>
-              )}
+              ) : missingSelection ? (
+                <p
+                  className="text-xs font-medium text-destructive"
+                  role="alert"
+                  data-testid="approve-missing-course"
+                >
+                  Select a course to enable Approve.
+                </p>
+              ) : null}
             </div>
           ) : null}
 
@@ -342,6 +356,7 @@ export function CourseRequestReviewDialog({
                 type="button"
                 onClick={() => void handleApprove()}
                 disabled={busy || selectedCandidate === undefined}
+                title={missingSelection ? "Select a course first" : undefined}
                 data-testid="approve-confirm"
               >
                 {busy ? (
