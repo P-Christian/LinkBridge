@@ -41,6 +41,7 @@ export function TurnstileWidget({
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const [scriptLoaded, setScriptLoaded] = useState(false);
+  const [scriptFailed, setScriptFailed] = useState(false);
 
   const onVerifyRef = useRef(onVerify);
   const onExpireRef = useRef(onExpire);
@@ -73,6 +74,7 @@ export function TurnstileWidget({
         });
       } catch (e) {
         console.error("Turnstile render error:", e);
+        onErrorRef.current?.(e);
       }
     }
 
@@ -88,6 +90,16 @@ export function TurnstileWidget({
     };
   }, [scriptLoaded, siteKey, theme]);
 
+  if (!siteKey) {
+    return (
+      <div className={cn("my-2 flex flex-col items-center justify-center min-h-[65px]", className)}>
+        <p className="px-2 text-center text-xs text-destructive" role="alert">
+          Security check is unavailable. Contact support.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className={cn("my-2 flex flex-col items-center justify-center min-h-[65px]", className)}>
       <Script
@@ -95,8 +107,17 @@ export function TurnstileWidget({
         async
         defer
         onLoad={() => setScriptLoaded(true)}
+        onError={() => {
+          setScriptFailed(true);
+          onErrorRef.current?.();
+        }}
       />
       <div ref={containerRef} />
+      {scriptFailed && (
+        <p className="px-2 text-center text-xs text-destructive" role="alert">
+          Security check failed to load. Reload the page and try again.
+        </p>
+      )}
     </div>
   );
 }

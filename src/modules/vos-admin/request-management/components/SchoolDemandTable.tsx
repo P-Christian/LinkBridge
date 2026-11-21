@@ -4,9 +4,8 @@
 // `groupAwaitingAccountDemand`, so one row is one exact `matched_school_id`
 // and groups that share requested-school text are never merged. The table
 // summarizes demand only: a single `View requests` action hands the whole
-// group to the caller, and no Route/Group/Reject control exists here. The
-// account state stays `Waiting for account` because refinement belongs to the
-// lazy detail surface, never to this table.
+// group to the caller, and no Route/Group/Reject control exists here. Account
+// state is absent because the lazy detail surface owns that refinement.
 "use client";
 
 import { useMemo } from "react";
@@ -15,7 +14,6 @@ import { ArrowDown, ArrowUp, ArrowUpDown, RefreshCw, ShieldAlert } from "lucide-
 
 import { Button } from "@/components/ui/button";
 import { DataTable } from "@/components/ui/new-data-table";
-import { StatusBadge } from "@/components/ui/status-badge";
 import {
   groupAwaitingAccountDemand,
   type AwaitingSchoolGroup,
@@ -179,13 +177,6 @@ function buildColumns(
           </span>
         </div>
       ),
-    },
-    {
-      id: "accountState",
-      meta: columnMenuLabel("Account state"),
-      header: "Account state",
-      enableSorting: false,
-      cell: () => <StatusBadge tone="info">Waiting for account</StatusBadge>,
     },
     numberColumn("requestCount", "Requests", "school-demand-count"),
     numberColumn("distinctRequesterCount", "Requesters", "school-demand-requesters"),

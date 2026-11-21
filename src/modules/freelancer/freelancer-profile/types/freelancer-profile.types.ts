@@ -107,7 +107,8 @@ export interface VsEducation {
         readonly remarks: string | null;
     } | null;
     attendance_rejected?: boolean;
-    verification_state?: 'INVITED' | 'AWAITING_SCHOOL' | 'PENDING' | 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
+    attendance_rejection_reason?: string | null;
+    verification_state?: 'INVITED' | 'AWAITING_SCHOOL' | 'PENDING' | 'VERIFIED' | 'UNVERIFIED' | 'REJECTED' | 'COURSE_PENDING' | 'COURSE_REJECTED';
 }
 
 export interface VsCertification {

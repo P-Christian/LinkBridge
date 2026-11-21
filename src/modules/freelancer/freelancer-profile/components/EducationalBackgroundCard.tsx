@@ -40,7 +40,7 @@ export function EducationalBackgroundCard() {
     if (!profile) return null;
 
     const educationList = pendingEducation !== null ? pendingEducation : profile.education || [];
-    const visibleEducation = educationList.filter((education) => education.attendance_rejected !== true);
+    const visibleEducation = educationList;
     const attendanceFullyVerified =
         visibleEducation.length > 0 &&
         visibleEducation.every((education) => resolveVerificationState(education) === "VERIFIED");
@@ -130,6 +130,21 @@ export function EducationalBackgroundCard() {
                                             Pending Verification
                                         </StatusBadge>
                                     )}
+                                    {verificationState === 'COURSE_PENDING' && (
+                                        <StatusBadge tone="warning">
+                                            Attendance verified · Course pending
+                                        </StatusBadge>
+                                    )}
+                                    {verificationState === 'COURSE_REJECTED' && (
+                                        <StatusBadge tone="destructive">
+                                            Course not verified
+                                        </StatusBadge>
+                                    )}
+                                    {verificationState === 'REJECTED' && (
+                                        <StatusBadge tone="destructive">
+                                            Rejected
+                                        </StatusBadge>
+                                    )}
                                     {verificationState === 'UNVERIFIED' && (
                                         <StatusBadge tone="destructive">
                                             Unverified
@@ -164,6 +179,16 @@ export function EducationalBackgroundCard() {
                             <div className="text-sm md:text-xs text-muted-foreground">
                                 {edu.start_date ? new Date(edu.start_date).getFullYear() : "?"} - {edu.end_date ? new Date(edu.end_date).getFullYear() : "Present"}
                             </div>
+                            {verificationState === 'REJECTED' && edu.attendance_rejection_reason && (
+                                <div className="text-sm md:text-xs text-destructive">
+                                    {edu.attendance_rejection_reason}
+                                </div>
+                            )}
+                            {verificationState === 'COURSE_REJECTED' && edu.course_verification?.remarks && (
+                                <div className="text-sm md:text-xs text-destructive">
+                                    {edu.course_verification.remarks}
+                                </div>
+                            )}
                         </div>
                     </div>
                     );

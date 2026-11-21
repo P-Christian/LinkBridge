@@ -505,6 +505,7 @@ function SignupPageContent() {
   const [termsAgreed, setTermsAgreed] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState<string>('');
+  const [turnstileError, setTurnstileError] = useState<string | null>(null);
 
   // ── Shared OTP ────────────────────────────────────────────────────────────
   const [otp, setOtp] = useState('');
@@ -2880,9 +2881,24 @@ function SignupPageContent() {
         {/* CAPTCHA / Bot Protection */}
         <div className="rounded-xl border border-border/80 bg-muted/20 p-4 my-2">
           <TurnstileWidget
-            onVerify={(token) => setTurnstileToken(token)}
-            onExpire={() => setTurnstileToken('')}
+            onVerify={(token) => {
+              setTurnstileToken(token);
+              setTurnstileError(null);
+            }}
+            onExpire={() => {
+              setTurnstileToken('');
+              setTurnstileError('Security check expired. Complete the check again.');
+            }}
+            onError={() => {
+              setTurnstileToken('');
+              setTurnstileError('Security check failed. Reload the page and try again.');
+            }}
           />
+          {turnstileError && (
+            <p className="mt-2 text-center text-xs text-destructive" role="alert">
+              {turnstileError}
+            </p>
+          )}
         </div>
 
         <Button type="submit" disabled={loading || !validatePasswordStrict(schoolFormData.password) || !schoolTermsAgreed || !turnstileToken}

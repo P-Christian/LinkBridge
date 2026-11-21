@@ -37,6 +37,44 @@ async function verifyVosAdmin(req: Request): Promise<AdminAuth | null> {
     }
 }
 
+function resolveInviteOrigin(req: Request): string | null {
+    const candidates: Array<string | null | undefined> = [
+        process.env.NEXT_PUBLIC_SITE_URL,
+        process.env.NEXT_PUBLIC_APP_URL,
+    ];
+
+    const forwardedProto = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+    const forwardedHost = req.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+    if (forwardedHost) {
+        candidates.push(`${forwardedProto || "http"}://${forwardedHost}`);
+    }
+
+    const host = req.headers.get("host")?.trim();
+    if (host) {
+        candidates.push(`${forwardedProto || "http"}://${host}`);
+    }
+
+    try {
+        candidates.push(new URL(req.url).origin);
+    } catch {
+    }
+
+    for (const raw of candidates) {
+        if (!raw) continue;
+        const trimmed = raw.trim().replace(/\/+$/, "");
+        if (!trimmed || trimmed.includes("undefined")) continue;
+        try {
+            const parsed = new URL(trimmed);
+            if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+                return parsed.origin;
+            }
+        } catch {
+            continue;
+        }
+    }
+    return null;
+}
+
 function getHeaders() {
     const h: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -71,6 +109,14 @@ export async function POST(req: Request) {
         }
         const { school_id, invited_email } = parsed.data;
 
+        const baseUrl = resolveInviteOrigin(req);
+        if (!baseUrl) {
+            return NextResponse.json(
+                { error: "Invite link origin is not configured." },
+                { status: 500 }
+            );
+        }
+
         const token = crypto.randomUUID();
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 72);
@@ -97,7 +143,6 @@ export async function POST(req: Request) {
             );
         }
 
-        const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
         const invitationUrl = `${baseUrl}/school-register?token=${token}`;
 
         return NextResponse.json({

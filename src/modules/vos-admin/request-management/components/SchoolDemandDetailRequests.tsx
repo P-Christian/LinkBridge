@@ -5,7 +5,8 @@
 // fields already present in the DTO. Edit delegates to the shared per-request
 // action controller owned by the composing sheet, so a click can only ever act
 // on one concrete `school_request_id`; frozen and legacy modes and terminal
-// rows render read-only.
+// rows render read-only. Matched claims are also read-only until a re-match
+// transition exists.
 "use client";
 
 import { Pencil } from "lucide-react";
@@ -72,7 +73,9 @@ export function SchoolDemandDetailRequests({
         const actionable =
           !readOnly &&
           (mode === "attendance" || mode === "opt-in") &&
-          (request.request_status === "Pending" || request.request_status === "AwaitingOptIn");
+          (request.request_status === "Pending" ||
+            (request.request_status === "AwaitingOptIn" &&
+              (mode === "attendance" || request.matched_school_id === null)));
         const requested = request.requested_school_name.trim();
         return (
           <li
