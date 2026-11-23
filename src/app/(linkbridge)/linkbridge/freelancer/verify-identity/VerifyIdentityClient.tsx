@@ -133,7 +133,6 @@ export default function VerifyIdentityClient({
     const govIdStatus = getVerificationStatus("gov_id");
     const addressStatus = getVerificationStatus("address");
     const govIdRecord = getVerificationRecord("gov_id");
-    const addressRecord = getVerificationRecord("address");
 
     return (
         <div className="flex flex-1 flex-col overflow-hidden bg-background">
