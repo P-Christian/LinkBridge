@@ -43,6 +43,7 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
   const [isLoggedIn, setIsLoggedIn] = React.useState(isLoggedInFromServer);
   const [claimCompleted, setClaimCompleted] = React.useState(false);
   const [alreadyClaimed, setAlreadyClaimed] = React.useState(false);
+  const [alreadyApplied, setAlreadyApplied] = React.useState(false);
   const [now] = React.useState(() => Date.now());
 
   // Invalidate bfcache on browser back navigation
@@ -64,6 +65,9 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
         .then((data) => {
           if (data.claimed) {
             setAlreadyClaimed(true);
+          }
+          if (data.applied) {
+            setAlreadyApplied(true);
           }
         })
         .catch((err) => console.error("Error checking existing claim:", err));
@@ -174,6 +178,24 @@ export default function ReferralLandingClient({ referral, token, isLoggedIn: isL
         <CardFooter className="flex justify-center p-6 bg-muted/20 border-t">
           <Button onClick={() => router.push(`/linkbridge/freelancer/jobs/${job.job_id}`)} className="px-8 font-semibold">
             Proceed to Apply
+          </Button>
+        </CardFooter>
+      </Card>
+    );
+  }
+
+  if (alreadyApplied) {
+    return (
+      <Card className="border-2 border-muted shadow-xl overflow-hidden max-w-2xl mx-auto">
+        <CardHeader className="text-center">
+          <CardTitle className="text-2xl font-bold">Application already submitted</CardTitle>
+          <CardDescription>
+            You have already applied for <strong>{job.job_title}</strong>.
+          </CardDescription>
+        </CardHeader>
+        <CardFooter className="flex justify-center p-6 bg-muted/20 border-t">
+          <Button onClick={() => router.push(`/linkbridge/freelancer/jobs/${job.job_id}`)} className="px-8 font-semibold">
+            View job
           </Button>
         </CardFooter>
       </Card>

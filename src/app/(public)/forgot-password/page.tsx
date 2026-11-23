@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { KeyRound, Mail, ShieldCheck, Briefcase, Eye, EyeOff } from "lucide-react"
+import { KeyRound, Mail, ShieldCheck, Briefcase, Eye, EyeOff, Clock } from "lucide-react"
 import { toast } from "sonner"
 import { validatePasswordStrict } from "@/lib/password-validation"
 import PasswordRequirementsChecklist from "@/components/auth/PasswordRequirementsChecklist"
@@ -19,6 +19,45 @@ import {
 
 type Step = "EMAIL" | "OTP" | "NEW_PASSWORD"
 
+type CodeRequestResponse = {
+    message?: string
+    expires_in_seconds?: number
+    retry_after_seconds?: number
+}
+
+const DEFAULT_CODE_EXPIRY_SECONDS = 600
+const RESEND_COOLDOWN_SECONDS = 60
+const EXPIRED_MESSAGE = "The verification code has expired. Please request a new one."
+
+function formatDuration(totalSeconds: number): string {
+    const minutes = Math.floor(totalSeconds / 60)
+    const seconds = totalSeconds % 60
+    return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`
+}
+
+function secondsUntil(timestamp: number | null, now: number): number | null {
+    if (timestamp === null) return null
+    return Math.max(0, Math.ceil((timestamp - now) / 1000))
+}
+
+function CodeExpiryStatus({ remainingSeconds, expired }: { remainingSeconds: number | null; expired: boolean }) {
+    if (expired) {
+        return (
+            <p className="flex items-center justify-center gap-2 text-sm font-medium text-destructive">
+                <Clock className="h-4 w-4" aria-hidden="true" />
+                Code expired
+            </p>
+        )
+    }
+    if (remainingSeconds === null) return null
+    return (
+        <p className={`flex items-center justify-center gap-2 text-sm tabular-nums ${remainingSeconds < 60 ? "text-warning" : "text-muted-foreground"}`}>
+            <Clock className="h-4 w-4" aria-hidden="true" />
+            Code expires in {formatDuration(remainingSeconds)}
+        </p>
+    )
+}
+
 export default function ForgotPasswordPage() {
     return (
         <React.Suspense fallback={<div className="min-h-dvh flex items-center justify-center">Loading...</div>}>
@@ -32,7 +71,6 @@ function ForgotPasswordForm() {
 
     const [step, setStep] = React.useState<Step>("EMAIL")
     const [loading, setLoading] = React.useState(false)
-    const [userId, setUserId] = React.useState<string | null>(null)
 
     // Form states
     const [email, setEmail] = React.useState("")
@@ -44,6 +82,81 @@ function ForgotPasswordForm() {
     const [showPw, setShowPw] = React.useState(false)
     const [showConfirmPw, setShowConfirmPw] = React.useState(false)
 
+    // Code lifetime
+    const [now, setNow] = React.useState(() => Date.now())
+    const [expiresAt, setExpiresAt] = React.useState<number | null>(null)
+    const [resendAt, setResendAt] = React.useState<number | null>(null)
+    const [serverExpired, setServerExpired] = React.useState(false)
+    const [sentNotice, setSentNotice] = React.useState("")
+
+    const remainingSeconds = secondsUntil(expiresAt, now)
+    const resendSeconds = secondsUntil(resendAt, now)
+    const expired = serverExpired || (expiresAt !== null && expiresAt <= now)
+    const resendDisabled = loading || (resendSeconds !== null && resendSeconds > 0)
+    const statusMessage = expired
+        ? EXPIRED_MESSAGE
+        : resendAt !== null && resendAt <= now
+            ? "You can request a new code."
+            : sentNotice
+
+    // Tick only while a deadline is pending.
+    React.useEffect(() => {
+        const deadline = Math.max(expiresAt ?? 0, resendAt ?? 0)
+        if (deadline <= Date.now()) return
+        const timer = window.setInterval(() => {
+            const current = Date.now()
+            setNow(current)
+            if (current >= deadline) window.clearInterval(timer)
+        }, 1000)
+        return () => window.clearInterval(timer)
+    }, [expiresAt, resendAt])
+
+    const startCodeWindow = (expiresInSeconds: number, cooldownSeconds = RESEND_COOLDOWN_SECONDS) => {
+        const startedAt = Date.now()
+        setNow(startedAt)
+        setExpiresAt(startedAt + expiresInSeconds * 1000)
+        setResendAt(startedAt + cooldownSeconds * 1000)
+        setServerExpired(false)
+    }
+
+    const requestResetCode = async (): Promise<boolean> => {
+        const res = await fetch("/api/auth/forgot-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email.trim() }),
+        })
+
+        const data: CodeRequestResponse | null = await res.json().catch(() => null)
+
+        if (res.status === 429) {
+            const retryAfter = Number(data?.retry_after_seconds)
+            const cooldown = Number.isFinite(retryAfter) && retryAfter > 0
+                ? Math.ceil(retryAfter)
+                : RESEND_COOLDOWN_SECONDS
+            const startedAt = Date.now()
+            setNow(startedAt)
+            setResendAt(startedAt + cooldown * 1000)
+            toast.error("Too many requests", {
+                description: data?.message || `Try again in ${cooldown} seconds.`,
+            })
+            return false
+        }
+
+        if (!res.ok) {
+            toast.error("Error", { description: data?.message || "Failed to request password reset" })
+            return false
+        }
+
+        const expiresIn = typeof data?.expires_in_seconds === "number" && data.expires_in_seconds > 0
+            ? data.expires_in_seconds
+            : DEFAULT_CODE_EXPIRY_SECONDS
+        startCodeWindow(expiresIn)
+        toast.success("Code sent", {
+            description: data?.message || "If that email is registered, a reset code has been sent.",
+        })
+        return true
+    }
+
     const handleEmailSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         if (!email.trim()) {
@@ -53,23 +166,10 @@ function ForgotPasswordForm() {
 
         setLoading(true)
         try {
-            const res = await fetch("/api/auth/forgot-password", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email }),
-            })
-
-            const data = await res.json().catch(() => null)
-
-            if (!res.ok) {
-                toast.error("Error", { description: data?.message || "Failed to request password reset" })
-                return
-            }
-
-            toast.success("Code sent", { description: data.message })
-            if (data.userId) {
-                setUserId(data.userId)
-            }
+            const sent = await requestResetCode()
+            if (!sent) return
+            setOtp("")
+            setSentNotice("A reset code was sent to your email.")
             setStep("OTP")
         } catch {
             toast.error("Network error", { description: "Please try again later." })
@@ -78,8 +178,39 @@ function ForgotPasswordForm() {
         }
     }
 
+    const handleResend = async () => {
+        if (resendDisabled) return
+
+        setLoading(true)
+        try {
+            const sent = await requestResetCode()
+            if (!sent) return
+            setOtp("")
+            setStep("OTP")
+            setSentNotice("A new code was sent to your email.")
+        } catch {
+            toast.error("Network error", { description: "Please try again later." })
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    const handleEmailChange = (value: string) => {
+        setEmail(value)
+        setNow(Date.now())
+        setExpiresAt(null)
+        setResendAt(null)
+        setServerExpired(false)
+        setOtp("")
+        setSentNotice("")
+    }
+
     const handleOtpSubmit = (e: React.FormEvent) => {
         e.preventDefault()
+        if (expired) {
+            toast.error("Code expired", { description: EXPIRED_MESSAGE })
+            return
+        }
         if (otp.length !== 6) {
             toast.error("Invalid code", { description: "Please enter the 6-digit code." })
             return
@@ -89,6 +220,10 @@ function ForgotPasswordForm() {
 
     const handlePasswordSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        if (expired) {
+            toast.error("Code expired", { description: EXPIRED_MESSAGE })
+            return
+        }
         if (!newPassword || !validatePasswordStrict(newPassword)) {
             toast.error("Invalid password", { description: "Password does not meet all security requirements." })
             return
@@ -103,15 +238,15 @@ function ForgotPasswordForm() {
             const res = await fetch("/api/auth/reset-password", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ email, userId, otp, newPassword }),
+                body: JSON.stringify({ email, otp, newPassword }),
             })
 
-            const data = await res.json().catch(() => null)
+            const data: CodeRequestResponse | null = await res.json().catch(() => null)
 
             if (!res.ok) {
                 toast.error("Reset failed", { description: data?.message || "Failed to reset password." })
                 if (data?.message?.toLowerCase().includes("expired")) {
-                    setStep("EMAIL")
+                    setServerExpired(true)
                 }
                 return
             }
@@ -189,6 +324,8 @@ function ForgotPasswordForm() {
                             <span className="text-xl font-bold text-foreground">LinkBridge</span>
                         </div>
 
+                        <p role="status" aria-live="polite" className="sr-only">{statusMessage}</p>
+
                         {step === "EMAIL" && (
                             <form onSubmit={handleEmailSubmit} className="space-y-6 fade-in">
                                 <div className="mb-8">
@@ -203,7 +340,7 @@ function ForgotPasswordForm() {
                                         type="email"
                                         placeholder="e.g. name@company.com"
                                         value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
+                                        onChange={(e) => handleEmailChange(e.target.value)}
                                         disabled={loading}
                                         className="h-11"
                                     />
@@ -237,11 +374,22 @@ function ForgotPasswordForm() {
                                     </InputOTP>
                                 </div>
 
-                                <Button type="submit" className="w-full h-11 text-base font-medium" disabled={loading || otp.length < 6}>
+                                <CodeExpiryStatus remainingSeconds={remainingSeconds} expired={expired} />
+                                {expired && <p className="text-center text-sm text-destructive">{EXPIRED_MESSAGE}</p>}
+
+                                <Button type="submit" className="w-full h-11 text-base font-medium" disabled={loading || otp.length < 6 || expired}>
                                     Verify Code
                                 </Button>
 
-                                <div className="text-center">
+                                <div className="flex flex-col items-center gap-1 text-center">
+                                    <button
+                                        type="button"
+                                        onClick={handleResend}
+                                        disabled={resendDisabled}
+                                        className="max-md:py-3.5 max-md:-my-3.5 text-sm font-medium text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+                                    >
+                                        {resendSeconds !== null && resendSeconds > 0 ? `Resend in ${formatDuration(resendSeconds)}` : "Resend code"}
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => setStep("EMAIL")}
@@ -312,9 +460,23 @@ function ForgotPasswordForm() {
                                     <PasswordRequirementsChecklist password={newPassword} confirmPassword={confirmPassword} className="mt-1" />
                                 </div>
 
-                                <Button type="submit" className="w-full h-11 text-base font-medium disabled:opacity-50" disabled={loading || !validatePasswordStrict(newPassword)}>
+                                <CodeExpiryStatus remainingSeconds={remainingSeconds} expired={expired} />
+                                {expired && <p className="text-center text-sm text-destructive">{EXPIRED_MESSAGE}</p>}
+
+                                <Button type="submit" className="w-full h-11 text-base font-medium disabled:opacity-50" disabled={loading || !validatePasswordStrict(newPassword) || expired}>
                                     {loading ? "Updating..." : "Reset Password"}
                                 </Button>
+
+                                <div className="flex flex-col items-center gap-1 text-center">
+                                    <button
+                                        type="button"
+                                        onClick={handleResend}
+                                        disabled={resendDisabled}
+                                        className="max-md:py-3.5 max-md:-my-3.5 text-sm font-medium text-primary hover:underline disabled:text-muted-foreground disabled:no-underline"
+                                    >
+                                        {resendSeconds !== null && resendSeconds > 0 ? `Resend in ${formatDuration(resendSeconds)}` : "Resend code"}
+                                    </button>
+                                </div>
                             </form>
                         )}
 

@@ -8,6 +8,7 @@ import {
 } from "../types";
 import {
   fetchSchoolsRepo,
+  fetchSchoolByIdRepo,
   fetchSchoolDocumentsRepo,
   fetchSchoolCoursesRepo,
   fetchSchoolAdminsRepo,
@@ -174,6 +175,22 @@ export async function getSchoolVerifications(
   });
 }
 
+export type SchoolVerificationDecisionErrorCode =
+  | "DRAFT_NOT_APPROVABLE"
+  | "EVIDENCE_ABSENT";
+
+export class SchoolVerificationDecisionError extends Error {
+  public readonly name = "SchoolVerificationDecisionError";
+
+  public constructor(
+    public readonly code: SchoolVerificationDecisionErrorCode,
+    message: string,
+    public readonly status: 409,
+  ) {
+    super(message);
+  }
+}
+
 export async function processVerificationDecision(
   payload: VerificationDecisionPayload,
   adminId: number,
@@ -189,12 +206,27 @@ export async function processVerificationDecision(
   let isPublic = 0;
 
   if (action === "approve") {
+    const school = await fetchSchoolByIdRepo(schoolId);
+    const schoolStatusValue = String(school?.school_status ?? "").toUpperCase();
+    const verificationStatusValue = String(school?.verification_status ?? "").toUpperCase();
+    if (schoolStatusValue === "DRAFT" || verificationStatusValue === "DRAFT") {
+      throw new SchoolVerificationDecisionError(
+        "DRAFT_NOT_APPROVABLE",
+        "Draft schools cannot be approved. Complete registration first.",
+        409,
+      );
+    }
+    const documents = await fetchSchoolDocumentsRepo([schoolId]);
+    if (documents.length === 0) {
+      throw new SchoolVerificationDecisionError(
+        "EVIDENCE_ABSENT",
+        "Approval requires at least one accreditation document.",
+        409,
+      );
+    }
     verificationStatus = "VERIFIED";
     schoolStatus = "Active";
     isPublic = 1;
-  } else if (action === "reject") {
-    verificationStatus = "REJECTED";
-    schoolStatus = "Inactive";
   } else if (action === "suspend") {
     verificationStatus = "SUSPENDED";
     schoolStatus = "Inactive";
@@ -237,19 +269,15 @@ export async function processVerificationDecision(
       const userStatus =
         action === "approve"
           ? "VERIFIED"
-          : action === "reject"
-            ? "INACTIVE"
-            : action === "suspend"
-              ? "SUSPENDED"
-              : "PENDING_VERIFICATION";
+          : action === "suspend"
+            ? "SUSPENDED"
+            : "PENDING_VERIFICATION";
       const idVerStatus =
         action === "approve"
           ? "approved"
-          : action === "reject"
-            ? "rejected"
-            : action === "suspend"
-              ? "suspended"
-              : "pending";
+          : action === "suspend"
+            ? "suspended"
+            : "pending";
 
       const idVerPayload: Record<string, unknown> = {
         status: idVerStatus,
@@ -257,8 +285,8 @@ export async function processVerificationDecision(
         reviewed_by: adminId,
       };
       // Only overwrite the note when this decision carries one. A suspend never
-      // does, and writing null there erased the note that explained the
-      // rejection the school was suspended over.
+      // does, and writing null there erased the earlier note explaining the
+      // correction the school was suspended over.
       if (rejectionReason) idVerPayload.rejection_note = rejectionReason;
 
       const failed: number[] = [];
@@ -269,9 +297,7 @@ export async function processVerificationDecision(
               status: userStatus,
               // Same convention as the account-status module: an account moved
               // out of good standing has its live tokens invalidated.
-              ...(userStatus === "INACTIVE" || userStatus === "SUSPENDED"
-                ? { session_epoch: nowPH }
-                : {}),
+              ...(userStatus === "SUSPENDED" ? { session_epoch: nowPH } : {}),
               update_at: nowPH,
             });
             await patchIdentityVerificationsRepo(uid, idVerPayload);

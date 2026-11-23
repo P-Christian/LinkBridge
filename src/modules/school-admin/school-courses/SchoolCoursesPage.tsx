@@ -10,10 +10,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { MoreHorizontal, Plus, Edit, Power, Trash2, BookOpen } from "lucide-react";
+import { MoreHorizontal, Plus, Edit, Power, BookOpen } from "lucide-react";
 import { useSchoolCourses } from "./hooks/useSchoolCourses";
 import { CoursesDataTable } from "./components/CoursesDataTable";
 import { AddCourseModal } from "./components/AddCourseModal";
@@ -28,7 +27,7 @@ import { SchoolAdminModuleHeader } from "@/modules/school-admin/components/Schoo
 
 interface SchoolCoursesPageProps {
   courses: VsSchoolCourse[];
-  onAddCourse?: (data: Partial<VsSchoolCourse>) => Promise<boolean>;
+  onAddCourse?: (data: Partial<VsSchoolCourse>) => Promise<VsSchoolCourse | null>;
   onToggleStatus?: (courseId: number, status: string) => Promise<boolean>;
 }
 
@@ -45,17 +44,17 @@ export function SchoolCoursesPage({
     addCourse,
     updateCourse,
     toggleStatus,
-    deleteCourse,
   } = useSchoolCourses(initialCourses, onAddCourse, onToggleStatus);
 
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [degreeFilter, setDegreeFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
 
   const filteredData = useMemo(() => {
-    return filterCourses(courses, searchQuery, statusFilter, degreeFilter);
-  }, [courses, searchQuery, statusFilter, degreeFilter]);
+    return filterCourses(courses, searchQuery, statusFilter, degreeFilter, categoryFilter);
+  }, [courses, searchQuery, statusFilter, degreeFilter, categoryFilter]);
 
   const existingForAdd = useMemo(
     () =>
@@ -109,6 +108,19 @@ export function SchoolCoursesPage({
         },
       },
       {
+        id: "course_category",
+        header: "Field Category",
+        cell: ({ row }) => {
+          const category = row.original.course_category?.trim();
+          if (!category) return <Badge variant="outline">Uncategorized</Badge>;
+          return (
+            <span className="block max-w-[180px] truncate text-sm" title={category}>
+              {category}
+            </span>
+          );
+        },
+      },
+      {
         accessorKey: "course_status",
         header: "Status",
         cell: ({ row }) => {
@@ -154,18 +166,6 @@ export function SchoolCoursesPage({
                     <Power className={`mr-2 h-4 w-4 ${isActive ? 'text-amber-500' : 'text-emerald-500'}`} />
                     {isActive ? "Deactivate" : "Activate"}
                   </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    className="text-destructive focus:text-destructive"
-                    onClick={() => {
-                      if (confirm(`Are you sure you want to delete "${course.course_name}"?`)) {
-                        deleteCourse(course.school_course_id);
-                      }
-                    }}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -194,6 +194,8 @@ export function SchoolCoursesPage({
         onStatusFilterChange={setStatusFilter}
         degreeFilter={degreeFilter}
         onDegreeFilterChange={setDegreeFilter}
+        categoryFilter={categoryFilter}
+        onCategoryFilterChange={setCategoryFilter}
         toolbarActions={
           <Button onClick={() => setIsAddOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />

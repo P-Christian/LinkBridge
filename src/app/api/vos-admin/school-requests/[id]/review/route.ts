@@ -4,6 +4,7 @@ import { z, ZodError } from "zod";
 import {
   fetchSchoolRequestById,
   groupSchoolRequestDecision,
+  matchSchoolRequestDecision,
   rejectSchoolRequestDecision,
   reviewSchoolRequest,
   reviewSchoolRequestSchema,
@@ -170,6 +171,14 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
     if (parsed.action === "Group") {
       const request = await groupSchoolRequestDecision(
+        id,
+        parsed.matched_school_id,
+        auth.adminId
+      );
+      return NextResponse.json({ request });
+    }
+    if (parsed.action === "Match") {
+      const request = await matchSchoolRequestDecision(
         id,
         parsed.matched_school_id,
         auth.adminId

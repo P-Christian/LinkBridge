@@ -67,18 +67,22 @@ export interface CourseDisplay {
 }
 
 /**
- * Course display. The DTO exposes only the linked course; when none is
- * linked the label says so, and no course name is ever guessed or invented.
+ * Course display. The linked catalog course wins; a typed course is the
+ * fallback; only when both are absent the label says so. No course name is
+ * ever guessed or invented.
  */
 export function describeCourse(row: SchoolInboxRow): CourseDisplay {
-  if (row.course === null) {
-    return { label: "No course on file", code: null, resolved: false };
+  if (row.course !== null) {
+    return {
+      label: row.course.courseName,
+      code: hasText(row.course.courseCode) ? row.course.courseCode : null,
+      resolved: true,
+    };
   }
-  return {
-    label: row.course.courseName,
-    code: hasText(row.course.courseCode) ? row.course.courseCode : null,
-    resolved: true,
-  };
+  if (hasText(row.education.courseNameRaw)) {
+    return { label: row.education.courseNameRaw.trim(), code: null, resolved: true };
+  }
+  return { label: "No course on file", code: null, resolved: false };
 }
 
 /**
@@ -111,18 +115,22 @@ export interface ApprovalOutcomeCopy {
 }
 
 /**
- * Approval always saves the decision and marks the education as verified
- * right away. Nothing is left waiting and no extra course request is
- * created; a missing course only means the verified education has no course.
+ * Approval adds the student to the school's alumni list with the course they
+ * studied. A linked catalog course is included directly; a typed course is
+ * included and sent for course verification; a missing course leaves the
+ * alumni record without a course.
  */
 export function describeApprovalOutcome(row: SchoolInboxRow): ApprovalOutcomeCopy {
+  const typedCourse = hasText(row.education.courseNameRaw) ? row.education.courseNameRaw.trim() : null;
   const courseNote =
-    row.course === null
-      ? "No course is linked, so the education will be verified without a course."
-      : `The linked course "${row.course.courseName}" is included.`;
+    row.course !== null
+      ? `The linked course "${row.course.courseName}" will be included in their alumni record.`
+      : typedCourse !== null
+        ? `Their course "${typedCourse}" will be included and sent for course verification.`
+        : "No course is linked; their alumni record will have no course.";
   return {
-    title: "This marks the education as verified",
-    body: `Approving saves your decision and marks the education as verified right away. ${courseNote}`,
+    title: "Approving adds this student to your alumni list",
+    body: `Approving adds them to your alumni list with the course they studied here. ${courseNote}`,
   };
 }
 

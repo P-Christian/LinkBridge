@@ -4,6 +4,19 @@ export type CourseRequestInboxStatus = "RoutedToSchool";
 export type CourseRequestTerminalStatus = "Approved" | "Rejected";
 
 /**
+ * Proof-document metadata resolved through the education's latest school
+ * request. Display fields plus the protected read-route URL only; the
+ * Directus file id never crosses this boundary.
+ */
+export interface CourseRequestDocument {
+  readonly documentId: number;
+  readonly type: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly url: string;
+}
+
+/**
  * Actionable inbox row: own-school `RoutedToSchool` with a complete manual
  * route audit and null claim fields. Name-only submitter label and the
  * submission timestamp (`created_at` as `submittedAt`); no contact, profile,
@@ -20,6 +33,7 @@ export interface CourseRequestActionableRow {
   readonly matchedSchoolCourseId: null;
   readonly reviewedBy: null;
   readonly reviewedAt: null;
+  readonly documents: readonly CourseRequestDocument[];
 }
 
 /**
@@ -38,6 +52,7 @@ export interface CourseRequestFinalizingRow {
   readonly matchedSchoolCourseId: number;
   readonly reviewedBy: number;
   readonly reviewedAt: null;
+  readonly documents: readonly CourseRequestDocument[];
 }
 
 export type CourseRequestInboxRow = CourseRequestActionableRow | CourseRequestFinalizingRow;

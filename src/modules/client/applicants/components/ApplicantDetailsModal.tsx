@@ -63,7 +63,7 @@ import {
 } from "@fortawesome/free-brands-svg-icons";
 import { faGlobe } from "@fortawesome/free-solid-svg-icons";
 import { cn, copyToClipboard } from "@/lib/utils";
-import { Applicant, ApplicationStatus, CandidateDetail, STATUS_LABELS } from "../types";
+import { Applicant, ApplicationStatus, CandidateDetail, ApplicantStageOption, STATUS_LABELS } from "../types";
 import { STAGE_COLOR_CLASSES } from "@/modules/client/pipeline/types";
 import {
   getApplicantAvatarUrl,
@@ -318,6 +318,8 @@ interface ApplicantDetailsModalProps {
   onClose: () => void;
   onUpdateStatus: () => void;
   onScheduleInterview: () => void;
+  allowedNextStages?: ApplicantStageOption[];
+  onRequestMove?: (toStageId: number, stageName: string) => void;
 }
 
 export default function ApplicantDetailsModal({
@@ -329,6 +331,8 @@ export default function ApplicantDetailsModal({
   onClose,
   onUpdateStatus,
   onScheduleInterview,
+  allowedNextStages,
+  onRequestMove,
 }: ApplicantDetailsModalProps) {
   const [loadedAvatarUrl, setLoadedAvatarUrl] = useState<string | null>(null);
   const [failedAvatarUrl, setFailedAvatarUrl] = useState<string | null>(null);
@@ -982,7 +986,12 @@ export default function ApplicantDetailsModal({
                 {/* Assessment review (employer) */}
                 {applicationId && (
                   <AnimatedSection delay={0.15}>
-                    <AssessmentReviewSection applicationId={Number(applicationId)} />
+                    <AssessmentReviewSection
+                      applicationId={Number(applicationId)}
+                      allowedNextStages={allowedNextStages}
+                      onRequestMove={onRequestMove}
+                      readiness={activeApplicant?.stage_readiness ?? detail?.stage_readiness ?? null}
+                    />
                   </AnimatedSection>
                 )}
 

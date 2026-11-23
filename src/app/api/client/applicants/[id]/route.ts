@@ -1,11 +1,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
-import { sendShortlistedEmail, sendHiringEmail, sendRejectionEmail, isEmailEnabledForUser } from "@/lib/mail";
-import { createSystemMessage } from "@/lib/messaging/system-message";
-import { createNotification } from "@/lib/notifications";
-import { createEmployerNotification } from "@/lib/notifications/services/employer-notifications";
 import { getPHTimeString } from "@/lib/utils";
 import { transitionApplicationStage, getJobPipeline } from "@/modules/client/pipeline/services/job-pipeline.service";
+import { evaluateStageReadiness } from "@/modules/client/pipeline/services/stage-readiness";
 import { JobPipelineStage, LEGACY_STATUS_TO_CANONICAL_MAP } from "@/modules/client/pipeline/types";
 import { authenticateRequest, isClientSession } from "@/lib/authenticated-session";
 import {
@@ -33,6 +30,7 @@ interface ApplicationRow {
   application_id: number;
   job_id: number;
   user_id: number;
+  resume_id?: number | null;
   application_status?: string;
   current_stage_id?: number | null;
   cover_letter?: string | null;
@@ -327,7 +325,7 @@ export async function GET(
       `/items/vs_job_application/${applicationId}`,
       {
         query:
-          "fields=application_id,job_id,user_id,application_status,current_stage_id," +
+          "fields=application_id,job_id,user_id,resume_id,application_status,current_stage_id," +
           "cover_letter,expected_salary,portfolio_url,client_notes,applied_at,status_updated_at",
       }
     );
@@ -764,6 +762,17 @@ export async function GET(
       }
     }
 
+    const stageReadiness = currentStage
+      ? await evaluateStageReadiness({
+          applicationId: application.application_id,
+          jobId: Number(application.job_id),
+          userId: Number(application.user_id),
+          resumeId: application.resume_id != null ? Number(application.resume_id) : null,
+          stageId: currentStage.id,
+          stageType: currentStage.stage_type,
+        })
+      : { blocking: false, missing: [] as string[], code: null };
+
     const applicant = {
       application_id: application.application_id,
       job_id: application.job_id,
@@ -777,6 +786,7 @@ export async function GET(
       stage_type: currentStage?.stage_type ?? application.application_status,
       stage_color: currentStage?.color ?? "sky",
       allowed_next_stages: allowedNextStages,
+      stage_readiness: stageReadiness,
 
       applicant_name:
         `${user.user_fname} ${user.user_lname}`.trim(),
@@ -913,23 +923,52 @@ export async function PATCH(
     }
     const owned = ownedRead.application;
     const targetJobId = Number(owned.job_id);
-    const userId = requesterId;
     const body = await req.json().catch(() => null);
 
     let targetStageId: number | null = body?.to_stage_id ? Number(body.to_stage_id) : null;
 
+    const rawStatus =
+      body?.application_status !== undefined && body?.application_status !== null
+        ? String(body.application_status).toUpperCase()
+        : null;
+
     // If legacy application_status was sent without to_stage_id, resolve targetStageId from pipeline
-    if (!targetStageId && body?.application_status) {
-      try {
-        const pipe = await getJobPipeline(targetJobId);
-        const rawStatus = String(body.application_status).toUpperCase();
-        const canonicalType = LEGACY_STATUS_TO_CANONICAL_MAP[rawStatus] || rawStatus;
-        const matched = pipe?.stages?.find(
-          (s) => s.stage_type === canonicalType || s.stage_type === rawStatus
+    if (!targetStageId && rawStatus) {
+      if (!VALID_STATUSES.includes(rawStatus)) {
+        return NextResponse.json(
+          {
+            error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
+          },
+          { status: 400 }
         );
-        if (matched) targetStageId = matched.id;
+      }
+      let pipe: Awaited<ReturnType<typeof getJobPipeline>>;
+      try {
+        pipe = await getJobPipeline(targetJobId);
       } catch (err) {
         console.error("Error mapping legacy application_status to stage:", err);
+        return NextResponse.json(
+          { error: "The hiring pipeline could not be read. Please try again." },
+          { status: 502 }
+        );
+      }
+      if (!pipe?.stages) {
+        return NextResponse.json(
+          { error: "The hiring pipeline could not be read. Please try again." },
+          { status: 502 }
+        );
+      }
+      const canonicalType = LEGACY_STATUS_TO_CANONICAL_MAP[rawStatus] || rawStatus;
+      const matched = pipe.stages.find(
+        (s) => s.stage_type === canonicalType || s.stage_type === rawStatus
+      );
+      if (matched) {
+        targetStageId = matched.id;
+      } else {
+        return NextResponse.json(
+          { error: "This status is not configured as a stage in this job's pipeline. Use the stage update flow." },
+          { status: 422 }
+        );
       }
     }
 
@@ -939,11 +978,13 @@ export async function PATCH(
         toStageId: targetStageId,
         changedByUserId: requesterId,
         notes: body?.client_notes ?? body?.notes,
+        assessmentOutcome:
+          body?.assessment_outcome != null ? String(body.assessment_outcome) : null,
       });
 
       if (!result.success) {
         return NextResponse.json(
-          { error: result.error || "Failed to update candidate stage." },
+          { error: result.error || "Failed to update candidate stage.", code: result.code },
           { status: result.statusCode || 422 }
         );
       }
@@ -975,279 +1016,10 @@ export async function PATCH(
       }
     }
 
-    if (!body?.application_status) {
-      return NextResponse.json(
-        { error: "to_stage_id or application_status is required." },
-        { status: 400 }
-      );
-    }
-
-    if (!VALID_STATUSES.includes(body.application_status)) {
-      return NextResponse.json(
-        {
-          error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}`,
-        },
-        { status: 400 }
-      );
-    }
-
-    // Assessment-gate guard: never direct-write application_status while the
-    // candidate sits at an ASSESSMENT stage. Stage moves (with the gate)
-    // go through transitionApplicationStage above; the assessment decision
-    // flow owns ASSESSMENT-stage moves.
-    if (owned.current_stage_id !== null) {
-      try {
-        const pipe = await getJobPipeline(owned.job_id);
-        const current = pipe?.stages?.find((s) => s.id === owned.current_stage_id);
-        if (current?.stage_type === "ASSESSMENT") {
-          return NextResponse.json(
-            { error: "This candidate is at an assessment stage. Use the assessment decision flow to move them." },
-            { status: 409 }
-          );
-        }
-      } catch (err) {
-        console.error("Error resolving current stage for assessment guard:", err);
-      }
-    }
-
-    const nowPH = getPHTimeString();
-
-    const payload: Record<string, unknown> = {
-      application_status: body.application_status,
-      status_updated_at: nowPH,
-    };
-
-    if (body.client_notes !== undefined) payload.client_notes = body.client_notes;
-
-    const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${id}?fields=application_id,application_status,status_updated_at,client_notes,user_id`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify(payload),
-    });
-
-    const json = await res.json();
-
-    if (!res.ok) {
-      return NextResponse.json(
-        { error: json.errors?.[0]?.message ?? "Failed to update application status." },
-        { status: res.status }
-      );
-    }
-
-    // Fetch application details to resolve candidate, job, and company for notifications
-    try {
-      const appRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${id}?fields=application_id,user_id,job_id`, {
-        headers: getHeaders(),
-        cache: "no-store",
-      });
-
-      if (appRes.ok) {
-        const appData = (await appRes.json()).data;
-        const jobseekerId = appData?.user_id || json.data?.user_id;
-
-        let jobTitle = "the position";
-        let companyName = "the company";
-        let companyId: number | null = null;
-
-        if (appData?.job_id) {
-          const jobRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${appData.job_id}?fields=job_title,company_id`, {
-            headers: getHeaders(),
-            cache: "no-store",
-          });
-          if (jobRes.ok) {
-            const jData = (await jobRes.json()).data;
-            if (jData?.job_title) jobTitle = jData.job_title;
-            if (jData?.company_id) {
-              companyId = Number(jData.company_id);
-              const compRes = await fetch(`${DIRECTUS_BASE}/items/vs_company/${jData.company_id}?fields=company_name`, {
-                headers: getHeaders(),
-                cache: "no-store",
-              });
-              if (compRes.ok) {
-                companyName = (await compRes.json()).data?.company_name || companyName;
-              }
-            }
-          }
-        }
-
-        // 1. Single dynamic notification for the candidate (Jobseeker)
-        if (jobseekerId) {
-          let candidateTitle = "Application Status Updated";
-          let candidateMessage = `Your application status for "${jobTitle}" has been updated.`;
-
-          if (body.application_status === "UNDER_REVIEW") {
-            candidateTitle = "Application Under Review";
-            candidateMessage = `Your application for "${jobTitle}" at ${companyName} is now under review.`;
-          } else if (body.application_status === "SHORTLISTED") {
-            candidateTitle = "Application Shortlisted";
-            candidateMessage = `You have been shortlisted for "${jobTitle}" at ${companyName}!`;
-          } else if (body.application_status === "HIRED") {
-            candidateTitle = "Application Selected";
-            candidateMessage = `Congratulations! You have been selected for "${jobTitle}" at ${companyName}.`;
-          } else if (body.application_status === "REJECTED") {
-            candidateTitle = "Application Status Update";
-            candidateMessage = `Your application for "${jobTitle}" at ${companyName} was not selected.`;
-          } else if (body.application_status === "INTERVIEWING") {
-            candidateTitle = "Application in Interview Stage";
-            candidateMessage = `Your application for "${jobTitle}" at ${companyName} has moved to the interview stage.`;
-          }
-
-          await createNotification({
-            event_type: "application_status_changed",
-            recipient_user_id: jobseekerId,
-            entity_type: "job_application",
-            entity_id: Number(id),
-            category: "APPLICATION_STATUS_UPDATED",
-            title: candidateTitle,
-            message: candidateMessage,
-            action_url: "/linkbridge/freelancer/applications",
-          }).catch((err) => console.error("[Candidate Notification] Error:", err));
-        }
-
-        // 2. Team Activity: Notify OTHER team members in the company (suppress for the acting recruiter)
-        const requestingEmployerId = userId;
-        if (companyId && requestingEmployerId && ["SHORTLISTED", "HIRED", "REJECTED", "UNDER_REVIEW"].includes(body.application_status)) {
-          const teamUsersRes = await fetch(
-            `${DIRECTUS_BASE}/items/vs_company_user?filter[company_id][_eq]=${companyId}&filter[user_id][_neq]=${requestingEmployerId}&fields=user_id`,
-            { headers: getHeaders(), cache: "no-store" }
-          );
-
-          if (teamUsersRes.ok) {
-            const teamMembers: { user_id: number }[] = (await teamUsersRes.json()).data ?? [];
-            const statusLabel =
-              body.application_status === "SHORTLISTED" ? "shortlisted a candidate" :
-              body.application_status === "HIRED" ? "hired a candidate" :
-              body.application_status === "REJECTED" ? "rejected a candidate" :
-              "moved a candidate to review";
-
-            for (const member of teamMembers) {
-              await createEmployerNotification({
-                event_type: "TEAM_ACTIVITY",
-                recipient_user_id: member.user_id,
-                entity_type: "job_application",
-                entity_id: Number(id),
-                category: "TEAM_ACTIVITY",
-                title: "Team Activity",
-                message: `A team member ${statusLabel} for "${jobTitle}".`,
-                action_url: `/linkbridge/client/applicants/${id}`,
-              }).catch((err) => console.error("[Team Activity Notification] Error:", err));
-            }
-          }
-        }
-      }
-    } catch (notifyErr) {
-      console.error("[Applicant Status Notification] Error:", notifyErr);
-    }
-
-    // Fetch application details to resolve candidate & job for email notification
-    const mailWarnings: string[] = [];
-    try {
-      const appRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_application/${id}?fields=application_id,user_id,job_id`, {
-        headers: getHeaders(),
-        cache: "no-store",
-      });
-      if (appRes.ok) {
-        const appData = (await appRes.json()).data;
-        if (appData?.user_id) {
-          const userRes = await fetch(`${DIRECTUS_BASE}/items/vs_user/${appData.user_id}?fields=user_email,user_fname,user_lname`, {
-            headers: getHeaders(),
-            cache: "no-store",
-          });
-          if (userRes.ok) {
-            const candidate = (await userRes.json()).data;
-            if (candidate?.user_email) {
-              let jobTitle = "Unknown Position";
-              let companyName = "Employer";
-
-              if (appData.job_id) {
-                const jobRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${appData.job_id}?fields=job_title,company_id`, {
-                  headers: getHeaders(),
-                  cache: "no-store",
-                });
-                if (jobRes.ok) {
-                  const jData = (await jobRes.json()).data;
-                  if (jData?.job_title) jobTitle = jData.job_title;
-                  if (jData?.company_id) {
-                    const compRes = await fetch(`${DIRECTUS_BASE}/items/vs_company/${jData.company_id}?fields=company_name`, {
-                      headers: getHeaders(),
-                      cache: "no-store",
-                    });
-                    if (compRes.ok) {
-                      companyName = (await compRes.json()).data?.company_name || companyName;
-                    }
-                  }
-                }
-              }
-
-              const candidateName = `${candidate.user_fname} ${candidate.user_lname}`.trim();
-              const notes = typeof body.client_notes === "string" ? body.client_notes : null;
-
-              const statusEmailPreference = await isEmailEnabledForUser(appData.user_id, "APPLICATION_STATUS_UPDATED");
-              if (statusEmailPreference === null) {
-                mailWarnings.push(
-                  "The candidate's email settings could not be read, so no status email was sent."
-                );
-              }
-              if (statusEmailPreference === true) {
-                if (body.application_status === "SHORTLISTED") {
-                  await sendShortlistedEmail(candidate.user_email, {
-                    candidateName,
-                    companyName,
-                    jobTitle,
-                  }).catch((e) => console.error("Shortlisted mail error:", e));
-                } else if (body.application_status === "HIRED") {
-                  await sendHiringEmail(candidate.user_email, {
-                    candidateName,
-                    companyName,
-                    jobTitle,
-                    notes,
-                  }).catch((e) => console.error("Hiring mail error:", e));
-                } else if (body.application_status === "REJECTED") {
-                  await sendRejectionEmail(candidate.user_email, {
-                    candidateName,
-                    companyName,
-                    jobTitle,
-                    notes,
-                  }).catch((e) => console.error("Rejection mail error:", e));
-                }
-              }
-
-              // Create System Message for Conversation
-              if (requesterId && appData.user_id) {
-                const systemText =
-                  body.application_status === "HIRED"
-                    ? "Client hired you."
-                    : `Application status changed: ${body.application_status}`;
-
-                const statusEventType =
-                  body.application_status === "HIRED"
-                    ? "HIRED"
-                    : "APPLICATION_STATUS_CHANGED";
-
-                await createSystemMessage({
-                  clientId: requesterId,
-                  freelancerId: appData.user_id,
-                  jobId: appData.job_id ?? null,
-                  text: systemText,
-                  senderId: requesterId,
-                  systemEventType: statusEventType,
-                  applicationId: appData.application_id ?? null,
-                }).catch((e) => console.error("Status change system message error:", e));
-              }
-            }
-          }
-        }
-      }
-    } catch (mailErr) {
-      console.error("Error dispatching status update email:", mailErr);
-    }
-
-    return NextResponse.json({
-      success: true,
-      message: `Application status updated to ${body.application_status}.`,
-      application: json.data,
-      ...(mailWarnings.length > 0 ? { warnings: mailWarnings } : {}),
-    });
+    return NextResponse.json(
+      { error: "to_stage_id or application_status is required." },
+      { status: 400 }
+    );
   } catch (err: unknown) {
     return NextResponse.json(
       { error: safeErrorMessage(err, "Internal server error") },

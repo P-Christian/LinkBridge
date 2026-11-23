@@ -20,6 +20,16 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Plus,
   ArrowUp,
   ArrowDown,
@@ -88,6 +98,10 @@ export default function JobPipelineSection({
 
   // Deletion crack & split animation state
   const [deletingStageId, setDeletingStageId] = useState<number | null>(null);
+  const [pendingDeleteStage, setPendingDeleteStage] = useState<JobPipelineStage | null>(null);
+
+  const [lastCreatedStageId, setLastCreatedStageId] = useState<number | null>(null);
+  const [highlightedStageId, setHighlightedStageId] = useState<number | null>(null);
 
   const handleDeleteStage = (stageId: number) => {
     if (deletingStageId !== null) return;
@@ -96,6 +110,13 @@ export default function JobPipelineSection({
       await deleteStage(stageId);
       setDeletingStageId(null);
     }, 420);
+  };
+
+  const handleConfirmDeleteStage = () => {
+    const stage = pendingDeleteStage;
+    if (!stage) return;
+    setPendingDeleteStage(null);
+    handleDeleteStage(stage.id);
   };
 
   useEffect(() => {
@@ -163,6 +184,17 @@ export default function JobPipelineSection({
   const sortedStages = [...stages].sort((a, b) => a.stage_order - b.stage_order);
   const stageMap = new Map(stages.map((s) => [s.id, s]));
 
+  useEffect(() => {
+    if (lastCreatedStageId === null) return;
+    const target = document.getElementById(`pipeline-stage-${lastCreatedStageId}`);
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const timer = window.setTimeout(() => {
+      setHighlightedStageId(null);
+      setLastCreatedStageId(null);
+    }, 2000);
+    return () => window.clearTimeout(timer);
+  }, [lastCreatedStageId, sortedStages]);
+
   const handleOpenAddStage = () => {
     clearMessages();
     setEditingStage(null);
@@ -195,8 +227,12 @@ export default function JobPipelineSection({
       });
       if (ok) setStageModalOpen(false);
     } else {
-      const ok = await addStage(data);
-      if (ok) setStageModalOpen(false);
+      const stageId = await addStage(data);
+      if (stageId !== null) {
+        setStageModalOpen(false);
+        setLastCreatedStageId(stageId);
+        setHighlightedStageId(stageId);
+      }
     }
   };
 
@@ -711,7 +747,7 @@ export default function JobPipelineSection({
                         type="button"
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDeleteStage(st.id)}
+                        onClick={() => setPendingDeleteStage(st)}
                         disabled={saving || deletingStageId !== null}
                         className="h-7 w-7 text-muted-foreground hover:text-destructive"
                         title="Delete Stage"
@@ -786,6 +822,7 @@ export default function JobPipelineSection({
               return (
                 <motion.div
                   key={st.id}
+                  id={`pipeline-stage-${st.id}`}
                   layout
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -794,7 +831,11 @@ export default function JobPipelineSection({
                     layout: { type: "spring", stiffness: 450, damping: 32 },
                     opacity: { duration: 0.2 },
                   }}
-                  className="flex flex-col flex-wrap sm:flex-row sm:items-center justify-between p-3 rounded-lg border border-border/70 bg-card hover:border-border transition-colors gap-2"
+                  className={`flex flex-col flex-wrap sm:flex-row sm:items-center justify-between p-3 rounded-lg border bg-card transition-colors gap-2 ${
+                    highlightedStageId === st.id
+                      ? "border-primary/50 ring-2 ring-primary/40"
+                      : "border-border/70 hover:border-border"
+                  }`}
                 >
                   {cardContent}
                   {st.stage_type === "ASSESSMENT" && jobId ? (
@@ -830,6 +871,33 @@ export default function JobPipelineSection({
         onSave={handleSaveTransitions}
         saving={saving}
       />
+
+      <AlertDialog
+        open={pendingDeleteStage !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDeleteStage(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete stage?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Deleting &ldquo;{pendingDeleteStage?.stage_name}&rdquo; permanently removes the
+              stage and its transition routes. Stages with candidates, history, or assessment
+              tasks cannot be deleted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDeleteStage}
+              className="bg-destructive text-white hover:bg-destructive/90"
+            >
+              Delete stage
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

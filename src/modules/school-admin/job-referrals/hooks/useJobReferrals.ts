@@ -1,14 +1,16 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 // src/modules/school-admin/job-referrals/hooks/useJobReferrals.ts
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   VsJobPosting,
   VerifiedStudentCandidate,
   VsJobReferral,
   CreatedReferralResult,
+  CreatedShareLinkResult,
   CreateReferralsPayload,
   GenerateLetterResponse,
   LetterTone,
+  BlockedStudent,
 } from '../types/job-referrals.types';
 import { toast } from 'sonner';
 
@@ -29,6 +31,9 @@ export interface UseJobReferralsReturn {
   isHistoryOpen: boolean;
   isSuccessModalOpen: boolean;
   createdResults: CreatedReferralResult[];
+  referredStudentIds: number[];
+  blockedStudents: BlockedStudent[];
+  clearBlockedStudents: () => void;
 
   // Wizard Navigation & Actions
   openReferralWizard: (job: VsJobPosting) => void;
@@ -50,6 +55,18 @@ export interface UseJobReferralsReturn {
   // Submission
   isSubmittingReferrals: boolean;
   submitReferrals: () => Promise<void>;
+  resendReferral: (referralId: number) => Promise<void>;
+
+  // Shareable referral link
+  activeShareJob: VsJobPosting | null;
+  isShareLinkOpen: boolean;
+  isCreatingShareLink: boolean;
+  createdShareLink: CreatedShareLinkResult | null;
+  openShareLinkDialog: (job: VsJobPosting) => void;
+  closeShareLinkDialog: () => void;
+  createShareLink: (expiresInDays: number) => Promise<void>;
+  closeShareLinkSuccess: () => void;
+  revokeShareLink: (referralId: number) => Promise<void>;
 }
 
 export function useJobReferrals(): UseJobReferralsReturn {
@@ -67,12 +84,33 @@ export function useJobReferrals(): UseJobReferralsReturn {
   const [isHistoryOpen, setIsHistoryOpen] = useState<boolean>(false);
   const [isSuccessModalOpen, setIsSuccessModalOpen] = useState<boolean>(false);
   const [createdResults, setCreatedResults] = useState<CreatedReferralResult[]>([]);
+  const [blockedStudents, setBlockedStudents] = useState<BlockedStudent[]>([]);
+
+  const referredStudentIds = useMemo(
+    () =>
+      referrals
+        .filter(
+          (r) =>
+            activeJob &&
+            Number(r.job_id) === activeJob.job_id &&
+            r.student_id &&
+            ['CREATED', 'SENT', 'OPENED', 'CLAIMED'].includes(String(r.status).toUpperCase())
+        )
+        .map((r) => Number(r.student_id)),
+    [referrals, activeJob]
+  );
 
   // AI studio state
   const [isGeneratingLetter, setIsGeneratingLetter] = useState<boolean>(false);
   const [generatedLetter, setGeneratedLetter] = useState<string>('');
   const [letterTone, setLetterTone] = useState<LetterTone>('professional');
   const [isSubmittingReferrals, setIsSubmittingReferrals] = useState<boolean>(false);
+
+  // Shareable referral link state
+  const [activeShareJob, setActiveShareJob] = useState<VsJobPosting | null>(null);
+  const [isShareLinkOpen, setIsShareLinkOpen] = useState<boolean>(false);
+  const [isCreatingShareLink, setIsCreatingShareLink] = useState<boolean>(false);
+  const [createdShareLink, setCreatedShareLink] = useState<CreatedShareLinkResult | null>(null);
 
   const fetchModuleData = useCallback(async () => {
     setIsLoading(true);
@@ -108,6 +146,7 @@ export function useJobReferrals(): UseJobReferralsReturn {
     setActiveJob(job);
     setSelectedStudentIds([]);
     setGeneratedLetter('');
+    setBlockedStudents([]);
     setIsWizardOpen(true);
   }, []);
 
@@ -116,24 +155,35 @@ export function useJobReferrals(): UseJobReferralsReturn {
     setActiveJob(null);
     setSelectedStudentIds([]);
     setGeneratedLetter('');
+    setBlockedStudents([]);
+  }, []);
+
+  const clearBlockedStudents = useCallback(() => {
+    setBlockedStudents([]);
   }, []);
 
   const toggleStudentSelection = useCallback((studentId: number) => {
+    setBlockedStudents([]);
     setSelectedStudentIds((prev) =>
       prev.includes(studentId) ? prev.filter((id) => id !== studentId) : [...prev, studentId]
     );
   }, []);
 
   const selectAllStudents = useCallback(() => {
+    setBlockedStudents([]);
     if (!activeJob) {
       setSelectedStudentIds(students.map((s) => s.student_id));
       return;
     }
-    const eligible = students.filter((s) => !s.applied_job_ids?.includes(activeJob.job_id));
+    const eligible = students.filter(
+      (s) =>
+        !s.applied_job_ids?.includes(activeJob.job_id) && !referredStudentIds.includes(s.student_id)
+    );
     setSelectedStudentIds(eligible.map((s) => s.student_id));
-  }, [students, activeJob]);
+  }, [students, activeJob, referredStudentIds]);
 
   const clearStudentSelection = useCallback(() => {
+    setBlockedStudents([]);
     setSelectedStudentIds([]);
   }, []);
 
@@ -250,7 +300,14 @@ export function useJobReferrals(): UseJobReferralsReturn {
       });
 
       if (!res.ok) {
-        throw new Error('API submission failed, creating local simulation');
+        const errJson: { error?: string; blocked?: BlockedStudent[] } = await res.json().catch(() => ({}));
+        if (res.status === 409 && Array.isArray(errJson.blocked) && errJson.blocked.length > 0) {
+          setBlockedStudents(errJson.blocked);
+          toast.error(errJson.error || 'Some students cannot be referred.');
+          return;
+        }
+        toast.error(errJson.error || 'Failed to create referrals.');
+        return;
       }
 
       const data = await res.json();
@@ -260,28 +317,117 @@ export function useJobReferrals(): UseJobReferralsReturn {
       toast.success(`Successfully created ${data.count || selectedStudentIds.length} student referrals!`);
       fetchModuleData();
     } catch {
-      // Local simulation for sample/prototype step
-      const selected = students.filter((s) => selectedStudentIds.includes(s.student_id));
-      const simulatedResults: CreatedReferralResult[] = selected.map((st) => {
-        const token = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        return {
-          referral_id: Math.floor(Math.random() * 1000) + 1,
-          student_id: st.student_id,
-          student_name: `${st.first_name} ${st.last_name}`,
-          email: st.email,
-          token,
-          referral_url: `${window.location.origin}/referral/${token}`,
-          status: 'CREATED',
-        };
-      });
-      setCreatedResults(simulatedResults);
-      setIsWizardOpen(false);
-      setIsSuccessModalOpen(true);
-      toast.success(`Created ${simulatedResults.length} student referral links!`);
+      toast.error('Failed to create referrals.');
     } finally {
       setIsSubmittingReferrals(false);
     }
-  }, [activeJob, selectedStudentIds, generatedLetter, students, fetchModuleData]);
+  }, [activeJob, selectedStudentIds, generatedLetter, fetchModuleData]);
+
+  const openShareLinkDialog = useCallback((job: VsJobPosting) => {
+    setActiveShareJob(job);
+    setCreatedShareLink(null);
+    setIsShareLinkOpen(true);
+  }, []);
+
+  const closeShareLinkDialog = useCallback(() => {
+    setIsShareLinkOpen(false);
+    setActiveShareJob(null);
+  }, []);
+
+  const closeShareLinkSuccess = useCallback(() => {
+    setCreatedShareLink(null);
+  }, []);
+
+  const createShareLink = useCallback(
+    async (expiresInDays: number) => {
+      if (!activeShareJob) return;
+
+      setIsCreatingShareLink(true);
+      setCreatedShareLink(null);
+      try {
+        const res = await fetch('/api/school-admin/job-referrals/share-link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            job_id: activeShareJob.job_id,
+            expires_in_days: expiresInDays,
+          }),
+        });
+
+        if (!res.ok) {
+          const errJson: { error?: string } = await res.json().catch(() => ({}));
+          toast.error(errJson.error || 'Failed to create share link');
+          return;
+        }
+
+        const json: { data?: CreatedShareLinkResult } = await res.json();
+        if (!json.data) {
+          toast.error('Failed to create share link');
+          return;
+        }
+
+        setCreatedShareLink(json.data);
+        setIsShareLinkOpen(false);
+        fetchModuleData();
+        toast.success(json.data.reused ? 'Existing share link reused' : 'Share link created');
+      } catch {
+        toast.error('Failed to create share link');
+      } finally {
+        setIsCreatingShareLink(false);
+      }
+    },
+    [activeShareJob, fetchModuleData]
+  );
+
+  const revokeShareLink = useCallback(
+    async (referralId: number) => {
+      try {
+        const res = await fetch(`/api/school-admin/job-referrals/${referralId}/revoke`, {
+          method: 'POST',
+        });
+
+        if (!res.ok) {
+          const errJson: { error?: string } = await res.json().catch(() => ({}));
+          toast.error(errJson.error || 'Failed to revoke referral link');
+          return;
+        }
+
+        toast.success('Referral link revoked');
+        fetchModuleData();
+      } catch {
+        toast.error('Failed to revoke referral link');
+      }
+    },
+    [fetchModuleData]
+  );
+
+  const resendReferral = useCallback(
+    async (referralId: number) => {
+      try {
+        const res = await fetch(`/api/school-admin/job-referrals/${referralId}/resend`, {
+          method: 'POST',
+        });
+
+        const json: { error?: string; email_sent?: boolean } = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          toast.error(json.error || 'Failed to resend email');
+          return;
+        }
+
+        if (json.email_sent === false) {
+          toast.error('Email could not be sent');
+        } else {
+          toast.success('Email sent');
+        }
+
+        fetchModuleData();
+      } catch {
+        toast.error('Failed to resend email');
+      }
+    },
+    [fetchModuleData]
+  );
 
   return {
     jobs,
@@ -298,6 +444,9 @@ export function useJobReferrals(): UseJobReferralsReturn {
     isHistoryOpen,
     isSuccessModalOpen,
     createdResults,
+    referredStudentIds,
+    blockedStudents,
+    clearBlockedStudents,
 
     openReferralWizard,
     closeReferralWizard,
@@ -316,5 +465,16 @@ export function useJobReferrals(): UseJobReferralsReturn {
 
     isSubmittingReferrals,
     submitReferrals,
+    resendReferral,
+
+    activeShareJob,
+    isShareLinkOpen,
+    isCreatingShareLink,
+    createdShareLink,
+    openShareLinkDialog,
+    closeShareLinkDialog,
+    createShareLink,
+    closeShareLinkSuccess,
+    revokeShareLink,
   };
 }

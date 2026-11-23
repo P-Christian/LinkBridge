@@ -1,6 +1,6 @@
 // Concrete-request decision/review controller for school requests. Holds the
-// per-request dialog state (legacy review, attendance Route/Group/Reject, and
-// guarded draft-school creation) and renders the matching modal tree.
+// per-request dialog state (legacy review, attendance Route/Group/Match/Reject,
+// and guarded draft-school creation) and renders the matching modal tree.
 // Every mutation targets one exact `school_request_id`; candidate lookup,
 // last-search-query memory, busy/feedback state, and the stale-response
 // refetch/close behavior stay keyed by that id. Frozen mode renders no modal
@@ -36,6 +36,8 @@ export interface SchoolRequestActionControllerOptions {
   readonly candidatesLoadingFor: (requestId: number) => boolean;
   readonly candidatesErrorFor: (requestId: number) => string | null;
   readonly decisionBusyFor: (requestId: number) => boolean;
+  /** When false, the decision dialog offers Route/Group only. */
+  readonly allowReject?: boolean;
   /** Guarded draft-school creation from the decision dialog. */
   readonly onCreatePlaceholder: (data: unknown) => Promise<SchoolDraftOutcome | null>;
   /** Refetch the current filter after a committed decision (rows leave the filter). */
@@ -84,6 +86,7 @@ export function useSchoolRequestActionController({
   decisionBusyFor,
   onCreatePlaceholder,
   onDecided,
+  allowReject = true,
 }: SchoolRequestActionControllerOptions): SchoolRequestActionController {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<number | null>(null);
@@ -91,6 +94,7 @@ export function useSchoolRequestActionController({
   const [decisionRequest, setDecisionRequest] = useState<VsSchoolRequest | null>(null);
   const [decisionOpen, setDecisionOpen] = useState(false);
   const [decisionTab, setDecisionTab] = useState<SchoolDecisionTab>("correct");
+  const [decisionEpoch, setDecisionEpoch] = useState(0);
   const lastSearchQuery = useRef<Record<number, string>>({});
   const triggerRef = useRef<HTMLElement | null>(null);
 
@@ -115,6 +119,7 @@ export function useSchoolRequestActionController({
     rememberTrigger();
     setDecisionRequest(request);
     setDecisionTab(tab);
+    setDecisionEpoch((epoch) => epoch + 1);
     setDecisionOpen(true);
   }, [rememberTrigger]);
 
@@ -167,6 +172,14 @@ export function useSchoolRequestActionController({
     });
   };
 
+  const handleMatch = async (schoolId: number): Promise<boolean> => {
+    if (!decisionRequest) return false;
+    return settleDecision(decisionRequest.school_request_id, {
+      action: "Match",
+      matched_school_id: schoolId,
+    });
+  };
+
   const handleDecisionReject = async (adminRemarks: string): Promise<boolean> => {
     if (!decisionRequest) return false;
     return settleDecision(decisionRequest.school_request_id, {
@@ -197,8 +210,9 @@ export function useSchoolRequestActionController({
         />
       ) : null}
 
-      {mode === "attendance" ? (
+      {mode === "attendance" || mode === "opt-in" ? (
         <SchoolRequestDecisionModal
+          key={`${decisionRequestId ?? "none"}:${decisionEpoch}`}
           open={decisionOpen}
           onOpenChange={setDecisionOpen}
           request={decisionRequest}
@@ -211,8 +225,10 @@ export function useSchoolRequestActionController({
           mutating={decisionRequestId === null ? false : decisionBusyFor(decisionRequestId)}
           onRoute={handleRoute}
           onGroup={handleGroup}
+          onMatch={handleMatch}
           onReject={handleDecisionReject}
           onCreatePlaceholder={handleCreatePlaceholder}
+          allowReject={allowReject}
         />
       ) : null}
     </>

@@ -102,7 +102,7 @@ export function useJobPipeline(jobId?: number | null) {
       color?: string;
       description?: string;
     }) => {
-      if (!jobId) return false;
+      if (!jobId) return null;
       setSaving(true);
       setError("");
       setSuccess("");
@@ -119,12 +119,13 @@ export function useJobPipeline(jobId?: number | null) {
         setSuccess(`Stage "${data.stage_name}" added successfully.`);
         toast.success(`Stage "${data.stage_name}" added successfully.`);
         await fetchPipeline();
-        return true;
+        const stageId = Number(json?.stage?.id ?? 0);
+        return Number.isInteger(stageId) && stageId > 0 ? stageId : null;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Failed to add stage.";
         setError(msg);
         toast.error(msg);
-        return false;
+        return null;
       } finally {
         setSaving(false);
       }

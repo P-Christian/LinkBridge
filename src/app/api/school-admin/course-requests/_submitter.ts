@@ -4,9 +4,11 @@ import {
   CourseRequestSchoolAdminError,
   courseRequestInboxSchema,
   dependencyError,
+  fetchDocumentsByEducationIds,
   type CourseRequestCandidate,
   type CourseRequestInbox,
   type CourseRequestInboxListing,
+  type CourseRequestSchoolContext,
 } from "@/modules/school-admin/course-requests";
 
 /**
@@ -34,6 +36,7 @@ const actionablePrecursorSchema = z
     requestStatus: z.literal("RoutedToSchool"),
     requestedCourseName: trimmedNonBlank,
     requestedBy: positiveInteger,
+    educationId: positiveInteger,
     submittedAt: trimmedNonBlank,
     routedBy: positiveInteger,
     routedAt: trimmedNonBlank,
@@ -50,6 +53,7 @@ const finalizingPrecursorSchema = z
     requestStatus: z.literal("RoutedToSchool"),
     requestedCourseName: trimmedNonBlank,
     requestedBy: positiveInteger,
+    educationId: positiveInteger,
     submittedAt: trimmedNonBlank,
     routedBy: positiveInteger,
     routedAt: trimmedNonBlank,
@@ -154,6 +158,7 @@ function toActionablePrecursor(row: {
   readonly request_status: string;
   readonly requested_course_name: string;
   readonly requested_by: number;
+  readonly employee_education_id: number;
   readonly created_at: string;
   readonly routed_by: number;
   readonly routed_at: string;
@@ -166,6 +171,7 @@ function toActionablePrecursor(row: {
     requestStatus: row.request_status,
     requestedCourseName: row.requested_course_name,
     requestedBy: row.requested_by,
+    educationId: row.employee_education_id,
     submittedAt: row.created_at,
     routedBy: row.routed_by,
     routedAt: row.routed_at,
@@ -182,6 +188,7 @@ function toFinalizingPrecursor(row: {
   readonly request_status: string;
   readonly requested_course_name: string;
   readonly requested_by: number;
+  readonly employee_education_id: number;
   readonly created_at: string;
   readonly routed_by: number;
   readonly routed_at: string;
@@ -194,6 +201,7 @@ function toFinalizingPrecursor(row: {
     requestStatus: row.request_status,
     requestedCourseName: row.requested_course_name,
     requestedBy: row.requested_by,
+    educationId: row.employee_education_id,
     submittedAt: row.created_at,
     routedBy: row.routed_by,
     routedAt: row.routed_at,
@@ -208,10 +216,12 @@ function toFinalizingPrecursor(row: {
 /**
  * Map the scoped listing to the exact inbox DTO. Domain parsing
  * of the allowlisted fields happens FIRST (precursor schemas above); the
- * name-only labels are attached AFTER; the assembled inbox is then guarded by
- * the `courseRequestInboxSchema` so only schema-valid rows serialize.
+ * name-only labels and proof documents are attached AFTER; the assembled
+ * inbox is then guarded by the `courseRequestInboxSchema` so only
+ * schema-valid rows serialize.
  */
 export async function attachSubmitterNames(
+  ctx: CourseRequestSchoolContext,
   listing: CourseRequestInboxListing,
   courses: readonly CourseRequestCandidate[],
 ): Promise<CourseRequestInbox> {
@@ -219,6 +229,8 @@ export async function attachSubmitterNames(
   const finalizing = listing.finalizing.map(toFinalizingPrecursor);
   const requestedByIds = [...actionable, ...finalizing].map((row) => row.requestedBy);
   const names = await resolveSubmitterNames(requestedByIds);
+  const educationIds = [...actionable, ...finalizing].map((row) => row.educationId);
+  const documentsByEducation = await fetchDocumentsByEducationIds(ctx, educationIds);
   const parsed = courseRequestInboxSchema.safeParse({
     schoolId: listing.schoolId,
     routed: actionable.map((row) => ({
@@ -232,6 +244,7 @@ export async function attachSubmitterNames(
       matchedSchoolCourseId: row.matchedSchoolCourseId,
       reviewedBy: row.reviewedBy,
       reviewedAt: row.reviewedAt,
+      documents: [...(documentsByEducation.get(row.educationId) ?? [])],
     })),
     finalizing: finalizing.map((row) => ({
       courseRequestId: row.courseRequestId,
@@ -244,6 +257,7 @@ export async function attachSubmitterNames(
       matchedSchoolCourseId: row.matchedSchoolCourseId,
       reviewedBy: row.reviewedBy,
       reviewedAt: row.reviewedAt,
+      documents: [...(documentsByEducation.get(row.educationId) ?? [])],
     })),
     courses: [...courses],
   });

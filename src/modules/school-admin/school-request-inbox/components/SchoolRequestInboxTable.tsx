@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarRange, Check, Lock, RotateCcw, X } from "lucide-react";
+import { CalendarRange, ClipboardCheck, Lock } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
-  availableSchoolAttendanceActions,
   deriveFinalizingClaim,
   type SchoolAttendanceFeedback,
   type SchoolFinalizingClaim,
@@ -34,9 +33,7 @@ interface SchoolRequestInboxTableProps {
   readonly feedbackByRow: Readonly<Record<number, SchoolAttendanceFeedback>>;
   readonly busyByRow: Readonly<Record<number, boolean>>;
   readonly claims: Readonly<Record<number, SchoolFinalizingClaim>>;
-  readonly onApprove: (row: SchoolInboxRow) => void;
-  readonly onReject: (row: SchoolInboxRow) => void;
-  readonly onResume: (row: SchoolInboxRow) => void;
+  readonly onReview: (row: SchoolInboxRow) => void;
 }
 
 function feedbackTone(tone: SchoolAttendanceFeedback["tone"]): string {
@@ -61,9 +58,7 @@ export function SchoolRequestInboxTable({
   feedbackByRow,
   busyByRow,
   claims,
-  onApprove,
-  onReject,
-  onResume,
+  onReview,
 }: SchoolRequestInboxTableProps) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
@@ -88,7 +83,6 @@ export function SchoolRequestInboxTable({
               const claimLabel = describeSavedDecision(row);
               const feedback = feedbackByRow[row.schoolRequestId];
               const busy = busyByRow[row.schoolRequestId] === true;
-              const actions = availableSchoolAttendanceActions(row);
               const educationDates = formatEducationRange(
                 row.education.startDate,
                 row.education.endDate,
@@ -171,45 +165,17 @@ export function SchoolRequestInboxTable({
                         </div>
                       ) : null}
                       <div className="flex justify-end gap-2">
-                        {actions.includes("approve") ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onApprove(row)}
-                            disabled={busy}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                            data-testid={`school-request-approve-${String(row.schoolRequestId)}`}
-                          >
-                            <Check className="h-4 w-4" />
-                            <span className="ml-1 hidden lg:inline">Approve</span>
-                          </Button>
-                        ) : null}
-                        {actions.includes("reject") ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onReject(row)}
-                            disabled={busy}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            data-testid={`school-request-reject-${String(row.schoolRequestId)}`}
-                          >
-                            <X className="h-4 w-4" />
-                            <span className="ml-1 hidden lg:inline">Reject</span>
-                          </Button>
-                        ) : null}
-                        {actions.includes("resume") ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onResume(row)}
-                            disabled={busy}
-                            className="text-amber-700 hover:text-amber-800 hover:bg-amber-50"
-                            data-testid={`school-request-resume-${String(row.schoolRequestId)}`}
-                          >
-                            <RotateCcw className={cn("h-4 w-4", busy && "animate-spin")} />
-                            <span className="ml-1 hidden lg:inline">Resume</span>
-                          </Button>
-                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onReview(row)}
+                          disabled={busy}
+                          aria-label={`Review request for ${row.submitterName.trim().length > 0 ? row.submitterName : "this student"}`}
+                          data-testid={`school-request-review-${String(row.schoolRequestId)}`}
+                        >
+                          <ClipboardCheck className="h-4 w-4" />
+                          <span className="ml-1">Review</span>
+                        </Button>
                       </div>
                       {feedback !== undefined ? (
                         <span

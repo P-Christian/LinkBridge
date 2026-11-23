@@ -67,15 +67,25 @@ export const groupSchoolRequestSchema = z.object({
   }).min(1, 'A matched school ID is required to group a school request.'),
 });
 
+export const matchSchoolRequestSchema = z.object({
+  action: z.literal('Match'),
+  matched_school_id: z.number({
+    message: 'A matched school ID is required to match a school request.',
+  }).min(1, 'A matched school ID is required to match a school request.'),
+});
+
 // Attendance-mode decision body union: Route (+review-ready school) /
-// Group (+waiting school) / Reject (+admin_remarks).
+// Group (+waiting school) / Match (+any existing school, claims only) /
+// Reject (+admin_remarks).
 export const reviewSchoolRoutingSchema = z.discriminatedUnion('action', [
   routeSchoolRequestSchema,
   groupSchoolRequestSchema,
+  matchSchoolRequestSchema,
   rejectRequestSchema,
 ]);
 
 export type SchoolRoutingDecision = z.infer<typeof reviewSchoolRoutingSchema>;
 export type RouteSchoolRequestDecision = z.infer<typeof routeSchoolRequestSchema>;
 export type GroupSchoolRequestDecision = z.infer<typeof groupSchoolRequestSchema>;
+export type MatchSchoolRequestDecision = z.infer<typeof matchSchoolRequestSchema>;
 

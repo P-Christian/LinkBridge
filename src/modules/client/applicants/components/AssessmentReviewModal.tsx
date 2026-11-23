@@ -20,6 +20,9 @@ interface AssessmentReviewModalProps {
   applicantName?: string;
   onClose: () => void;
   onReviewed?: () => void;
+  allowedNextStages?: Array<{ id: number; stage_name: string; stage_type: string; color?: string }>;
+  onRequestMove?: (toStageId: number, stageName: string) => void;
+  readiness?: { blocking: boolean; missing: string[]; code: string | null } | null;
 }
 
 export default function AssessmentReviewModal({
@@ -28,6 +31,9 @@ export default function AssessmentReviewModal({
   applicantName,
   onClose,
   onReviewed,
+  allowedNextStages,
+  onRequestMove,
+  readiness,
 }: AssessmentReviewModalProps) {
   return (
     <Dialog
@@ -50,7 +56,13 @@ export default function AssessmentReviewModal({
         </DialogHeader>
 
         {open && applicationId !== null && (
-          <AssessmentReviewSection applicationId={applicationId} onChanged={onReviewed} />
+          <AssessmentReviewSection
+            applicationId={applicationId}
+            onChanged={onReviewed}
+            allowedNextStages={allowedNextStages}
+            onRequestMove={onRequestMove}
+            readiness={readiness}
+          />
         )}
       </DialogContent>
     </Dialog>

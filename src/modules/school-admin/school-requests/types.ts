@@ -13,6 +13,7 @@ export interface LinkedEducationSummary {
   readonly userId: number;
   readonly schoolId: number | null;
   readonly schoolCourseId: number | null;
+  readonly courseNameRaw: string | null;
   readonly schoolNameRaw: string | null;
   readonly educationStatus: "Pending" | "Verified" | "Unverified";
   readonly startDate: string | null;
@@ -28,6 +29,19 @@ export interface LinkedCourseSummary {
 }
 
 export type SchoolRequestInboxStatus = "RoutedToSchool" | "Approved";
+
+/**
+ * Proof-document metadata for one `vs_education_document` row. Carries only
+ * the display fields plus the protected read-route URL; the Directus file id
+ * never crosses this boundary.
+ */
+export interface SchoolRequestDocument {
+  readonly documentId: number;
+  readonly type: string;
+  readonly fileName: string;
+  readonly mimeType: string;
+  readonly url: string;
+}
 
 /**
  * Privacy-limited inbox row. Expands ONLY the linked education fields, the
@@ -49,6 +63,7 @@ export interface SchoolRequestInboxRow {
   readonly reviewedAt: string | null;
   readonly education: LinkedEducationSummary;
   readonly course: LinkedCourseSummary | null;
+  readonly documents: readonly SchoolRequestDocument[];
 }
 
 /**

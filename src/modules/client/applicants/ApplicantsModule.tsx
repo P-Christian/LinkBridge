@@ -6,6 +6,7 @@ import { useApplicants } from "./hooks/useApplicants";
 import ApplicantList from "./components/ApplicantList";
 import ApplicantFilters from "./components/ApplicantFilters";
 import StatusUpdateDrawer from "./components/StatusUpdateDrawer";
+import ReadinessOverrideDialog from "./components/ReadinessOverrideDialog";
 import AssessmentMoveConfirmModal from "./components/AssessmentMoveConfirmModal";
 import AssessmentReviewModal from "./components/AssessmentReviewModal";
 import ApplicantDetailsModal from "./components/ApplicantDetailsModal";
@@ -100,6 +101,9 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(() => Boolean(effectiveApplicationId));
   const [assessmentReviewApp, setAssessmentReviewApp] = useState<Applicant | null>(null);
+  const [overrideTarget, setOverrideTarget] = useState<Applicant | null>(null);
+  const [overrideBusy, setOverrideBusy] = useState(false);
+  const [overrideError, setOverrideError] = useState("");
   const [interviewDialogOpen, setInterviewDialogOpen] = useState(false);
   const [interviewFormData, setInterviewFormData] = useState<InterviewFormData>(EMPTY_INTERVIEW_FORM);
   const [interviewErrors, setInterviewErrors] = useState<Partial<Record<keyof InterviewFormData, string>>>({});
@@ -387,6 +391,8 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
     if (ok) {
       setGatePending(null);
       setDrawerOpen(false);
+      setAssessmentReviewApp(null);
+      if (detailOpen) void fetchApplicantDetail(applicant.application_id);
     } else {
       setGateError("Failed to record the assessment decision. Please try again.");
     }
@@ -414,6 +420,54 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
       ) {
         fetchApplicantDetail(applicationId);
       }
+    }
+  };
+
+  const handleRequestMoveFromAssessment = async (
+    applicant: Applicant | null,
+    toStageId: number,
+    stageName: string
+  ) => {
+    if (!applicant) return;
+    const result = await requestStageMove(
+      applicant,
+      toStageId,
+      stageName,
+      applicant.client_notes ?? ""
+    );
+    if (result.ok) {
+      setAssessmentReviewApp(null);
+      if (detailOpen) void fetchApplicantDetail(applicant.application_id);
+    }
+  };
+
+  const handleConfirmOverride = async (toStageId: number, reason: string) => {
+    if (!overrideTarget) return;
+    setOverrideBusy(true);
+    setOverrideError("");
+    try {
+      const res = await fetch(
+        `/api/client/applicants/${overrideTarget.application_id}/stage/bypass`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ to_stage_id: toStageId, reason }),
+        }
+      );
+      const json = (await res.json().catch(() => null)) as { error?: string } | null;
+      if (!res.ok) {
+        setOverrideError(json?.error || "Could not advance the candidate.");
+        return;
+      }
+      toast.success(`${overrideTarget.applicant_name || "Candidate"} advanced without requirements`);
+      setOverrideTarget(null);
+      setDrawerOpen(false);
+      fetchApplicants(undefined, jobId);
+      if (detailOpen) void fetchApplicantDetail(overrideTarget.application_id);
+    } catch {
+      setOverrideError("Could not advance the candidate.");
+    } finally {
+      setOverrideBusy(false);
     }
   };
 
@@ -585,6 +639,7 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
                   onViewScheduledInterview={handleViewScheduledInterview}
                   onViewDetails={handleViewDetails}
                   onReviewAssessment={setAssessmentReviewApp}
+                  onOverride={setOverrideTarget}
                 />
               )}
             </CardContent>
@@ -600,6 +655,19 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
           onSaveStage={handleSaveStage}
           saving={saving}
           error={drawerOpen ? error : ""}
+          onOverride={setOverrideTarget}
+        />
+
+        <ReadinessOverrideDialog
+          open={overrideTarget !== null}
+          applicant={overrideTarget}
+          busy={overrideBusy}
+          error={overrideError}
+          onClose={() => {
+            setOverrideTarget(null);
+            setOverrideError("");
+          }}
+          onConfirm={handleConfirmOverride}
         />
 
         {/* Assessment move-time decision */}
@@ -624,6 +692,11 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
             open={assessmentReviewApp !== null}
             applicationId={assessmentReviewApp?.application_id ?? null}
             applicantName={assessmentReviewApp?.applicant_name}
+            allowedNextStages={assessmentReviewApp?.allowed_next_stages}
+            readiness={assessmentReviewApp?.stage_readiness ?? null}
+            onRequestMove={(toStageId, stageName) =>
+              void handleRequestMoveFromAssessment(assessmentReviewApp, toStageId, stageName)
+            }
             onClose={() => setAssessmentReviewApp(null)}
             onReviewed={() => {
               fetchApplicants(undefined, jobId);
@@ -684,6 +757,10 @@ export function ApplicantsModuleInner({ initialApplicationId }: ApplicantsModule
           loading={detailLoading}
           error={detailError}
           open={detailOpen}
+          allowedNextStages={detail?.allowed_next_stages ?? selectedApplicant?.allowed_next_stages}
+          onRequestMove={(toStageId, stageName) =>
+            void handleRequestMoveFromAssessment(selectedApplicant, toStageId, stageName)
+          }
           onClose={() => {
             setDetailOpen(false);
             clearDetail();

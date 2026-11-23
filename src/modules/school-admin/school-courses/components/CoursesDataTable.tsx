@@ -41,6 +41,10 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { EmptyPlaceholder } from "@/components/shared/EmptyPlaceholder";
+import {
+  UNCATEGORIZED_COURSE_CATEGORY,
+  catalogCategoryNames,
+} from "../catalog/course-catalog";
 
 const DEGREE_OPTIONS = [
   { value: "all", label: "All Degrees" },
@@ -50,20 +54,25 @@ const DEGREE_OPTIONS = [
   { value: "Doctorate", label: "Doctorate" },
 ];
 
+const CATEGORY_OPTIONS = [
+  { value: "all", label: "All Categories" },
+  { value: UNCATEGORIZED_COURSE_CATEGORY, label: "Uncategorized" },
+  ...catalogCategoryNames().map((name) => ({ value: name, label: name })),
+];
+
 interface SearchInputProps {
   placeholder: string;
-  initialValue: string;
   onSearch: (value: string) => void;
 }
 
-function SearchInput({
-  placeholder,
-  initialValue,
-  onSearch,
-}: SearchInputProps) {
-  const [value, setValue] = React.useState(initialValue);
-
+function SearchInput({ placeholder, onSearch }: SearchInputProps) {
+  const [value, setValue] = React.useState("");
   const isFirstRender = React.useRef(true);
+  const onSearchRef = React.useRef(onSearch);
+
+  React.useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
 
   React.useEffect(() => {
     if (isFirstRender.current) {
@@ -71,10 +80,10 @@ function SearchInput({
       return;
     }
     const timer = setTimeout(() => {
-      onSearch(value);
+      onSearchRef.current(value);
     }, 400);
     return () => clearTimeout(timer);
-  }, [value, onSearch]);
+  }, [value]);
 
   return (
     <div className="relative flex-1 w-full max-w-sm">
@@ -98,6 +107,8 @@ interface CoursesDataTableProps<TData, TValue> {
   onStatusFilterChange?: (value: string) => void;
   degreeFilter?: string;
   onDegreeFilterChange?: (value: string) => void;
+  categoryFilter?: string;
+  onCategoryFilterChange?: (value: string) => void;
   toolbarActions?: React.ReactNode;
 }
 
@@ -110,13 +121,14 @@ export function CoursesDataTable<TData, TValue>({
   onStatusFilterChange,
   degreeFilter = "all",
   onDegreeFilterChange,
+  categoryFilter = "all",
+  onCategoryFilterChange,
   toolbarActions,
 }: CoursesDataTableProps<TData, TValue>) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({});
   const [rowSelection, setRowSelection] = React.useState({});
-  const [searchValue, setSearchValue] = React.useState("");
 
   const table = useReactTable({
     data,
@@ -143,7 +155,6 @@ export function CoursesDataTable<TData, TValue>({
   });
 
   const handleSearch = (val: string) => {
-    setSearchValue(val);
     if (onSearchChange) {
       onSearchChange(val);
     } else {
@@ -156,12 +167,7 @@ export function CoursesDataTable<TData, TValue>({
       {/* Header Toolbar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex flex-1 flex-wrap items-center gap-2 w-full">
-          <SearchInput
-            key={searchValue}
-            placeholder={searchPlaceholder}
-            initialValue={searchValue}
-            onSearch={handleSearch}
-          />
+          <SearchInput placeholder={searchPlaceholder} onSearch={handleSearch} />
           {onDegreeFilterChange && (
             <div className="w-[150px]">
               <SearchableSelect
@@ -169,6 +175,20 @@ export function CoursesDataTable<TData, TValue>({
                 value={degreeFilter}
                 onValueChange={onDegreeFilterChange}
                 placeholder="All Degrees"
+                ariaLabel="Filter by degree level"
+                className="w-full"
+              />
+            </div>
+          )}
+          {onCategoryFilterChange && (
+            <div className="w-[190px]">
+              <SearchableSelect
+                options={CATEGORY_OPTIONS}
+                value={categoryFilter}
+                onValueChange={onCategoryFilterChange}
+                placeholder="All Categories"
+                searchPlaceholder="Search field categories..."
+                ariaLabel="Filter by field category"
                 className="w-full"
               />
             </div>

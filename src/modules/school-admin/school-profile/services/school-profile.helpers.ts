@@ -3,6 +3,23 @@ import { SchoolProfileData, UpdateSchoolProfileDTO } from '../types/school-profi
 import { VsSchool } from '../../types/school-admin.types';
 import { formatAssetUrl } from '@/lib/utils';
 
+export const SCHOOL_CONTACT_MAX_LENGTH = 50;
+export const SCHOOL_CONTACT_ERROR =
+  'Enter a valid contact number (7-15 digits; +, spaces, parentheses, dots, or hyphens allowed).';
+
+export function sanitizeSchoolContactInput(value: string): string {
+  return value.replace(/[^+()\d\s.-]/g, '').slice(0, SCHOOL_CONTACT_MAX_LENGTH);
+}
+
+export function isValidSchoolContactNo(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return true;
+  if (trimmed.length > SCHOOL_CONTACT_MAX_LENGTH) return false;
+  if (!/^\+?[\d()\s.-]+$/.test(trimmed)) return false;
+  const digits = trimmed.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+}
+
 export function formatSchoolAddress(data: Partial<SchoolProfileData | VsSchool>): string {
   const parts = [
     data.address_line,

@@ -42,10 +42,10 @@ export function SchoolVerificationModule() {
     openRejectionModal,
     closeRejectionModal,
     handleDecision,
+    generateSchoolInvite,
     refetch,
   } = useSchoolVerification();
 
-  const [modalMode, setModalMode] = useState<"reject" | "request_correction">("reject");
   const [approveConfirmSchool, setApproveConfirmSchool] = useState<typeof selectedSchool | null>(null);
 
   const handleApproveAction = (school: typeof selectedSchool) => {
@@ -59,20 +59,13 @@ export function SchoolVerificationModule() {
     setApproveConfirmSchool(null);
   };
 
-  const handleOpenRejection = (school: typeof selectedSchool) => {
-    if (!school) return;
-    setModalMode("reject");
-    openRejectionModal(school);
-  };
-
   const handleOpenCorrection = (school: typeof selectedSchool) => {
     if (!school) return;
-    setModalMode("request_correction");
     openRejectionModal(school);
   };
 
   const handleConfirmRejectionModal = async (
-    action: "reject" | "request_correction",
+    action: "request_correction",
     reason: string,
     internalNotes: string
   ) => {
@@ -146,16 +139,15 @@ export function SchoolVerificationModule() {
         school={selectedSchool}
         onApprove={(s) => handleApproveAction(s)}
         onRequestCorrection={(s) => handleOpenCorrection(s)}
-        onReject={(s) => handleOpenRejection(s)}
+        onGenerateInvite={generateSchoolInvite}
         isSubmitting={isSubmitting}
       />
 
-      {/* Rejection / Correction Modal */}
+      {/* Correction Modal */}
       <SchoolRejectionReasonModal
         isOpen={isRejectionModalOpen}
         onClose={() => closeRejectionModal()}
         school={selectedSchool}
-        mode={modalMode}
         onConfirm={handleConfirmRejectionModal}
         isSubmitting={isSubmitting}
       />

@@ -18,6 +18,7 @@ import {
 import {
   fetchSchoolRequest as fetchRoutingSchoolRequest,
   groupSchoolRequest as groupSchoolRequestPrimitive,
+  matchSchoolRequest as matchSchoolRequestPrimitive,
   rejectSchoolRequest as rejectSchoolRequestPrimitive,
   routeSchoolRequest as routeSchoolRequestPrimitive,
   SchoolRequestRoutingError,
@@ -87,10 +88,10 @@ export async function reviewSchoolRequest(id: number, data: ReviewAction, adminI
   if (mode === "frozen") {
     throw new EducationFlowUnavailableError();
   }
-  if (mode === "attendance") {
+  if (mode === "attendance" || mode === "opt-in") {
     throw new SchoolRequestRoutingError(
       "UNSUPPORTED_ACTION",
-      "Legacy school-request approval is unavailable in attendance mode.",
+      "Legacy school-request approval is unavailable in this mode.",
       409,
     );
   }
@@ -730,6 +731,20 @@ export async function groupSchoolRequestDecision(
   requirePositiveSchoolId(adminId, "Admin Portal id");
   await requireExactSchoolRequestLink(requestId);
   await groupSchoolRequestPrimitive({ requestId, targetSchoolId });
+  return fetchSchoolRequestById(requestId);
+}
+
+export async function matchSchoolRequestDecision(
+  requestId: number,
+  targetSchoolId: number,
+  adminId: number,
+): Promise<VsSchoolRequest> {
+  requireSchoolRoutingWrite();
+  requirePositiveSchoolId(requestId, "School request id");
+  requirePositiveSchoolId(targetSchoolId, "Matched school id");
+  requirePositiveSchoolId(adminId, "Admin Portal id");
+  await requireExactSchoolRequestLink(requestId);
+  await matchSchoolRequestPrimitive({ requestId, targetSchoolId });
   return fetchSchoolRequestById(requestId);
 }
 

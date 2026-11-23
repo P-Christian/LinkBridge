@@ -5,10 +5,12 @@ import {
   getEligibleStudentCandidatesService,
   createBatchReferralsService,
   getAdminReferralsService,
+  ReferralBatchConflictError,
 } from '@/modules/school-admin/job-referrals/services';
 import { createReferralsSchema } from '@/modules/school-admin/job-referrals/types/job-referrals.schema';
 import { resolveSchoolAdminContext, RosterHttpError } from '@/modules/school-admin/student-roster/services/roster-auth';
 import { fetchSchoolByIdRepo } from '@/modules/school-admin/services/school-admin.repo';
+import { getReferralBaseUrl } from '@/lib/mail/templates/base-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -39,7 +41,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized. School Admin access required.' }, { status: 401 });
     }
 
-    const origin = req.nextUrl.origin;
+    const origin = getReferralBaseUrl();
 
     const [jobs, students, referrals] = await Promise.all([
       getActiveJobsService().catch((err) => {
@@ -88,7 +90,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const origin = req.nextUrl.origin;
+    const origin = getReferralBaseUrl();
     const results = await createBatchReferralsService(session.userId, session.schoolId, origin, parsed.data);
 
     return NextResponse.json({
@@ -97,6 +99,9 @@ export async function POST(req: NextRequest) {
       data: results,
     }, { status: 201 });
   } catch (error: unknown) {
+    if (error instanceof ReferralBatchConflictError) {
+      return NextResponse.json({ error: error.message, blocked: error.blocked }, { status: 409 });
+    }
     const { status, message } = toErrorStatus(error, 400);
     return NextResponse.json({ error: message }, { status });
   }

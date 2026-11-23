@@ -1,6 +1,6 @@
 // src/modules/vos-admin/request-management/components/RequestStatusBadge.tsx
 //
-// Plan 2 Todo 7 lane A: exhaustively renders the four RequestStatus values
+// Plan 2 Todo 7 lane A: exhaustively renders the five RequestStatus values
 // plus the derived waiting indicator (grouped `Pending`: request_status is
 // `Pending` AND matched_school_id is set). The old default fall-through
 // rendered everything-unknown as Pending; unknown values now render an
@@ -66,6 +66,13 @@ export function RequestStatusBadge({ status, isWaiting = false }: Props) {
           Pending
         </span>
         {isWaiting ? <WaitingPill /> : null}
+      </span>
+    );
+  }
+  if (status === 'AwaitingOptIn') {
+    return (
+      <span className="inline-flex items-center rounded-full bg-warning/10 px-2.5 py-0.5 text-xs font-medium text-warning ring-1 ring-inset ring-warning/30">
+        Awaiting Opt-In
       </span>
     );
   }

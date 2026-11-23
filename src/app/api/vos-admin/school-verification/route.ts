@@ -4,6 +4,7 @@ import { requireAdministrator } from "@/lib/authenticated-session";
 import {
   getSchoolVerifications,
   processVerificationDecision,
+  SchoolVerificationDecisionError,
   VerificationDecisionSchema,
 } from "@/modules/vos-admin/school-verification";
 import { releaseParkedRequestsForSchool } from "@/modules/school-request-routing";
@@ -80,6 +81,9 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error: unknown) {
+    if (error instanceof SchoolVerificationDecisionError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     if (error instanceof DirectusError) {
       console.error("API Route Error (POST school-verification):", error);
       return NextResponse.json(

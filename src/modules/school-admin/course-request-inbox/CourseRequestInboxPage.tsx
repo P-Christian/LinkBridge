@@ -16,10 +16,7 @@ import {
   type CourseRequestInboxRow,
   type CourseRequestOutcome,
 } from "@/modules/school-admin/hooks/useCourseRequests";
-import {
-  ApproveCourseRequestDialog,
-  RejectCourseRequestDialog,
-} from "./components/CourseRequestDecisionDialogs";
+import { CourseRequestReviewDialog } from "./components/CourseRequestDecisionDialogs";
 import { CourseRequestInboxTable } from "./components/CourseRequestInboxTable";
 import {
   CourseRequestInboxAccessPanel,
@@ -38,9 +35,10 @@ import { classifyInboxLoadFailure } from "./services/course-request-inbox.helper
  *  - renders ONLY the allowlisted inbox DTO fields (name-only submitter
  *    label, requested course text, submission and arrival dates, persisted
  *    finalizing lock, Active candidate fields) for the caller's own school;
- *  - actionable rows open a searchable Active-course approval dialog or a
- *    trimmed-nonblank rejection dialog; finalizing rows expose ONLY Resume of
- *    the persisted locked course and original reviewer;
+ *  - every row opens one review dialog with the submitted documents;
+ *    actionable rows approve with a searchable Active course or reject with a
+ *    trimmed nonblank reason, and finalizing rows resume the persisted locked
+ *    course and original reviewer;
  *  - renders initial/loading/empty/forbidden/error states plus per-row
  *    stale/removed/finalizing/busy feedback; stale, removed, and finalizing
  *    outcomes never present as success;
@@ -71,9 +69,10 @@ function showFeedbackToast(feedback: CourseRequestFeedback): void {
 interface CourseRequestInboxPageProps {
   /** Rendered directly below the header card, above the scope line. */
   readonly belowHeader?: ReactNode;
+  readonly onCountsChanged?: () => void;
 }
 
-export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPageProps) {
+export function CourseRequestInboxPage({ belowHeader, onCountsChanged }: CourseRequestInboxPageProps) {
   const {
     inbox,
     routed,
@@ -91,8 +90,7 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
     createBusy,
   } = useCourseRequests();
 
-  const [approveRow, setApproveRow] = useState<CourseRequestInboxRow | null>(null);
-  const [rejectRow, setRejectRow] = useState<CourseRequestInboxRow | null>(null);
+  const [reviewRow, setReviewRow] = useState<CourseRequestInboxRow | null>(null);
   // Course creation refreshes candidates only: no preselection, no chained approval.
   const [courseModalOpen, setCourseModalOpen] = useState(false);
   // The dialogs unmount synchronously on close, so Radix never gets to run its
@@ -118,21 +116,25 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
   }, [loadInbox]);
 
   /** True when the calling dialog may close; false keeps it open on failure. */
-  const settleOutcome = useCallback((outcome: CourseRequestOutcome): boolean => {
-    showFeedbackToast(feedbackForCourseRequestOutcome(outcome));
-    switch (outcome.kind) {
-      case "approved":
-      case "rejected":
-      case "stale":
-      case "removed":
-      case "finalizing":
-        return true;
-      case "failed":
-        return false;
-      default:
-        return assertNeverCourseRequestVariant(outcome);
-    }
-  }, []);
+  const settleOutcome = useCallback(
+    (outcome: CourseRequestOutcome): boolean => {
+      showFeedbackToast(feedbackForCourseRequestOutcome(outcome));
+      switch (outcome.kind) {
+        case "approved":
+        case "rejected":
+        case "stale":
+        case "removed":
+        case "finalizing":
+          onCountsChanged?.();
+          return true;
+        case "failed":
+          return false;
+        default:
+          return assertNeverCourseRequestVariant(outcome);
+      }
+    },
+    [onCountsChanged],
+  );
 
   const handleApprove = useCallback(
     async (row: CourseRequestInboxRow, courseId: number): Promise<boolean> => {
@@ -151,9 +153,9 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
   );
 
   const handleResume = useCallback(
-    async (row: CourseRequestInboxRow): Promise<void> => {
+    async (row: CourseRequestInboxRow): Promise<boolean> => {
       const outcome = await resumeCourseRequest(row.courseRequestId);
-      settleOutcome(outcome);
+      return settleOutcome(outcome);
     },
     [resumeCourseRequest, settleOutcome],
   );
@@ -229,15 +231,10 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
                   courses={courses}
                   feedbackByRow={feedbackByRow}
                   busyByRow={busyByRow}
-                  onApprove={(row) => {
+                  onReview={(row) => {
                     rememberTrigger();
-                    setApproveRow(row);
+                    setReviewRow(row);
                   }}
-                  onReject={(row) => {
-                    rememberTrigger();
-                    setRejectRow(row);
-                  }}
-                  onResume={(row) => void handleResume(row)}
                 />
               )}
             </section>
@@ -259,15 +256,10 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
                   courses={courses}
                   feedbackByRow={feedbackByRow}
                   busyByRow={busyByRow}
-                  onApprove={(row) => {
+                  onReview={(row) => {
                     rememberTrigger();
-                    setApproveRow(row);
+                    setReviewRow(row);
                   }}
-                  onReject={(row) => {
-                    rememberTrigger();
-                    setRejectRow(row);
-                  }}
-                  onResume={(row) => void handleResume(row)}
                 />
               </section>
             ) : null}
@@ -290,34 +282,21 @@ export function CourseRequestInboxPage({ belowHeader }: CourseRequestInboxPagePr
 
       {content}
 
-      {approveRow !== null ? (
-        <ApproveCourseRequestDialog
-          key={approveRow.courseRequestId}
-          row={approveRow}
+      {reviewRow !== null ? (
+        <CourseRequestReviewDialog
+          key={reviewRow.courseRequestId}
+          row={reviewRow}
           courses={courses}
-          busy={busyByRow[approveRow.courseRequestId] === true}
+          busy={busyByRow[reviewRow.courseRequestId] === true}
           onOpenChange={(open) => {
             if (!open) {
-              setApproveRow(null);
+              setReviewRow(null);
               restoreTriggerFocus();
             }
           }}
-          onConfirm={handleApprove}
-        />
-      ) : null}
-
-      {rejectRow !== null ? (
-        <RejectCourseRequestDialog
-          key={rejectRow.courseRequestId}
-          row={rejectRow}
-          busy={busyByRow[rejectRow.courseRequestId] === true}
-          onOpenChange={(open) => {
-            if (!open) {
-              setRejectRow(null);
-              restoreTriggerFocus();
-            }
-          }}
-          onConfirm={handleReject}
+          onApprove={handleApprove}
+          onReject={handleReject}
+          onResume={handleResume}
         />
       ) : null}
 

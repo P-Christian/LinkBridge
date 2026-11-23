@@ -46,6 +46,11 @@ export interface InterviewApplication {
     color: string;
     is_terminal: boolean;
   }>;
+  stage_readiness?: {
+    blocking: boolean;
+    missing: string[];
+    code: string | null;
+  } | null;
   screening_answers?: ScreeningAnswer[] | null;
 }
 

@@ -119,14 +119,16 @@ export interface SchoolVerificationFilterState {
 
 export interface SchoolVerificationKPIs {
   totalCount: number;
+  draftCount: number;
   pendingCount: number;
+  correctionCount: number;
   verifiedCount: number;
-  rejectedCount: number;
+  inactiveCount: number;
 }
 
 export interface VerificationDecisionPayload {
   schoolId: number;
-  action: "approve" | "reject" | "request_correction" | "suspend";
+  action: "approve" | "request_correction" | "suspend";
   rejectionReason?: string;
   internalNotes?: string;
 }

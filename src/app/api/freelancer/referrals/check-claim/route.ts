@@ -50,19 +50,31 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ claims });
     }
 
+    // A submitted application rules out a new referral claim for this job.
+    let applied = false;
+    const applicationRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&filter[user_id][_eq]=${userId}&fields=application_id,application_status&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (applicationRes.ok) {
+      const applicationData = (await applicationRes.json()).data?.[0];
+      const applicationStatus = String(applicationData?.application_status ?? "").toUpperCase();
+      applied = Boolean(applicationData) && !["DRAFT", "WITHDRAWN", "REJECTED"].includes(applicationStatus);
+    }
+
     // Query active claim for single job
     const claimRes = await fetch(
       `${DIRECTUS_BASE}/items/vs_job_referral_claim?filter[candidate_user_id][_eq]=${userId}&filter[job_id][_eq]=${jobId}&filter[claim_status][_eq]=ACTIVE&limit=1`,
       { headers: getHeaders(), cache: "no-store" }
     );
 
-    if (!claimRes.ok) return NextResponse.json({ claimed: false });
+    if (!claimRes.ok) return NextResponse.json({ claimed: false, applied });
 
     const claimJson = await claimRes.json();
     const claims = claimJson.data || [];
 
     if (claims.length === 0) {
-      return NextResponse.json({ claimed: false });
+      return NextResponse.json({ claimed: false, applied });
     }
 
     const claim = claims[0];
@@ -87,6 +99,7 @@ export async function GET(req: NextRequest) {
       claimed: true,
       referrer_name: referrerName,
       expires_at: expiresAt,
+      applied,
     });
   } catch (err: unknown) {
     const errorMsg = safeErrorMessage(err, "An error occurred");

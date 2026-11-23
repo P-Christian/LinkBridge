@@ -3,7 +3,9 @@
 
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { FunnelStageStat } from '../types/success-metrics.types';
+import { Info } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell } from 'recharts';
 
 interface PlacementFunnelChartProps {
@@ -17,11 +19,14 @@ const COLORS = [
   '#10b981', // emerald-500 (Hired)
 ];
 
+const CONVERSION_BASIS = ['applications', 'reviewed', 'interviewed'] as const;
+
 export function PlacementFunnelChart({ funnelStages }: PlacementFunnelChartProps) {
   const chartData = funnelStages.map((stage, idx) => ({
     name: stage.label,
     count: stage.count,
     percentage: stage.percentageOfTotal,
+    conversionFromPrevious: stage.conversionFromPrevious,
     fill: COLORS[idx % COLORS.length],
   }));
 
@@ -32,7 +37,25 @@ export function PlacementFunnelChart({ funnelStages }: PlacementFunnelChartProps
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-base font-semibold text-foreground">Hiring Conversion Funnel</CardTitle>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle className="text-base font-semibold text-foreground">Hiring Conversion Funnel</CardTitle>
+              <UiTooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="About cumulative funnel counts"
+                    className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <Info className="h-3 w-3" aria-hidden="true" />
+                    Cumulative
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-xs">
+                  Each stage includes everyone who reached it. An application can appear in more
+                  than one stage.
+                </TooltipContent>
+              </UiTooltip>
+            </div>
             <CardDescription className="text-xs text-muted-foreground">
               Progression from job application to final employment placement
             </CardDescription>
@@ -69,9 +92,17 @@ export function PlacementFunnelChart({ funnelStages }: PlacementFunnelChartProps
                             <span className="font-semibold text-foreground">{data.count}</span>
                           </p>
                           <p className="flex justify-between gap-4">
-                            <span>Conversion Rate:</span>
+                            <span>Share of applications:</span>
                             <span className="font-semibold text-foreground">{data.percentage}%</span>
                           </p>
+                          {typeof data.conversionFromPrevious === 'number' ? (
+                            <p className="flex justify-between gap-4">
+                              <span>From previous stage:</span>
+                              <span className="font-semibold text-foreground">
+                                {data.conversionFromPrevious}%
+                              </span>
+                            </p>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -97,7 +128,19 @@ export function PlacementFunnelChart({ funnelStages }: PlacementFunnelChartProps
                 <span className="text-xs font-medium text-muted-foreground">{stage.label}</span>
               </div>
               <span className="mt-0.5 text-sm font-bold text-foreground">{stage.count}</span>
-              <span className="text-[10px] text-muted-foreground">{stage.percentageOfTotal}% of total</span>
+              {typeof stage.conversionFromPrevious === 'number' ? (
+                <>
+                  <span className="text-[10px] font-medium text-foreground">
+                    {stage.conversionFromPrevious}% of{' '}
+                    {CONVERSION_BASIS[idx - 1] ?? 'previous stage'}
+                  </span>
+                  {stage.percentageOfTotal !== stage.conversionFromPrevious ? (
+                    <span className="text-[10px] text-muted-foreground">
+                      {stage.percentageOfTotal}% of all applications
+                    </span>
+                  ) : null}
+                </>
+              ) : null}
             </div>
           ))}
         </div>

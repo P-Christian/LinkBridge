@@ -18,7 +18,7 @@ import { stripHtmlTags } from '../utils/formatting';
 const ITEMS_PER_PAGE = 10;
 
 export function JobReferralList() {
-  const { jobs, openReferralWizard, isLoading } = useJobReferralsContext();
+  const { jobs, openReferralWizard, openShareLinkDialog, isLoading } = useJobReferralsContext();
 
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('ALL');
@@ -180,7 +180,12 @@ export function JobReferralList() {
       ) : (
         <div className="space-y-3.5">
           {paginatedJobs.map((job) => (
-            <JobReferralCard key={job.job_id} job={job} onRefer={openReferralWizard} />
+            <JobReferralCard
+              key={job.job_id}
+              job={job}
+              onRefer={openReferralWizard}
+              onShareLink={openShareLinkDialog}
+            />
           ))}
         </div>
       )}

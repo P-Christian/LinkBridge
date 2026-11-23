@@ -71,6 +71,7 @@ export async function POST(req: NextRequest) {
       {
         course_name: parsed.data.course_name,
         course_code: parsed.data.course_code ?? null,
+        course_category: parsed.data.course_category ?? null,
         degree: parsed.data.degree,
         course_status: "Active",
       },
