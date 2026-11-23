@@ -77,3 +77,12 @@ export function getBaseUrl(explicitBaseUrl?: string): string {
     "http://localhost:3000"
   ).replace(/\/$/, "");
 }
+
+export function getReferralBaseUrl(): string {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_APP_URL;
+  if (configured) return configured.replace(/\/$/, "");
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_SITE_URL is required to generate referral links.");
+  }
+  return "http://localhost:4000";
+}

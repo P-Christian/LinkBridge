@@ -13,6 +13,7 @@ import type { ApplicationItem } from "@/modules/freelancer/freelancer-applicatio
 import { getPHTimeString } from "@/lib/utils";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
+import { isActiveApplicationStatus } from "@/lib/applications/status";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -410,7 +411,7 @@ export async function POST(req: NextRequest) {
     if (existingApplication) {
       const status = existingApplication.application_status as string;
       // If it is not a draft and not withdrawn/rejected, it's an active application
-      if (status !== "DRAFT" && status !== "WITHDRAWN" && status !== "REJECTED") {
+      if (isActiveApplicationStatus(status)) {
         return NextResponse.json(
           { error: "You already have an active application for this job." },
           { status: 409 }

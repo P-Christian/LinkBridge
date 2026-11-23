@@ -10,6 +10,11 @@ export const createReferralsSchema = z.object({
   expires_in_days: z.number().int().min(1).max(90).default(30),
 });
 
+export const createShareLinkSchema = z.object({
+  job_id: z.number().int().positive({ message: "Valid Job ID is required" }),
+  expires_in_days: z.number().int().min(1).max(90).default(30),
+});
+
 export const generateLetterSchema = z.object({
   job: z.object({
     job_id: z.number().int().positive(),
@@ -48,4 +53,5 @@ export const generateLetterSchema = z.object({
 });
 
 export type CreateReferralsSchemaInput = z.infer<typeof createReferralsSchema>;
+export type CreateShareLinkSchemaInput = z.infer<typeof createShareLinkSchema>;
 export type GenerateLetterSchemaInput = z.infer<typeof generateLetterSchema>;

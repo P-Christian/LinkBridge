@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { sendMail } from "@/lib/mail";
 import { createNotification } from "@/lib/notifications";
+import { isActiveApplicationStatus } from "@/lib/applications/status";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -217,6 +218,37 @@ export async function claimReferralRecord(
     throw new Error("This referral invitation has expired.");
   }
 
+  // Institutional endorsements are limited to the endorsing school's own students.
+  // Fail closed: a lookup failure must not widen the invitation to anyone holding the link.
+  const referrerUserId = Number(refData.referrer_user_id);
+  if (Number.isSafeInteger(referrerUserId) && referrerUserId > 0) {
+    const adminRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_school_admin?filter[user_id][_eq]=${referrerUserId}&filter[is_active][_eq]=true&fields=school_id&limit=1`,
+      { headers: getHeaders(), cache: "no-store" }
+    );
+    if (!adminRes.ok) {
+      throw new Error("Could not verify the endorsing institution.");
+    }
+    const adminRow = (await adminRes.json()).data?.[0];
+    if (adminRow) {
+      const schoolId = Number(adminRow.school_id);
+      if (!Number.isSafeInteger(schoolId) || schoolId <= 0) {
+        throw new Error("Could not verify the endorsing institution.");
+      }
+      const memberRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_school_student?filter[registered_user_id][_eq]=${candidateUserId}&filter[school_id][_eq]=${schoolId}&fields=student_id&limit=1`,
+        { headers: getHeaders(), cache: "no-store" }
+      );
+      if (!memberRes.ok) {
+        throw new Error("Could not verify your student status.");
+      }
+      const members = (await memberRes.json()).data ?? [];
+      if (!Array.isArray(members) || members.length === 0) {
+        throw new Error("This referral is limited to students of the endorsing school.");
+      }
+    }
+  }
+
   if (refData.recipient_email_hash) {
     const normalizedEmail = String(candidateEmail ?? "").trim().toLowerCase();
     const candidateHash = normalizedEmail
@@ -236,6 +268,23 @@ export async function claimReferralRecord(
   }
   const referralJobTitle =
     relatedJob && typeof relatedJob === "object" ? relatedJob.job_title ?? "" : "";
+
+  // A submitted application cannot gain a referral after the fact. The allowed set
+  // mirrors the duplicate-application rule in POST /api/freelancer/applications.
+  const applicationRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_job_application?filter[job_id][_eq]=${jobId}&filter[user_id][_eq]=${candidateUserId}&fields=application_id,application_status&limit=1`,
+    { headers: getHeaders(), cache: "no-store" }
+  );
+  if (!applicationRes.ok) {
+    throw new Error("Could not verify your application status.");
+  }
+  const existingApplication = (await applicationRes.json()).data?.[0];
+  if (existingApplication) {
+    const applicationStatus = String(existingApplication.application_status ?? "").toUpperCase();
+    if (isActiveApplicationStatus(applicationStatus)) {
+      throw new Error("You already have an active application for this job.");
+    }
+  }
 
   // Create claim
   const claimPayload = {
@@ -293,7 +342,7 @@ export async function claimReferralRecord(
     });
   }
 
-  await logReferralHistory(referralId, "SENT", "CLAIMED", `user:${candidateUserId}`, "Consent Bound");
+  await logReferralHistory(referralId, referralStatus, "CLAIMED", `user:${candidateUserId}`, "Consent Bound");
 
   // Send in-app notification to referrer
   if (refData && refData.referrer_user_id) {
@@ -343,6 +392,23 @@ export async function logReferralHistory(referralId: number, fromStatus: string,
   } catch (err) {
     console.error("Failed to write referral history log:", err);
   }
+}
+
+export async function revokeReferralRecord(
+  referralId: number,
+  currentStatus: string,
+  actor: string,
+  reason: string
+): Promise<void> {
+  const patchRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify({ status: "REVOKED", revoked_at: new Date().toISOString() }),
+  });
+  if (!patchRes.ok) {
+    throw new Error("Failed to update status.");
+  }
+  await logReferralHistory(referralId, currentStatus, "REVOKED", actor, reason);
 }
 
 export async function handleApplicationSubmissionReferral(applicationId: number, candidateUserId: number, jobId: number) {

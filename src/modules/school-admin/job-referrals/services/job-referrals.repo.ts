@@ -4,6 +4,7 @@ import {
   VsJobReferral,
   VsJobReferralHistory,
 } from '../types/job-referrals.types';
+import { isActiveApplicationStatus } from '@/lib/applications/status';
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -69,7 +70,7 @@ export async function fetchFreelancerProfilesBatchRepo(userIds: number[]): Promi
   // 5. Fetch Preferences
   const prefsUrl = `${DIRECTUS_BASE}/items/vs_job_preferences?filter[user_id][_in]=${joinedIds}&fields=*&limit=500`;
   // 6. Fetch Job Applications
-  const appsUrl = `${DIRECTUS_BASE}/items/vs_job_application?filter[user_id][_in]=${joinedIds}&filter[application_status][_neq]=WITHDRAWN&fields=user_id,job_id&limit=2000`;
+  const appsUrl = `${DIRECTUS_BASE}/items/vs_job_application?filter[user_id][_in]=${joinedIds}&fields=user_id,job_id,application_status&limit=2000`;
 
   const [usersRes, profilesRes, skillsRes, workRes, prefsRes, appsRes] = await Promise.all([
     fetch(usersUrl, { headers: getHeaders(), cache: "no-store" }),
@@ -106,6 +107,9 @@ export async function fetchFreelancerProfilesBatchRepo(userIds: number[]): Promi
     const userPref = prefsData.find((pr: Record<string, unknown>) => Number(pr.user_id) === uid) || null;
     const userApps = appsData
       .filter((a: Record<string, unknown>) => Number(a.user_id) === uid)
+      .filter((a: Record<string, unknown>) =>
+        isActiveApplicationStatus(a.application_status as string | null | undefined)
+      )
       .map((a: Record<string, unknown>) => {
         if (a.job_id && typeof a.job_id === 'object') {
           return Number((a.job_id as Record<string, unknown>).job_id);
@@ -180,4 +184,129 @@ export async function fetchReferralsByAdminRepo(adminUserId: number): Promise<Vs
       company_name: companyName,
     } as VsJobReferral;
   });
+}
+
+export interface ReferralClaimRecord {
+  referralId: number;
+  name: string;
+  email: string;
+  consented_at: string;
+  claim_status: string;
+}
+
+export async function findActiveShareLinkRepo(
+  referrerUserId: number,
+  jobId: number
+): Promise<{ referral_id: number; token_hash: string; status: string; expires_at: string } | null> {
+  const now = encodeURIComponent(new Date().toISOString());
+  const url = `${DIRECTUS_BASE}/items/vs_job_referral`
+    + `?filter[referrer_user_id][_eq]=${referrerUserId}`
+    + `&filter[job_id][_eq]=${jobId}`
+    + `&filter[display_hint][_eq]=${encodeURIComponent("Public share link")}`
+    + `&filter[status][_eq]=CREATED`
+    + `&filter[expires_at][_gt]=${now}`
+    + `&sort[]=-created_at&limit=1`
+    + `&fields=referral_id,token_hash,status,expires_at`;
+  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+  if (!res.ok) return null;
+  const json = await res.json();
+  return json.data?.[0] ?? null;
+}
+
+export async function fetchClaimsByReferralIdsRepo(referralIds: number[]): Promise<ReferralClaimRecord[]> {
+  if (!referralIds.length) return [];
+  try {
+    const url = `${DIRECTUS_BASE}/items/vs_job_referral_claim`
+      + `?filter[referral_id][_in]=${referralIds.join(",")}`
+      + `&fields=referral_id,candidate_user_id.user_fname,candidate_user_id.user_lname,candidate_user_id.user_email,consented_at,claim_status`
+      + `&limit=500`;
+    const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return (json.data ?? []).map((row: Record<string, unknown>) => {
+      const user = (row.candidate_user_id as Record<string, unknown>) || {};
+      const name = `${user.user_fname ?? ""} ${user.user_lname ?? ""}`.trim() || "Candidate";
+      return {
+        referralId: Number(row.referral_id),
+        name,
+        email: String(user.user_email ?? ""),
+        consented_at: String(row.consented_at ?? ""),
+        claim_status: String(row.claim_status ?? ""),
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchApplicationReferralIdsRepo(referralIds: number[]): Promise<Set<number>> {
+  const applied = new Set<number>();
+  if (!referralIds.length) return applied;
+  try {
+    const url = `${DIRECTUS_BASE}/items/vs_job_application_referral`
+      + `?filter[referral_id][_in]=${referralIds.join(",")}`
+      + `&fields=referral_id&limit=1000`;
+    const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+    if (!res.ok) return applied;
+    const json = await res.json();
+    for (const row of json.data ?? []) {
+      const id = Number((row as Record<string, unknown>).referral_id);
+      if (Number.isSafeInteger(id)) applied.add(id);
+    }
+    return applied;
+  } catch {
+    return applied;
+  }
+}
+
+export async function expireStaleReferralsRepo(
+  schoolId: number,
+  jobId: number,
+  studentIds: number[]
+): Promise<void> {
+  if (!studentIds.length) return;
+  const res = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral`, {
+    method: "PATCH",
+    headers: getHeaders(),
+    body: JSON.stringify({
+      data: { status: "EXPIRED" },
+      query: {
+        filter: {
+          school_id: { _eq: schoolId },
+          job_id: { _eq: jobId },
+          student_id: { _in: studentIds },
+          status: { _in: ["CREATED", "SENT", "OPENED"] },
+          expires_at: { _lte: new Date().toISOString() },
+        },
+      },
+    }),
+  });
+  if (!res.ok) {
+    throw new Error("Failed to expire stale referrals.");
+  }
+}
+
+export async function fetchLiveReferralStudentIdsRepo(
+  schoolId: number,
+  jobId: number,
+  studentIds: number[]
+): Promise<Set<number>> {
+  if (!studentIds.length) return new Set();
+  const url = `${DIRECTUS_BASE}/items/vs_job_referral`
+    + `?filter[school_id][_eq]=${schoolId}`
+    + `&filter[job_id][_eq]=${jobId}`
+    + `&filter[student_id][_in]=${studentIds.join(",")}`
+    + `&filter[status][_in]=CREATED,SENT,OPENED,CLAIMED`
+    + `&fields=student_id&limit=500`;
+  const res = await fetch(url, { headers: getHeaders(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Failed to check existing referrals: ${res.statusText}`);
+  }
+  const json = await res.json();
+  const ids = new Set<number>();
+  for (const row of json.data ?? []) {
+    const id = Number((row as Record<string, unknown>).student_id);
+    if (Number.isSafeInteger(id)) ids.add(id);
+  }
+  return ids;
 }

@@ -22,6 +22,7 @@ interface StudentCandidatePickerProps {
   job: VsJobPosting;
   students: VerifiedStudentCandidate[];
   selectedStudentIds: number[];
+  referredStudentIds: number[];
   onToggleSelection: (studentId: number) => void;
   onSelectAll: () => void;
   onClearSelection: () => void;
@@ -31,6 +32,7 @@ export function StudentCandidatePicker({
   job,
   students,
   selectedStudentIds,
+  referredStudentIds,
   onToggleSelection,
   onSelectAll,
   onClearSelection,
@@ -158,6 +160,8 @@ export function StudentCandidatePicker({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredStudents.map((student) => {
               const isAlreadyApplied = Boolean(student.applied_job_ids?.includes(job.job_id));
+              const isAlreadyReferred = referredStudentIds.includes(student.student_id);
+              const isBlocked = isAlreadyApplied || isAlreadyReferred;
               const isSelected = selectedStudentIds.includes(student.student_id);
               const initials = `${student.first_name.charAt(0)}${student.last_name.charAt(0)}`.toUpperCase();
 
@@ -165,12 +169,12 @@ export function StudentCandidatePicker({
                 <div
                   key={student.student_id}
                   onClick={() => {
-                    if (!isAlreadyApplied) {
+                    if (!isBlocked) {
                       onToggleSelection(student.student_id);
                     }
                   }}
                   className={`flex items-start gap-3 p-3.5 rounded-xl border transition-all ${
-                    isAlreadyApplied
+                    isBlocked
                       ? 'opacity-60 cursor-not-allowed bg-muted/20 border-border/40'
                       : isSelected
                       ? 'border-primary bg-primary/5 shadow-xs ring-1 ring-primary/40 cursor-pointer'
@@ -180,9 +184,9 @@ export function StudentCandidatePicker({
                   <div className="pt-0.5" onClick={(e) => e.stopPropagation()}>
                     <Checkbox
                       checked={isSelected}
-                      disabled={isAlreadyApplied}
+                      disabled={isBlocked}
                       onCheckedChange={() => {
-                        if (!isAlreadyApplied) {
+                        if (!isBlocked) {
                           onToggleSelection(student.student_id);
                         }
                       }}
@@ -205,9 +209,13 @@ export function StudentCandidatePicker({
                         <span className="text-sm font-bold text-foreground line-clamp-1">
                           {student.first_name} {student.last_name}
                         </span>
-                        {isAlreadyApplied && (
+                        {isBlocked && (
                           <Badge variant="outline" className="text-[10px] text-muted-foreground bg-muted font-normal">
-                            Already Applied
+                            {isAlreadyApplied && isAlreadyReferred
+                              ? 'Already Applied · Referred'
+                              : isAlreadyReferred
+                              ? 'Already Referred'
+                              : 'Already Applied'}
                           </Badge>
                         )}
                       </div>

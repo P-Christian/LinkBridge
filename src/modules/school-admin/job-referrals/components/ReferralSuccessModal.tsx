@@ -27,6 +27,9 @@ export function ReferralSuccessModal() {
   const [copiedId, setCopiedId] = useState<number | null>(null);
   const [copiedAll, setCopiedAll] = useState(false);
 
+  const sentCount = createdResults.filter((r) => r.email_sent).length;
+  const allSent = sentCount === createdResults.length;
+
   const handleCopySingle = (id: number, url: string) => {
     navigator.clipboard.writeText(url);
     setCopiedId(id);
@@ -57,7 +60,9 @@ export function ReferralSuccessModal() {
                 Referrals Successfully Dispatched!
               </DialogTitle>
               <DialogDescription className="text-xs text-muted-foreground">
-                Generated {createdResults.length} trackable invitation link(s) and dispatched official notification email(s) to the student(s).
+                {allSent
+                  ? `Generated ${createdResults.length} trackable invitation link(s) and dispatched official notification email(s) to the student(s).`
+                  : `${sentCount} of ${createdResults.length} emails were sent. Resend the failed ones from Referral History.`}
               </DialogDescription>
             </div>
           </div>
@@ -81,9 +86,21 @@ export function ReferralSuccessModal() {
                       ({item.email})
                     </span>
                   </div>
-                  <Badge variant="secondary" className="text-[10px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
-                    Active Token
-                  </Badge>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Badge variant="secondary" className="text-[10px] bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
+                      Active Token
+                    </Badge>
+                    <Badge
+                      variant="secondary"
+                      className={
+                        item.email_sent
+                          ? 'text-[10px] bg-success/10 text-success'
+                          : 'text-[10px] bg-destructive/10 text-destructive'
+                      }
+                    >
+                      {item.email_sent ? 'Email sent' : 'Email not sent'}
+                    </Badge>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2">

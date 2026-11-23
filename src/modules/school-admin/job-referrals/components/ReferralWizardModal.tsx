@@ -21,6 +21,7 @@ import {
   Send,
   Building2,
   Users,
+  AlertCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -42,12 +43,16 @@ export function ReferralWizardModal() {
     generateAILetter,
     isSubmittingReferrals,
     submitReferrals,
+    referredStudentIds,
+    blockedStudents,
+    clearBlockedStudents,
   } = useJobReferralsContext();
 
   const [step, setStep] = useState<1 | 2>(1);
 
   const handleClose = () => {
     setStep(1);
+    clearBlockedStudents();
     closeReferralWizard();
   };
 
@@ -113,14 +118,35 @@ export function ReferralWizardModal() {
         {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1">
           {step === 1 ? (
-            <StudentCandidatePicker
-              job={activeJob}
-              students={students}
-              selectedStudentIds={selectedStudentIds}
-              onToggleSelection={toggleStudentSelection}
-              onSelectAll={selectAllStudents}
-              onClearSelection={clearStudentSelection}
-            />
+            <>
+              {blockedStudents.length > 0 && (
+                <div className="mb-4 rounded-lg border border-destructive/30 bg-destructive/5 px-3.5 py-3">
+                  <div className="flex items-center gap-1.5 text-xs font-semibold text-destructive">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Some students could not be referred
+                  </div>
+                  <ul className="mt-1.5 list-disc pl-5 space-y-1 text-xs text-muted-foreground">
+                    {blockedStudents.map((student) => (
+                      <li key={student.student_id}>
+                        <span className="font-medium text-foreground">{student.name}</span>{' '}
+                        {student.reason === 'ALREADY_REFERRED'
+                          ? 'already referred to this job'
+                          : 'already has an active application for this job'}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <StudentCandidatePicker
+                job={activeJob}
+                students={students}
+                selectedStudentIds={selectedStudentIds}
+                referredStudentIds={referredStudentIds}
+                onToggleSelection={toggleStudentSelection}
+                onSelectAll={selectAllStudents}
+                onClearSelection={clearStudentSelection}
+              />
+            </>
           ) : (
             <div className="space-y-4">
               {/* Selected Candidates Pill Summary */}
