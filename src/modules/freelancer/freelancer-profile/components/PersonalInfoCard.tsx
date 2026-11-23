@@ -78,7 +78,6 @@ export function PersonalInfoCard() {
         displayData.user_lname && 
         displayData.user_bday && 
         displayData.gender && 
-        displayData.user_contact && 
         displayData.user_province && 
         displayData.user_city
     );
@@ -99,7 +98,7 @@ export function PersonalInfoCard() {
                         </div>
                     )}
                     {idProofScore !== null && (
-                        <div className={`ml-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1 ${idProofScore >= 80 ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/30' : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/30'}`}>
+                        <div className={`ml-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold border flex items-center gap-1 ${idProofScore >= 75 ? 'bg-green-50 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800/30' : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800/30'}`}>
                             ID Proof: {idProofScore}%
                         </div>
                     )}

@@ -74,26 +74,30 @@ export function retrieveCandidatePool(
     };
 
     // 1. Match against Candidate Name (High Priority)
-    const nameMatch = matchCandidateName(effectiveQuery, candidate.name);
-    if (nameMatch.matched) {
-      recordMatch(nameMatch.score, `${nameMatch.reason} (${candidate.name})`, "NAME_MATCH");
+    if (effectiveQuery && effectiveQuery.length >= 2) {
+      const nameMatch = matchCandidateName(effectiveQuery, candidate.name);
+      if (nameMatch.matched) {
+        recordMatch(nameMatch.score, `${nameMatch.reason} (${candidate.name})`, "NAME_MATCH");
+      }
     }
 
     // 2. Match against Candidate Education (School & Course)
-    for (const edu of candidate.education) {
-      if (edu.school) {
-        const schoolMatch = matchSchool(effectiveQuery, edu.school);
-        if (schoolMatch.matched) {
-          recordMatch(schoolMatch.score, `${schoolMatch.reason} (${edu.school})`, "EDUCATION_MATCH");
+    if (effectiveQuery && effectiveQuery.length >= 2) {
+      for (const edu of candidate.education) {
+        if (edu.school) {
+          const schoolMatch = matchSchool(effectiveQuery, edu.school);
+          if (schoolMatch.matched) {
+            recordMatch(schoolMatch.score, `${schoolMatch.reason} (${edu.school})`, "EDUCATION_MATCH");
+          }
         }
-      }
-      if (edu.course) {
-        const courseClean = cleanText(edu.course);
-        if (
-          courseClean.includes(effectiveQuery) ||
-          computeTokenOverlapScore(effectiveQuery, courseClean) >= 0.6
-        ) {
-          recordMatch(75, `COURSE_MATCH (${edu.course})`, "EDUCATION_MATCH");
+        if (edu.course) {
+          const courseClean = cleanText(edu.course);
+          if (
+            courseClean.includes(effectiveQuery) ||
+            computeTokenOverlapScore(effectiveQuery, courseClean) >= 0.6
+          ) {
+            recordMatch(75, `COURSE_MATCH (${edu.course})`, "EDUCATION_MATCH");
+          }
         }
       }
     }
@@ -105,27 +109,29 @@ export function retrieveCandidatePool(
     const currentTitleClean = currentWork?.title ? cleanText(currentWork.title) : "";
 
     // 3. Character & Token Match against Candidate Titles
-    for (const title of candidateTitlesClean) {
-      if (!title) continue;
+    if (cleanedQuery && cleanedQuery.length >= 2) {
+      for (const title of candidateTitlesClean) {
+        if (!title) continue;
 
-      const isCurrentOrHeadline =
-        (headlineClean && title.includes(headlineClean)) ||
-        (currentTitleClean && title.includes(currentTitleClean));
+        const isCurrentOrHeadline =
+          (headlineClean && title.includes(headlineClean)) ||
+          (currentTitleClean && title.includes(currentTitleClean));
 
-      // Exact substring or token match
-      const tokenOverlap = computeTokenOverlapScore(cleanedQuery, title);
-      if (tokenOverlap > 0) {
-        const score = Math.round(tokenOverlap * 100);
-        const reason: EligibilityReason = isCurrentOrHeadline ? "DIRECT_ROLE_MATCH" : "EXPERIENCE_MATCH";
-        recordMatch(score, `TITLE_TOKEN_MATCH (${title})`, reason);
-      }
+        // Exact substring or token match
+        const tokenOverlap = computeTokenOverlapScore(cleanedQuery, title);
+        if (tokenOverlap > 0) {
+          const score = Math.round(tokenOverlap * 100);
+          const reason: EligibilityReason = isCurrentOrHeadline ? "DIRECT_ROLE_MATCH" : "EXPERIENCE_MATCH";
+          recordMatch(score, `TITLE_TOKEN_MATCH (${title})`, reason);
+        }
 
-      // Typo handling via Jaro-Winkler character similarity
-      const jaroSim = computeJaroWinkler(cleanedQuery, title);
-      if (jaroSim >= 0.75) {
-        const score = Math.round(jaroSim * 90);
-        const reason: EligibilityReason = isCurrentOrHeadline ? "DIRECT_ROLE_MATCH" : "EXPERIENCE_MATCH";
-        recordMatch(score, `TYPO_FUZZY_MATCH (${title})`, reason);
+        // Typo handling via Jaro-Winkler character similarity
+        const jaroSim = computeJaroWinkler(cleanedQuery, title);
+        if (jaroSim >= 0.75) {
+          const score = Math.round(jaroSim * 90);
+          const reason: EligibilityReason = isCurrentOrHeadline ? "DIRECT_ROLE_MATCH" : "EXPERIENCE_MATCH";
+          recordMatch(score, `TYPO_FUZZY_MATCH (${title})`, reason);
+        }
       }
     }
 
@@ -168,9 +174,12 @@ export function retrieveCandidatePool(
       }
 
       // B. Match directly against search query or aliases
-      if (skill === cleanedQuery || skill === effectiveQuery) {
+      if (
+        (cleanedQuery && cleanedQuery.length >= 2 && skill === cleanedQuery) ||
+        (effectiveQuery && effectiveQuery.length >= 2 && skill === effectiveQuery)
+      ) {
         recordMatch(80, `SKILL_EXACT_MATCH (${skill})`, "SKILL_MATCH");
-      } else if (skill.length >= 3) {
+      } else if (skill.length >= 3 && cleanedQuery && cleanedQuery.length >= 2) {
         // Multi-char skills: token/word containment (avoids single/double letters like 'c' matching 'chef')
         const queryTokens = cleanedQuery.split(/\s+/).filter(Boolean);
         const skillTokens = skill.split(/\s+/).filter(Boolean);

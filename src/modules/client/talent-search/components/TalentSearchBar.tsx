@@ -51,7 +51,7 @@ export default function TalentSearchBar({
           </motion.span>
           <Input
             id="talent-search-keyword"
-            placeholder="Search by name, skill, title, school…"
+            placeholder="Search by job, name, skill, title, school…"
             value={keyword}
             onChange={(e) => onKeywordChange(e.target.value)}
             onKeyDown={handleKeyDown}

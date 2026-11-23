@@ -6,7 +6,6 @@ import { fetchFreelancerProfileFromDirectus } from "./freelancer-profile.repo";
 export interface IdProofScoreBreakdown {
     gov_id: number;
     address: number;
-    mobile_number: number;
     profile_sections: number;
 }
 
@@ -67,13 +66,11 @@ export async function calculateIdProofScore(token: string): Promise<IdProofScore
     const verifications = await fetchUserVerifications(profile.user_id);
     let gov_id = 0;
     let address = 0;
-    let mobile_number = 0;
 
     for (const v of verifications) {
         if (v.status === 'approved') {
-            if (v.type === 'gov_id') gov_id = 20;
-            if (v.type === 'address') address = 20;
-            if (v.type === 'mobile_number') mobile_number = 20;
+            if (v.type === 'gov_id') gov_id = 25;
+            if (v.type === 'address') address = 25;
         }
     }
 
@@ -99,16 +96,15 @@ export async function calculateIdProofScore(token: string): Promise<IdProofScore
         completedProfileSections++;
     }
 
-    const profile_sections = Math.round((completedProfileSections / totalProfileSections) * 40);
+    const profile_sections = Math.round((completedProfileSections / totalProfileSections) * 50);
 
     return {
         score: score,
         breakdown: {
             gov_id,
             address,
-            mobile_number,
             profile_sections
         },
-        can_apply: score >= 80
+        can_apply: score >= 75
     };
 }

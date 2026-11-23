@@ -342,7 +342,7 @@ export function ApplicantAiAnalysisModal({
               <div className="p-4 rounded-xl border border-primary/25 bg-primary/[0.04] space-y-2">
                 <div className="flex items-center gap-2 text-sm font-bold text-primary md:text-xs">
                   <ShieldCheck className="h-4 w-4" />
-                  <span>Recruiter Action Recommendation</span>
+                  <span>Recommended Next Steps & Advisory</span>
                 </div>
                 <p className="text-sm text-foreground font-medium leading-relaxed md:text-xs">
                   {analysis.recommendation}
