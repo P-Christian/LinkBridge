@@ -301,3 +301,23 @@ test("8. Browse mode without filters: retains ALL candidates with BROWSE_MODE re
     assert.strictEqual(item.eligibility.reason, "BROWSE_MODE", "Reason must be BROWSE_MODE");
   }
 });
+
+test("9. Skill-only search for Chef excludes software dev with IT degree (no false COURSE_MATCH on blank keyword)", () => {
+  const query = analyzeQuery("");
+  const pool = retrieveCandidatePool(
+    allCandidates,
+    query,
+    null,
+    0,
+    "",
+    ["Chef"],
+    MatchMode.SKILL_MATCH
+  );
+
+  const eligible = pool.filter((r) => r.eligibility.eligible);
+  assert.strictEqual(
+    eligible.length,
+    0,
+    "No candidate with only software development and IT degree should be eligible for a Chef skill search"
+  );
+});
