@@ -16,6 +16,8 @@ import {
 import { NotificationBell as FreelancerNotificationBell } from "@/modules/freelancer/freelancer-notifications/components/NotificationBellWrapper";
 import { ClientNotificationBell } from "@/modules/client/notifications/components/ClientNotificationBellWrapper";
 import { SchoolAdminNotificationBell } from "@/modules/school-admin/components/SchoolAdminNotificationBellWrapper";
+import { useUserProfile } from "@/components/shared/providers/UserProfileProvider";
+import { NavUser } from "@/app/(linkbridge)/linkbridge/_components/nav-user";
 // import { UserSearchBar } from "@/modules/shared/search/components/UserSearchBar";
 
 /**
@@ -24,7 +26,7 @@ import { SchoolAdminNotificationBell } from "@/modules/school-admin/components/S
  * regardless of the width of the left/right groups.
  *  - Left:   SidebarTrigger (hamburger)
  *  - Center: UserSearchBar (hidden on mobile and for admin routes)
- *  - Right:  Help (links to role How It Works guide) + Notification bell
+ *  - Right:  Help (links to role How It Works guide) + Notification bell + profile menu
  */
 export interface PortalPageHeaderProps {
   user?: {
@@ -37,10 +39,15 @@ export interface PortalPageHeaderProps {
 export function PortalPageHeader(_props?: PortalPageHeaderProps) {
   void _props;
   const pathname = usePathname();
+  const profile = useUserProfile();
+  const showUserMenu = Boolean(profile.name) && profile.email !== "guest@example.com";
   const isClientRoute = pathname?.startsWith("/linkbridge/client");
   const isFreelancerRoute = pathname?.startsWith("/linkbridge/freelancer");
   const isSchoolAdminRoute = pathname?.startsWith("/linkbridge/school-admin");
-  // const isVosAdminRoute = pathname?.startsWith("/linkbridge/admin");
+  const isVosAdminRoute = pathname?.startsWith("/linkbridge/admin");
+  const isPortalRoute = Boolean(
+    isClientRoute || isFreelancerRoute || isSchoolAdminRoute || isVosAdminRoute
+  );
 
   const helpRoute = React.useMemo(() => {
     if (isClientRoute) return "/linkbridge/client/how-it-works";
@@ -132,7 +139,7 @@ export function PortalPageHeader(_props?: PortalPageHeaderProps) {
         )}
       </div> */}
 
-      {/* Right: Help, then Bell */}
+      {/* Right: Help, Bell, then profile menu */}
       <div className="flex shrink-0 items-center justify-self-end gap-1">
         <TooltipProvider>
           <Tooltip>
@@ -166,6 +173,8 @@ export function PortalPageHeader(_props?: PortalPageHeaderProps) {
         {isClientRoute && <ClientNotificationBell />}
         {isFreelancerRoute && <FreelancerNotificationBell />}
         {isSchoolAdminRoute && <SchoolAdminNotificationBell />}
+
+        {showUserMenu && isPortalRoute && <NavUser user={profile} compact />}
       </div>
     </header>
   );

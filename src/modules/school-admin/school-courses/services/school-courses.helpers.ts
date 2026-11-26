@@ -1,4 +1,5 @@
 import { VsSchoolCourse, CourseDegree, CourseStatus, SchoolStatus } from '../../types/school-admin.types';
+import { UNCATEGORIZED_COURSE_CATEGORY } from '../catalog/course-catalog';
 
 export function formatCourseCode(code: string | null | undefined): string {
   if (!code) return 'N/A';
@@ -34,7 +35,8 @@ export function filterCourses(
   courses: VsSchoolCourse[],
   searchQuery: string,
   statusFilter: string,
-  degreeFilter?: string
+  degreeFilter?: string,
+  categoryFilter?: string
 ): VsSchoolCourse[] {
   return courses.filter((course) => {
     const matchesSearch =
@@ -48,7 +50,15 @@ export function filterCourses(
     const matchesDegree =
       !degreeFilter || degreeFilter === 'all' || course.degree === degreeFilter;
 
-    return matchesSearch && matchesStatus && matchesDegree;
+    const category = course.course_category?.trim() ?? '';
+    const matchesCategory =
+      !categoryFilter ||
+      categoryFilter === 'all' ||
+      (categoryFilter === UNCATEGORIZED_COURSE_CATEGORY
+        ? category === ''
+        : category === categoryFilter);
+
+    return matchesSearch && matchesStatus && matchesDegree && matchesCategory;
   });
 }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, RotateCcw, X } from "lucide-react";
+import { ClipboardCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import {
-  availableCourseRequestActions,
   courseInboxRowState,
   type CourseRequestCandidate,
   type CourseRequestFeedback,
@@ -34,9 +33,7 @@ interface CourseRequestInboxTableProps {
   readonly courses: readonly CourseRequestCandidate[];
   readonly feedbackByRow: Readonly<Record<number, CourseRequestFeedback>>;
   readonly busyByRow: Readonly<Record<number, boolean>>;
-  readonly onApprove: (row: CourseRequestInboxRow) => void;
-  readonly onReject: (row: CourseRequestInboxRow) => void;
-  readonly onResume: (row: CourseRequestInboxRow) => void;
+  readonly onReview: (row: CourseRequestInboxRow) => void;
 }
 
 function feedbackTone(tone: CourseRequestFeedback["tone"]): string {
@@ -60,9 +57,9 @@ function feedbackTone(tone: CourseRequestFeedback["tone"]): string {
  * candidate fields. The Actions column is pinned sticky-right inside the
  * horizontal scroll container, so the actions stay fully visible at 1440x900,
  * 1024x768, 390x844 and 1680-wide viewports without page-level horizontal
- * overflow. Finalizing rows render the persisted locked course and ONLY Resume.
- * The request status is carried on the row as a data attribute only; it is not
- * rendered as a column.
+ * overflow. Every row exposes ONLY Review; decisions and finalizing recovery
+ * live inside the review dialog. The request status is carried on the row as a
+ * data attribute only; it is not rendered as a column.
  */
 export function CourseRequestInboxTable({
   rows,
@@ -70,9 +67,7 @@ export function CourseRequestInboxTable({
   courses,
   feedbackByRow,
   busyByRow,
-  onApprove,
-  onReject,
-  onResume,
+  onReview,
 }: CourseRequestInboxTableProps) {
   return (
     <div className="rounded-xl border bg-card overflow-hidden shadow-sm">
@@ -92,7 +87,6 @@ export function CourseRequestInboxTable({
           <TableBody>
             {rows.map((row) => {
               const state = courseInboxRowState(row);
-              const actions = availableCourseRequestActions(row);
               const feedback = feedbackByRow[row.courseRequestId];
               const busy = busyByRow[row.courseRequestId] === true;
               const locked =
@@ -150,57 +144,17 @@ export function CourseRequestInboxTable({
                         </span>
                       ) : null}
                       <div className="flex justify-end gap-2">
-                        {actions.includes("approve") &&
-                        state.kind === "actionable" &&
-                        row.matchedSchoolCourseId === null &&
-                        row.reviewedBy === null ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onApprove(row)}
-                            disabled={busy}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                            aria-label={`Approve course request ${String(row.courseRequestId)}`}
-                            data-testid={`course-request-approve-${String(row.courseRequestId)}`}
-                          >
-                            <Check className="h-4 w-4" />
-                            <span className="ml-1 hidden xl:inline">Approve</span>
-                          </Button>
-                        ) : null}
-                        {actions.includes("reject") &&
-                        state.kind === "actionable" &&
-                        row.matchedSchoolCourseId === null &&
-                        row.reviewedBy === null ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onReject(row)}
-                            disabled={busy}
-                            className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            aria-label={`Reject course request ${String(row.courseRequestId)}`}
-                            data-testid={`course-request-reject-${String(row.courseRequestId)}`}
-                          >
-                            <X className="h-4 w-4" />
-                            <span className="ml-1 hidden xl:inline">Reject</span>
-                          </Button>
-                        ) : null}
-                        {actions.includes("resume") &&
-                        state.kind === "finalizing" &&
-                        row.matchedSchoolCourseId !== null &&
-                        row.reviewedBy !== null ? (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => onResume(row)}
-                            disabled={busy}
-                            className="text-amber-700 hover:text-amber-800 hover:bg-amber-50"
-                            aria-label={`Resume locked course decision for request ${String(row.courseRequestId)}`}
-                            data-testid={`course-request-resume-${String(row.courseRequestId)}`}
-                          >
-                            <RotateCcw className={cn("h-4 w-4", busy && "animate-spin")} />
-                            <span className="ml-1 hidden xl:inline">Resume</span>
-                          </Button>
-                        ) : null}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onReview(row)}
+                          disabled={busy}
+                          aria-label={`Review course request ${String(row.courseRequestId)}`}
+                          data-testid={`course-request-review-${String(row.courseRequestId)}`}
+                        >
+                          <ClipboardCheck className="h-4 w-4" />
+                          <span className="ml-1">Review</span>
+                        </Button>
                       </div>
                       {feedback !== undefined ? (
                         <span

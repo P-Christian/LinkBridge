@@ -22,7 +22,15 @@ import {
   ExternalLink
 } from "lucide-react";
 import SchoolImageCropModal from "./SchoolImageCropModal";
-import { extractSocialHandle, sanitizeWebsiteUrl, getImageUrl } from "../services/school-profile.helpers";
+import {
+  SCHOOL_CONTACT_ERROR,
+  SCHOOL_CONTACT_MAX_LENGTH,
+  extractSocialHandle,
+  getImageUrl,
+  isValidSchoolContactNo,
+  sanitizeSchoolContactInput,
+  sanitizeWebsiteUrl,
+} from "../services/school-profile.helpers";
 import { executeUploadSchoolCover, executeUploadSchoolLogo } from "../services/school-profile.service";
 import { toast } from "sonner";
 
@@ -41,6 +49,7 @@ export default function SchoolBasicInfo({
   const coverInputRef = useRef<HTMLInputElement>(null);
   const [uploadingLogo, setUploadingLogo] = useState(false);
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   const [cropModalState, setCropModalState] = useState<{
     isOpen: boolean;
@@ -96,6 +105,22 @@ export default function SchoolBasicInfo({
   const cleanWebsite = sanitizeWebsiteUrl(data.school_website);
   const fbHandle = extractSocialHandle(data.school_facebook);
   const liHandle = extractSocialHandle(data.school_linkedin);
+  const contactValue = data.school_contact_no || "";
+  const visibleContactError =
+    contactError !== null && contactValue.trim() !== "" && !isValidSchoolContactNo(contactValue)
+      ? contactError
+      : null;
+
+  const handleContactChange = (rawValue: string) => {
+    onChange("school_contact_no", sanitizeSchoolContactInput(rawValue));
+    setContactError(null);
+  };
+
+  const handleContactBlur = () => {
+    if (!isValidSchoolContactNo(contactValue)) {
+      setContactError(SCHOOL_CONTACT_ERROR);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -194,7 +219,7 @@ export default function SchoolBasicInfo({
                 {data.school_type || "University"}
               </Badge>
             </div>
-            <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+            <h2 className="break-words text-xl font-black tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
               {data.school_name || "Institution Name"}
             </h2>
           </div>
@@ -214,9 +239,11 @@ export default function SchoolBasicInfo({
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Contact Number
               </span>
-              <p className="text-sm font-medium text-foreground flex items-center gap-2">
+              <p className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
                 <Phone className="w-4 h-4 text-primary shrink-0" />
-                <span>{data.school_contact_no || "—"}</span>
+                <span className="break-words [overflow-wrap:anywhere]">
+                  {data.school_contact_no || "—"}
+                </span>
               </p>
             </div>
 
@@ -281,27 +308,27 @@ export default function SchoolBasicInfo({
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
               About the Institution
             </span>
-            <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+            <p className="break-words text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
               {data.school_description || "No institutional description provided yet."}
             </p>
           </div>
 
           {/* Mission & Values Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-border">
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Institutional Mission
               </span>
-              <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+              <p className="break-words text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {data.school_mission || "No institutional mission specified."}
               </p>
             </div>
 
-            <div className="space-y-2">
+            <div className="min-w-0 space-y-2">
               <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
                 Core Values & Philosophy
               </span>
-              <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+              <p className="break-words text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {data.school_values || "No core values specified."}
               </p>
             </div>
@@ -362,11 +389,20 @@ export default function SchoolBasicInfo({
               </Label>
               <Input
                 id="school_contact_no"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                maxLength={SCHOOL_CONTACT_MAX_LENGTH}
                 value={data.school_contact_no || ""}
-                onChange={(e) => onChange("school_contact_no", e.target.value)}
+                onChange={(e) => handleContactChange(e.target.value)}
+                onBlur={handleContactBlur}
                 placeholder="+63 2 8123 4567"
+                aria-invalid={visibleContactError !== null}
                 className="h-10 text-sm rounded-xl"
               />
+              {visibleContactError !== null ? (
+                <p className="text-xs font-medium text-rose-500">{visibleContactError}</p>
+              ) : null}
             </div>
 
             <div className="space-y-2">

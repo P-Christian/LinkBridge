@@ -29,21 +29,28 @@ export function MetricsFiltersBar() {
         </div>
 
         {/* Academic Year Filter */}
-        <div className="min-w-[160px]">
+        <div className="flex min-w-[160px] flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Academic Year
+          </span>
           <SearchableSelect
             options={[
               { value: 'ALL', label: 'All Academic Years' },
-              ...schoolYears.map((year) => ({ value: year, label: `Cohort ${year}` })),
+              ...schoolYears.map((year) => ({ value: year, label: `AY ${year}` })),
             ]}
             value={filter.school_year || 'ALL'}
             onValueChange={(val) => updateFilter({ school_year: val === 'ALL' ? undefined : val })}
             placeholder="All Academic Years"
+            ariaLabel="Filter by academic year"
             className="h-9 min-w-[160px] text-xs"
           />
         </div>
 
         {/* Course Filter */}
-        <div className="min-w-[180px] max-w-[240px]">
+        <div className="flex min-w-[180px] max-w-[240px] flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Degree Program
+          </span>
           <SearchableSelect
             options={[
               { value: 'ALL', label: 'All Degree Programs' },
@@ -52,24 +59,30 @@ export function MetricsFiltersBar() {
             value={filter.school_course_id ? String(filter.school_course_id) : 'ALL'}
             onValueChange={(val) => updateFilter({ school_course_id: val === 'ALL' ? undefined : Number(val) })}
             placeholder="All Degree Programs"
+            ariaLabel="Filter by degree program"
             className="h-9 min-w-[180px] max-w-[240px] text-xs"
           />
         </div>
 
         {/* Alumni vs Current Student Filter */}
-        <Select
-          value={filter.is_alumni !== undefined ? String(filter.is_alumni) : 'ALL'}
-          onValueChange={(val) => updateFilter({ is_alumni: val === 'ALL' ? undefined : val === 'true' })}
-        >
-          <SelectTrigger className="h-9 min-w-[150px] text-xs">
-            <SelectValue placeholder="All Cohorts" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="ALL">All Cohorts</SelectItem>
-            <SelectItem value="false">Current Students</SelectItem>
-            <SelectItem value="true">Graduates / Alumni</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex min-w-[170px] flex-col gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Student Type
+          </span>
+          <Select
+            value={filter.is_alumni !== undefined ? String(filter.is_alumni) : 'ALL'}
+            onValueChange={(val) => updateFilter({ is_alumni: val === 'ALL' ? undefined : val === 'true' })}
+          >
+            <SelectTrigger aria-label="Filter by student type" className="h-9 min-w-[170px] text-xs">
+              <SelectValue placeholder="All Students" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">All Students</SelectItem>
+              <SelectItem value="false">Current Students</SelectItem>
+              <SelectItem value="true">Graduates / Alumni</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 self-end sm:self-auto">

@@ -14,6 +14,7 @@ export {
 export { parseRouteAudit } from "./route-audit";
 export {
   groupSchoolRequest,
+  matchSchoolRequest,
   rejectSchoolRequest,
   releaseGroupedSchoolRequest,
   releaseParkedRequestsForSchool,
@@ -24,6 +25,7 @@ export type {
   AttendanceClaimInput,
   EducationRecord,
   GroupSchoolInput,
+  MatchSchoolInput,
   NormalizedRosterAcademics,
   RejectSchoolRequestInput,
   RequestStatus,

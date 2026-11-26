@@ -13,11 +13,15 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   GraduationCap,
   FileCheck2,
   UserCheck,
+  UserPlus,
+  School,
+  Link2,
   ExternalLink,
   Download,
   ShieldCheck,
@@ -37,6 +41,9 @@ import {
 import { SchoolVerificationRecord, SchoolDocument } from "../types";
 import { SchoolVerificationStatusBadge } from "./SchoolVerificationStatusBadge";
 import { SchoolVerificationCoursesTab } from "./SchoolVerificationCoursesTab";
+import { InviteSchoolLinkModal } from "@/modules/vos-admin/components/InviteSchoolLinkModal";
+import type { SchoolInviteResult } from "@/lib/school-invite";
+import { toast } from "sonner";
 import { formatSchoolAddress, formatPHDate } from "../services/schoolVerification.helpers";
 
 interface SchoolVerificationDetailModalProps {
@@ -45,7 +52,7 @@ interface SchoolVerificationDetailModalProps {
   school: SchoolVerificationRecord | null;
   onApprove: (school: SchoolVerificationRecord) => void;
   onRequestCorrection: (school: SchoolVerificationRecord) => void;
-  onReject: (school: SchoolVerificationRecord) => void;
+  onGenerateInvite: (schoolId: number, email: string) => Promise<SchoolInviteResult | null>;
   isSubmitting: boolean;
 }
 
@@ -55,13 +62,119 @@ function formatUrl(url: string | null | undefined): string {
   return t.startsWith("http://") || t.startsWith("https://") ? t : `https://${t}`;
 }
 
+const INVITE_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function DraftInvitePanel({
+  school,
+  onGenerateInvite,
+}: {
+  school: SchoolVerificationRecord;
+  onGenerateInvite: (schoolId: number, email: string) => Promise<SchoolInviteResult | null>;
+}) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [invite, setInvite] = useState<{ invitedEmail: string; invitationUrl: string } | null>(null);
+
+  if ((school.admins || []).length > 0) {
+    return (
+      <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
+        <div className="flex h-24 w-24 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-400">
+          <UserCheck className="h-16 w-16" strokeWidth={1.5} />
+        </div>
+        <h3 className="mt-6 text-lg font-bold text-foreground">Administrator connected</h3>
+        <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          This school already has an administrator account.
+        </p>
+      </div>
+    );
+  }
+
+  const trimmed = email.trim();
+  const isValid = INVITE_EMAIL_PATTERN.test(trimmed);
+  const disabled = busy || !isValid;
+
+  const handleGenerate = async () => {
+    if (disabled) return;
+    setBusy(true);
+    try {
+      const result = await onGenerateInvite(school.school_id, trimmed);
+      if (!result) {
+        toast.error("Could not generate the invite link. Please try again.");
+        return;
+      }
+      setInvite({ invitedEmail: trimmed, invitationUrl: result.invitationUrl });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <div className="flex min-h-full flex-col items-center justify-center py-8 text-center">
+        <div className="relative">
+          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/10 text-primary ring-1 ring-primary/20">
+            <School className="h-16 w-16" strokeWidth={1.5} />
+          </div>
+          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-background text-primary shadow-sm">
+            <UserPlus className="h-4 w-4" />
+          </div>
+        </div>
+        <h3 className="mt-6 text-lg font-bold text-foreground">No administrator yet</h3>
+        <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">
+          This school has no account connected. Invite the person who will manage it.
+        </p>
+        <div className="mt-8 w-full max-w-sm space-y-4 text-left">
+          <div className="space-y-1.5">
+            <label htmlFor="draft-admin-email" className="text-xs font-semibold text-foreground">
+              Administrator email
+            </label>
+            <div className="relative">
+              <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="draft-admin-email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="name@school.edu"
+                disabled={busy}
+                className="h-10 pl-9 text-sm"
+              />
+            </div>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void handleGenerate()}
+            disabled={disabled}
+            className="h-10 w-full text-sm font-semibold"
+          >
+            <Link2 className="h-4 w-4" />
+            {busy ? "Generating..." : "Generate invitation link"}
+          </Button>
+          <p className="text-center text-[11px] text-muted-foreground">
+            Tied to this email; expires in 72 hours.
+          </p>
+        </div>
+      </div>
+      {invite && (
+        <InviteSchoolLinkModal
+          isOpen
+          onClose={() => setInvite(null)}
+          schoolName={school.school_name}
+          invitedEmail={invite.invitedEmail}
+          invitationUrl={invite.invitationUrl}
+        />
+      )}
+    </>
+  );
+}
+
 export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailModalProps> = ({
   isOpen,
   onClose,
   school,
   onApprove,
   onRequestCorrection,
-  onReject,
+  onGenerateInvite,
   isSubmitting,
 }) => {
   const [previewImage, setPreviewImage] = useState<{ url: string; title: string } | null>(null);
@@ -93,6 +206,11 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
         return type.replace(/_/g, " ");
     }
   };
+
+  const isDraft = school.verification_status === "DRAFT";
+  const canDecide =
+    school.verification_status === "PENDING_VERIFICATION" ||
+    school.verification_status === "CORRECTION_REQUIRED";
 
   return (
     <>
@@ -130,8 +248,6 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                   <DialogDescription className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
                     <span className="font-semibold text-foreground/80">{school.school_type}</span>
                     <span>•</span>
-                    <span>ID #{school.school_id}</span>
-                    <span>•</span>
                     <span>Status: {school.school_status}</span>
                   </DialogDescription>
                 </div>
@@ -148,6 +264,9 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
 
           {/* Body Content with Tabs */}
           <div className="flex-1 overflow-y-auto p-6">
+            {isDraft ? (
+              <DraftInvitePanel key={school.school_id} school={school} onGenerateInvite={onGenerateInvite} />
+            ) : (
             <Tabs defaultValue="profile" className="w-full">
               <TabsList className="grid grid-cols-5 mb-6 w-full sm:w-[680px] bg-muted/60 p-1 rounded-xl">
                 <TabsTrigger value="profile" className="text-xs rounded-lg flex items-center gap-1.5">
@@ -319,22 +438,38 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                     <p className="text-xs font-medium">No accreditation or legal documents uploaded yet.</p>
                   </div>
                 ) : (
-                  documents.map((doc: SchoolDocument) => (
+                  documents.map((doc: SchoolDocument) => {
+                    const label = getDocTypeLabel(doc.document_type);
+                    const isImage = Boolean(doc.file_url) && /\.(png|jpe?g|webp|gif)$/i.test(doc.document_name ?? "");
+                    return (
                     <div
                       key={doc.school_document_id}
                       className="flex items-center justify-between border rounded-xl p-4 bg-card hover:bg-muted/30 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
-                          <FileCheck2 className="h-5 w-5" />
-                        </div>
+                        {isImage && doc.file_url ? (
+                          <button
+                            type="button"
+                            onClick={() => setPreviewImage({ url: doc.file_url!, title: label })}
+                            className="h-12 w-12 shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30"
+                          >
+                            <Image
+                              src={doc.file_url}
+                              alt={label}
+                              width={48}
+                              height={48}
+                              unoptimized
+                              className="h-full w-full object-cover"
+                            />
+                          </button>
+                        ) : (
+                          <div className="p-2.5 rounded-lg bg-primary/10 text-primary">
+                            <FileText className="h-5 w-5" />
+                          </div>
+                        )}
                         <div>
-                          <div className="font-bold text-foreground text-sm">{doc.document_name}</div>
+                          <div className="font-bold text-foreground text-sm">{label}</div>
                           <div className="text-muted-foreground flex items-center gap-2 mt-0.5">
-                            <Badge variant="outline" className="text-[10px]">
-                              {getDocTypeLabel(doc.document_type)}
-                            </Badge>
-                            <span>•</span>
                             <span>Uploaded: {formatPHDate(doc.uploaded_at)}</span>
                           </div>
                         </div>
@@ -353,7 +488,7 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                             </a>
                             <a
                               href={doc.file_url}
-                              download
+                              download={doc.document_name}
                               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
                             >
                               <Download className="h-3.5 w-3.5" />
@@ -363,7 +498,8 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                         )}
                       </div>
                     </div>
-                  ))
+                    );
+                  })
                 )}
               </TabsContent>
 
@@ -474,7 +610,7 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                   <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/10 text-destructive text-xs space-y-1">
                     <span className="font-bold flex items-center gap-1.5">
                       <AlertTriangle className="h-4 w-4" />
-                      Active Feedback / Rejection Reason:
+                      Active Feedback / Correction Note:
                     </span>
                     <p className="pl-5 text-destructive/90">{school.rejection_reason}</p>
                   </div>
@@ -506,6 +642,7 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                 </div>
               </TabsContent>
             </Tabs>
+            )}
           </div>
 
           {/* Footer Decision Buttons */}
@@ -521,17 +658,8 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
               Close
             </Button>
 
+            {canDecide && (
             <div className="flex items-center gap-2 w-full sm:w-auto">
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                onClick={() => onReject(school)}
-                disabled={isSubmitting}
-                className="w-full sm:w-auto rounded-lg text-xs shadow-2xs font-semibold"
-              >
-                Reject School
-              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -553,6 +681,7 @@ export const SchoolVerificationDetailModal: React.FC<SchoolVerificationDetailMod
                 {isSubmitting ? "Approving..." : "Approve Verification"}
               </Button>
             </div>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

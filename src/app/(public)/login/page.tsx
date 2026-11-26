@@ -93,6 +93,7 @@ function LoginForm() {
     const passwordInputRef = React.useRef<HTMLInputElement>(null)
 
     const [errors, setErrors] = React.useState<FieldErrors>({})
+    const [credentialError, setCredentialError] = React.useState<string | null>(null)
 
     // PRIV-017: no client-side "already signed in" probe here - the auth cookie
     // is HttpOnly so document.cookie cannot see it; middleware.ts performs that
@@ -136,8 +137,8 @@ function LoginForm() {
             account_blocked: "Your account is blocked. Please contact support.",
             account_inactive: "Your account is not active or verified.",
             google_cancelled: "Google sign-in was cancelled.",
-            facebook_cancelled: "Facebook sign-in was cancelled.",
             linkedin_cancelled: "LinkedIn sign-in was cancelled.",
+            facebook_cancelled: "Facebook sign-in was cancelled.",
             state_mismatch: "Authentication state mismatch. Please try again.",
             invalid_oauth_state: "Authentication session expired or invalid. Please try again.",
             transaction_replayed: "Authentication transaction was already consumed. Please try again.",
@@ -165,6 +166,7 @@ function LoginForm() {
 
     const onSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+        setCredentialError(null)
 
         if (!validate()) return
 
@@ -183,6 +185,9 @@ function LoginForm() {
                 const raw = String(data?.message ?? `Login failed (HTTP ${res.status}).`)
                 const msg = normalizeLoginErrorMessage(raw, res.status)
                 toast.error("Sign in failed", { description: msg })
+                if (data?.code === "invalid_credentials") {
+                    setCredentialError("Incorrect email or password.")
+                }
                 return
             }
 
@@ -252,6 +257,7 @@ function LoginForm() {
 
     const emailHasError = Boolean(errors.email)
     const pwHasError = Boolean(errors.hashPassword)
+    const hasCredentialError = Boolean(credentialError)
 
     return (
         <div className="max-md:items-start min-h-[calc(100dvh-6rem)] flex-grow flex items-center justify-center py-6 md:py-8 px-4 md:px-6 text-foreground font-sans relative z-10">
@@ -502,10 +508,13 @@ function LoginForm() {
                                     value={email}
                                     onChange={(e) => {
                                         setEmail(e.target.value)
+                                        setCredentialError(null)
                                         if (errors.email) setErrors((p) => ({ ...p, email: undefined }))
                                     }}
                                     disabled={loading}
-                                    className={cn("h-11", emailHasError && "border-destructive focus-visible:ring-destructive")}
+                                    aria-invalid={emailHasError || hasCredentialError || undefined}
+                                    aria-describedby={hasCredentialError ? "login-credentials-error" : undefined}
+                                    className={cn("h-11", (emailHasError || hasCredentialError) && "border-destructive focus-visible:ring-destructive")}
                                 />
                                 {emailHasError ? (
                                     <p className="text-xs text-destructive mt-1.5">{errors.email}</p>
@@ -526,10 +535,13 @@ function LoginForm() {
                                         value={hashPassword}
                                         onChange={(e) => {
                                             setHashPassword(e.target.value)
+                                            setCredentialError(null)
                                             if (errors.hashPassword) setErrors((p) => ({ ...p, hashPassword: undefined }))
                                         }}
                                         disabled={loading}
-                                        className={cn("h-11 pr-12", pwHasError && "border-destructive focus-visible:ring-destructive")}
+                                        aria-invalid={pwHasError || hasCredentialError || undefined}
+                                        aria-describedby={hasCredentialError ? "login-credentials-error" : undefined}
+                                        className={cn("h-11 pr-12", (pwHasError || hasCredentialError) && "border-destructive focus-visible:ring-destructive")}
                                     />
                                     <button
                                         type="button"
@@ -543,6 +555,11 @@ function LoginForm() {
                                 </div>
                                 {pwHasError ? (
                                     <p className="text-xs text-destructive mt-1.5">{errors.hashPassword}</p>
+                                ) : null}
+                                {credentialError ? (
+                                    <p id="login-credentials-error" role="alert" className="text-xs text-destructive mt-1.5">
+                                        {credentialError}
+                                    </p>
                                 ) : null}
                             </div>
 

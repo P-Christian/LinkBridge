@@ -12,9 +12,9 @@
 // only while the sheet is open, debounced from a representative request id and
 // the requested name, and only a candidate whose `school_id` exactly equals
 // the group's matched id may refine the label. No exact candidate, a capped or
-// blank search, a 4xx/5xx, or a stale response keeps the conservative
-// `Waiting for account` state with a retry affordance; the group itself never
-// disappears on failure. Focus returns to the element that opened the sheet.
+// blank search, a 4xx/5xx, or a stale response keeps the unresolved
+// `Checking account state…` state with a retry affordance; the group itself
+// never disappears on failure. Focus returns to the element that opened the sheet.
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -41,7 +41,7 @@ import type {
 } from "../hooks/useRequests";
 import type { AwaitingSchoolGroup } from "../dashboard/school-demand.selectors";
 import { SchoolDemandDetailRequests } from "./SchoolDemandDetailRequests";
-import { InviteSchoolLinkModal } from "./InviteSchoolLinkModal";
+import { InviteSchoolLinkModal } from "../../components/InviteSchoolLinkModal";
 import { useSchoolRequestActionController } from "./school-requests/SchoolRequestActionController";
 import type { SchoolRequestsMode } from "./school-requests/school-request-mode";
 
@@ -85,11 +85,11 @@ function AccountStateBadge({ refinement }: { refinement: AccountRefinement }) {
     return (
       <StatusBadge tone="neutral">
         <RefreshCw className="mr-1 h-3 w-3 animate-spin" aria-hidden="true" />
-        Checking account state
+        Checking account state…
       </StatusBadge>
     );
   }
-  return <StatusBadge tone="info">Waiting for account</StatusBadge>;
+  return <StatusBadge tone="neutral">Checking account state…</StatusBadge>;
 }
 
 export interface SchoolDemandDetailSheetProps {
@@ -122,7 +122,7 @@ export function SchoolDemandDetailSheet(props: SchoolDemandDetailSheetProps) {
   } = props;
   const controller = useSchoolRequestActionController({
     mode, onReview, onDecide, onSearchSchools, candidatesFor, candidatesLoadingFor,
-    candidatesErrorFor, decisionBusyFor, onCreatePlaceholder, onDecided,
+    candidatesErrorFor, decisionBusyFor, onCreatePlaceholder, onDecided, allowReject: false,
   });
 
   const matchedSchoolId = group?.matchedSchoolId ?? null;
@@ -366,8 +366,7 @@ export function SchoolDemandDetailSheet(props: SchoolDemandDetailSheetProps) {
                 readOnly={readOnly}
                 feedbackFor={feedbackFor}
                 decisionBusyFor={decisionBusyFor}
-                onOpenDecision={controller.openDecision}
-                onOpenLegacyReview={controller.openLegacyReview}
+                onEdit={(request) => controller.openDecision(request, "correct")}
               />
             </section>
           </div>

@@ -17,10 +17,8 @@ import {
   ApplicantFiltersState,
   EXPERIENCE_BUCKETS,
   PROFILE_BUCKETS,
-  STAGE_TAG_OPTIONS,
   countActiveFilters,
 } from "../utils/applicantFilters";
-import type { CanonicalStageType } from "@/modules/client/pipeline/types";
 
 interface ApplicantFilterPanelProps {
   filters: ApplicantFiltersState;
@@ -155,25 +153,6 @@ export default function ApplicantFilterPanel({
           ))}
         </FilterGroup>
 
-        <FilterGroup title="Stage">
-          {STAGE_TAG_OPTIONS.map((stage) => (
-            <FilterChip
-              key={stage.id}
-              label={stage.label}
-              selected={filters.stageTypes.includes(stage.id)}
-              onClick={() =>
-                onChange({
-                  ...filters,
-                  stageTypes: toggleIn(
-                    filters.stageTypes,
-                    stage.id as CanonicalStageType
-                  ),
-                })
-              }
-            />
-          ))}
-        </FilterGroup>
-
         <div className="flex items-center justify-between border-t border-border/60 pt-3">
           <p className="text-[11px] text-muted-foreground">
             {activeCount === 0
@@ -185,7 +164,7 @@ export default function ApplicantFilterPanel({
             variant="ghost"
             size="sm"
             disabled={activeCount === 0}
-            onClick={() => onChange({ ...filters, experience: [], profile: [], appliedWithin: null, stageTypes: [] })}
+            onClick={() => onChange({ ...filters, experience: [], profile: [], appliedWithin: null })}
             className="h-7 text-xs text-muted-foreground max-md:min-h-9"
           >
             Clear all

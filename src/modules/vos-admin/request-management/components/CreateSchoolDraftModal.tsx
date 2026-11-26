@@ -26,21 +26,31 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   /** Guarded draft creation; resolves null on failure and the parent toasts it. */
   onSubmit: (input: SchoolPlaceholderInput) => Promise<SchoolDraftOutcome | null>;
+  initialName?: string;
+  initialCity?: string;
+  initialProvince?: string;
 }
 
-export function CreateSchoolDraftModal({ open, onOpenChange, onSubmit }: Props) {
-  const [schoolName, setSchoolName] = useState("");
-  const [city, setCity] = useState("");
-  const [province, setProvince] = useState("");
+export function CreateSchoolDraftModal({
+  open,
+  onOpenChange,
+  onSubmit,
+  initialName = "",
+  initialCity = "",
+  initialProvince = "",
+}: Props) {
+  const [schoolName, setSchoolName] = useState(initialName);
+  const [city, setCity] = useState(initialCity);
+  const [province, setProvince] = useState(initialProvince);
   const [submitting, setSubmitting] = useState(false);
 
   const [wasOpen, setWasOpen] = useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
     if (open) {
-      setSchoolName("");
-      setCity("");
-      setProvince("");
+      setSchoolName(initialName);
+      setCity(initialCity);
+      setProvince(initialProvince);
       setSubmitting(false);
     }
   }

@@ -59,6 +59,7 @@ export function AddCourseModal({
     const success = await onSubmit({
       course_name: input.course_name,
       course_code: input.course_code,
+      course_category: input.course_category,
       degree: input.degree,
     });
 

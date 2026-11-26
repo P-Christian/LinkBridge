@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { getFreelancerProfile } from "@/modules/freelancer/freelancer-profile/services/freelancer-profile.service";
 import { FreelancerPageHeader } from "@/components/shared/layout/FreelancerPageHeader";
 import { FreelancerDashboard } from "@/modules/freelancer/freelancer-dashboard/components/FreelancerDashboard";
+import RegistrationUploadNotice from "@/components/shared/RegistrationUploadNotice";
 import { formatAssetUrl } from "@/lib/utils";
 
 function checkIsNewUser(dateStr?: string | null): boolean {
@@ -32,6 +33,7 @@ export default async function FreelancerDashboardPage() {
             <FreelancerPageHeader label="Dashboard" user={user} showNewBadge={showNewBadge} />
 
             <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 lg:p-8 bg-[#F8FAFC] dark:bg-background">
+                <RegistrationUploadNotice />
                 <div className="max-w-7xl mx-auto w-full">
                     <FreelancerDashboard />
                 </div>

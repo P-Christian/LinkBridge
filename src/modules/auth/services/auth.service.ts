@@ -569,10 +569,11 @@ export async function confirmOTP(email: string, code: string) {
 }
 
 export async function requestPasswordReset(email: string) {
+    const expiresInSeconds = RESET_OTP_EXPIRY_MS / 1000;
     const user = await getUserByEmail(email);
     if (!user) {
         // Silent success: Do not reveal if email exists
-        return { ok: true };
+        return { ok: true as const, expiresInSeconds };
     }
 
     // Generate 6-digit OTP using CSPRNG
@@ -600,7 +601,7 @@ export async function requestPasswordReset(email: string) {
         reason: "Password reset OTP requested",
     });
     
-    return { ok: true };
+    return { ok: true as const, expiresInSeconds };
 }
 
 export async function confirmPasswordReset(email: string, code: string, newPassword: string) {

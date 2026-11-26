@@ -29,7 +29,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       listCourseRequestInbox(ctx),
       listActiveCourseCandidates(ctx),
     ]);
-    return NextResponse.json({ inbox: await attachSubmitterNames(listing, courses) });
+    return NextResponse.json({ inbox: await attachSubmitterNames(ctx, listing, courses) });
   } catch (error: unknown) {
     return toErrorResponse(error);
   }

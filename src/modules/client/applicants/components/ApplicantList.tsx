@@ -20,6 +20,7 @@ interface ApplicantListProps {
   onViewScheduledInterview?: (interviewId: number) => void;
   onViewDetails: (applicant: Applicant) => void;
   onReviewAssessment?: (applicant: Applicant) => void;
+  onOverride?: (applicant: Applicant) => void;
   /** Applicants that exist before search/stage filters are applied. */
   totalCount?: number;
   /** Changes whenever the query behind `applicants` changes, resetting to page 1. */
@@ -38,6 +39,7 @@ type CardProps = Pick<
   | "onViewScheduledInterview"
   | "onViewDetails"
   | "onReviewAssessment"
+  | "onOverride"
 >;
 
 /**

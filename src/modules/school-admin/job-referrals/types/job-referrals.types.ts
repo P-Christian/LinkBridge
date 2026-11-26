@@ -106,11 +106,18 @@ export interface VsJobReferral {
   expires_at: string;
   created_at: string;
   updated_at?: string | null;
+  student_id?: number | null;
+  school_id?: number | null;
+  email_status?: "SENT" | "FAILED" | null;
+  email_sent_at?: string | null;
+  referral_letter?: string | null;
   // Joined fields for display
   job_title?: string;
   company_name?: string;
   referral_url?: string;
   recipient_name?: string;
+  claimants?: ReferralClaimant[];
+  claim_count?: number;
 }
 
 export interface VsJobReferralHistory {
@@ -178,4 +185,28 @@ export interface CreatedReferralResult {
   token: string;
   referral_url: string;
   status: ReferralStatus;
+  email_sent: boolean;
+}
+
+export interface BlockedStudent {
+  student_id: number;
+  name: string;
+  reason: "ALREADY_REFERRED" | "ALREADY_APPLIED";
+}
+
+export interface CreatedShareLinkResult {
+  referral_id: number;
+  token: string;
+  referral_url: string;
+  status: ReferralStatus;
+  expires_at: string;
+  reused: boolean;
+}
+
+export interface ReferralClaimant {
+  name: string;
+  email: string;
+  consented_at: string;
+  claim_status: string;
+  applied: boolean;
 }

@@ -41,6 +41,7 @@ export const linkedEducationRowSchema = z.object({
   user_id: z.number().int(),
   school_id: nullableInteger,
   school_course_id: nullableInteger,
+  course_name_raw: nullableText,
   school_name_raw: nullableText,
   education_status: z.enum(["Pending", "Verified", "Unverified"]),
   start_date: nullableText,
@@ -70,6 +71,7 @@ const educationSummarySchema = z.object({
   userId: z.number().int(),
   schoolId: nullableInteger,
   schoolCourseId: nullableInteger,
+  courseNameRaw: nullableText,
   schoolNameRaw: nullableText,
   educationStatus: z.enum(["Pending", "Verified", "Unverified"]),
   startDate: nullableText,
@@ -81,6 +83,15 @@ const courseSummarySchema = z.object({
   schoolId: z.number().int(),
   courseName: z.string(),
   courseCode: nullableText,
+});
+
+/** Outbound proof-document metadata. The Directus file id never appears here. */
+export const schoolRequestDocumentSchema = z.object({
+  documentId: z.number().int(),
+  type: z.string(),
+  fileName: z.string(),
+  mimeType: z.string(),
+  url: z.string(),
 });
 
 /**
@@ -101,4 +112,5 @@ export const schoolRequestInboxRowSchema = z.object({
   reviewedAt: nullableText,
   education: educationSummarySchema,
   course: courseSummarySchema.nullable(),
+  documents: z.array(schoolRequestDocumentSchema),
 });

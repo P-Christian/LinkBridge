@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createVerificationSubmission, approveMobileVerification, deleteExistingVerification, fetchUserVerifications, IdentityVerification } from "./identity-verification.repo";
+import { createVerificationSubmission, deleteExistingVerification, fetchUserVerifications, IdentityVerification } from "./identity-verification.repo";
 import { getFreelancerProfile } from "./freelancer-profile.service";
 import { checkRestriction } from "@/lib/status-validator";
 import {
@@ -20,15 +20,6 @@ const IDENTITY_FOLDER_ID =
     process.env.DIRECTUS_PROTECTED_FREELANCER_IDENTITY_FOLDER_ID?.trim() ||
     process.env.DIRECTUS_FREELANCER_IDENTITY_FOLDER_ID?.trim() ||
     "e81cc874-8036-4655-8bbb-1524a194866b";
-
-const MOBILE_OTP_SIMULATION_ENABLED = process.env.NODE_ENV !== "production";
-
-/** Philippine mobile numbers only; returns the normalized digits or null. */
-function normalizeMobileNumber(value: unknown): string | null {
-    const digits = String(value ?? "").replace(/\D/g, "");
-    const local = digits.startsWith("63") ? digits.slice(2) : digits.replace(/^0/, "");
-    return /^9\d{9}$/.test(local) ? `63${local}` : null;
-}
 
 async function requireFreelancerProfile() {
     const session = await authenticateCookieSession();
@@ -115,7 +106,7 @@ export async function submitIdentityVerificationAction(payload: Partial<Identity
     try {
         const { profile } = await requireFreelancerProfile();
         const type = payload.type;
-        if (type !== "gov_id" && type !== "address" && type !== "mobile_number") {
+        if (type !== "gov_id" && type !== "address") {
             throw new Error("Verification type is required");
         }
 
@@ -138,8 +129,6 @@ export async function submitIdentityVerificationAction(payload: Partial<Identity
         } else if (type === "address") {
             if (!payload.address_doc_image_uuid) throw new Error("Proof of address document is required.");
             verificationPayload.address_doc_image_uuid = requireFileReference(payload.address_doc_image_uuid, "Proof of address document");
-        } else if (payload.mobile_number) {
-            verificationPayload.mobile_number = String(payload.mobile_number).slice(0, 40);
         }
 
         // Backend Idempotency & Debounce Guard: Reject duplicate submissions if one is already pending within the last 30 seconds
@@ -166,54 +155,6 @@ export async function submitIdentityVerificationAction(payload: Partial<Identity
     } catch (error) {
         console.error("submitIdentityVerificationAction Error:", error);
         const message = error instanceof Error ? error.message : "Failed to submit verification";
-        return { success: false, error: message };
-    }
-}
-
-export async function sendMobileOtpAction(mobileNumber: string) {
-    try {
-        await requireFreelancerProfile();
-        if (!normalizeMobileNumber(mobileNumber)) throw new Error("Enter a valid mobile number.");
-
-        // No SMS provider is wired up, so nothing is actually delivered. Refuse
-        // the flow outside development instead of minting an unverified badge.
-        if (!MOBILE_OTP_SIMULATION_ENABLED) {
-            throw new Error("Mobile verification is temporarily unavailable.");
-        }
-
-        return { success: true, message: "OTP sent successfully" };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to send OTP";
-        return { success: false, error: message };
-    }
-}
-
-export async function verifyMobileOtpAction(mobileNumber: string, otp: string) {
-    try {
-        const { profile } = await requireFreelancerProfile();
-
-        const normalized = normalizeMobileNumber(mobileNumber);
-        if (!normalized) throw new Error("Enter a valid mobile number.");
-
-        if (!MOBILE_OTP_SIMULATION_ENABLED) {
-            throw new Error("Mobile verification is temporarily unavailable.");
-        }
-
-        // Development-only simulated code. Never approve a mobile verification
-        // here without a provider that proves the number is reachable.
-        if (otp !== "123456") {
-            throw new Error("Invalid OTP");
-        }
-
-        await approveMobileVerification(profile.user_id, normalized);
-
-        const { recalculateAndPersistScoreForUser } = await import("./identity-verification.service");
-        await recalculateAndPersistScoreForUser(profile.user_id, profile.user_email);
-
-        revalidatePath("/linkbridge/freelancer/verify-identity");
-        return { success: true };
-    } catch (error) {
-        const message = error instanceof Error ? error.message : "Failed to verify OTP";
         return { success: false, error: message };
     }
 }

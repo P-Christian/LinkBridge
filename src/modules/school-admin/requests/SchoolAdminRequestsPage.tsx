@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { BookOpenCheck, ClipboardCheck } from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CourseRequestInboxPage } from "@/modules/school-admin/course-request-inbox/CourseRequestInboxPage";
 import { SchoolRequestInboxPage } from "@/modules/school-admin/school-request-inbox/SchoolRequestInboxPage";
@@ -28,6 +29,26 @@ function isRequestTabValue(value: string): value is RequestTabValue {
 
 export function SchoolAdminRequestsPage() {
   const [activeTab, setActiveTab] = useState<RequestTabValue>("school");
+  const [counts, setCounts] = useState<{ school: number; course: number } | null>(null);
+
+  const refreshCounts = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch("/api/school-admin/requests/summary", { cache: "no-store" });
+      if (!res.ok) return;
+      const body: unknown = await res.json();
+      if (typeof body !== "object" || body === null) return;
+      const { school, course } = body as { school?: unknown; course?: unknown };
+      if (typeof school !== "number" || typeof course !== "number") return;
+      setCounts({ school, course });
+    } catch {
+      return;
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- refreshCounts awaits the fetch and sets counts only in its async callback
+    void refreshCounts();
+  }, [refreshCounts, activeTab]);
 
   // Radix reports the selected value as a plain string; only the two known
   // tab values are accepted so the state stays a `RequestTabValue`.
@@ -49,6 +70,11 @@ export function SchoolAdminRequestsPage() {
       >
         <ClipboardCheck className="w-3.5 h-3.5" />
         School Requests
+        {counts !== null ? (
+          <Badge variant="secondary" className="h-4 min-w-4 rounded-full px-1.5 text-[10px] font-bold">
+            {counts.school}
+          </Badge>
+        ) : null}
       </TabsTrigger>
       <TabsTrigger
         value="course"
@@ -56,6 +82,11 @@ export function SchoolAdminRequestsPage() {
       >
         <BookOpenCheck className="w-3.5 h-3.5" />
         Course Requests
+        {counts !== null ? (
+          <Badge variant="secondary" className="h-4 min-w-4 rounded-full px-1.5 text-[10px] font-bold">
+            {counts.course}
+          </Badge>
+        ) : null}
       </TabsTrigger>
     </TabsList>
   );
@@ -68,11 +99,11 @@ export function SchoolAdminRequestsPage() {
       data-testid="school-admin-requests"
     >
       <TabsContent value="school" className="mt-0 space-y-6 focus-visible:outline-none">
-        <SchoolRequestInboxPage belowHeader={requestTabs} />
+        <SchoolRequestInboxPage belowHeader={requestTabs} onCountsChanged={refreshCounts} />
       </TabsContent>
 
       <TabsContent value="course" className="mt-0 space-y-6 focus-visible:outline-none">
-        <CourseRequestInboxPage belowHeader={requestTabs} />
+        <CourseRequestInboxPage belowHeader={requestTabs} onCountsChanged={refreshCounts} />
       </TabsContent>
     </Tabs>
   );

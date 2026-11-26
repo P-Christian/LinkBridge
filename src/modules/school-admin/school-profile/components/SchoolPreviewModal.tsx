@@ -134,14 +134,14 @@ export default function SchoolPreviewModal({
               </div>
 
               <div className="space-y-1 mb-1 min-w-0">
+                <h3 className="break-words text-xl font-black leading-tight tracking-tight text-foreground [overflow-wrap:anywhere] sm:text-2xl">
+                  {school.school_name || "Institution Name"}
+                </h3>
                 <div className="flex flex-wrap items-center gap-1.5">
                   <Badge variant="outline" className="border-primary/40 text-primary font-bold text-[10px] px-2 py-0">
                     {school.school_type || "University"}
                   </Badge>
                 </div>
-                <h3 className="text-xl sm:text-2xl font-black text-foreground tracking-tight leading-tight">
-                  {school.school_name || "Institution Name"}
-                </h3>
                 <p className="text-xs text-muted-foreground flex items-center gap-1 truncate">
                   <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                   <span className="truncate">{address}</span>
@@ -183,7 +183,7 @@ export default function SchoolPreviewModal({
               <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 About the Institution
               </h4>
-              <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">
+              <p className="break-words text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                 {school.school_description}
               </p>
             </div>
@@ -193,24 +193,24 @@ export default function SchoolPreviewModal({
           {(school.school_mission || school.school_values) && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-border">
               {school.school_mission && (
-                <div className="space-y-1.5 p-4 rounded-xl bg-muted/40 border border-border">
+                <div className="min-w-0 space-y-1.5 p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
                     <Target className="w-3.5 h-3.5" />
                     <span>Mission</span>
                   </div>
-                  <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  <p className="break-words text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                     {school.school_mission}
                   </p>
                 </div>
               )}
 
               {school.school_values && (
-                <div className="space-y-1.5 p-4 rounded-xl bg-muted/40 border border-border">
+                <div className="min-w-0 space-y-1.5 p-4 rounded-xl bg-muted/40 border border-border">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
                     <Sparkles className="w-3.5 h-3.5" />
                     <span>Core Values</span>
                   </div>
-                  <p className="text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap">
+                  <p className="break-words text-xs text-foreground/90 leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere]">
                     {school.school_values}
                   </p>
                 </div>

@@ -2,7 +2,6 @@ import {
   fetchSchoolCoursesRepo, 
   createSchoolCourseRepo, 
   updateSchoolCourseRepo, 
-  deleteSchoolCourseRepo 
 } from './school-courses.repo';
 import { createCourseSchema, updateCourseSchema } from '../types/school-courses.schema';
 import { CreateCourseDTO, UpdateCourseDTO } from '../types/school-courses.types';
@@ -22,6 +21,7 @@ export async function executeCreateSchoolCourse(data: CreateCourseDTO): Promise<
   return await createSchoolCourseRepo({
     course_name: data.course_name.trim(),
     course_code: data.course_code ? data.course_code.trim() : null,
+    course_category: data.course_category ?? null,
     degree: data.degree,
     course_status: 'Active'
   });
@@ -37,6 +37,7 @@ export async function executeUpdateSchoolCourse(courseId: number, data: UpdateCo
   return await updateSchoolCourseRepo(courseId, {
     ...(data.course_name !== undefined ? { course_name: data.course_name.trim() } : {}),
     ...(data.course_code !== undefined ? { course_code: data.course_code ? data.course_code.trim() : null } : {}),
+    ...(data.course_category !== undefined ? { course_category: data.course_category } : {}),
     ...(data.degree !== undefined ? { degree: data.degree } : {}),
     ...(data.course_status !== undefined ? { course_status: data.course_status } : {}),
   });
@@ -46,8 +47,3 @@ export async function executeToggleCourseStatus(courseId: number, currentStatus:
   const newStatus: CourseStatus = currentStatus === 'Active' ? 'Inactive' : 'Active';
   return await updateSchoolCourseRepo(courseId, { course_status: newStatus });
 }
-
-export async function executeDeleteSchoolCourse(courseId: number): Promise<boolean> {
-  return await deleteSchoolCourseRepo(courseId);
-}
-

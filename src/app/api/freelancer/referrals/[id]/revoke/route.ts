@@ -1,6 +1,6 @@
 // src/app/api/freelancer/referrals/[id]/revoke/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { logReferralHistory } from "@/modules/freelancer/freelancer-referrals/services/referral.service";
+import { revokeReferralRecord } from "@/modules/freelancer/freelancer-referrals/services/referral.service";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
 
@@ -50,18 +50,12 @@ export async function POST(
       return NextResponse.json({ error: "Cannot revoke a claimed or applied referral." }, { status: 400 });
     }
 
-    // Patch status to REVOKED
-    const patchRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${id}`, {
-      method: "PATCH",
-      headers: getHeaders(),
-      body: JSON.stringify({ status: "REVOKED", revoked_at: new Date().toISOString() })
-    });
-
-    if (!patchRes.ok) {
-      return NextResponse.json({ error: "Failed to update status." }, { status: 500 });
-    }
-
-    await logReferralHistory(Number(id), referral.status, "REVOKED", `user:${userId}`, "Revoked by Referrer");
+    await revokeReferralRecord(
+      Number(id),
+      String(referral.status ?? "").toUpperCase(),
+      `user:${userId}`,
+      "Revoked by Referrer"
+    );
 
     return NextResponse.json({ success: true });
   } catch (err: unknown) {

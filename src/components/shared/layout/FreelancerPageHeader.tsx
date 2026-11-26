@@ -107,7 +107,7 @@ export function FreelancerPageHeader({
                     </Tooltip>
                 </TooltipProvider>
                 <div className="w-auto max-w-[240px] min-w-0">
-          <NavUser user={user} />
+          <NavUser user={user} compact />
         </div>
             </div>
         </header>

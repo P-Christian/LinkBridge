@@ -3,20 +3,24 @@ import "server-only";
 /**
  * Server-only rollout gate for the attendance-gated education flow.
  *
- * Tri-state contract for `EDUCATION_VERIFICATION_MODE`:
- * - absent or empty (after trim) -> `attendance` (default).
- * - `legacy` (opt-in) -> legacy behavior; `attendance` -> all-claim attendance-request
- *   creation with legacy VOS school approval disabled; `frozen` -> reads stay
- *   available while education/request decision writes return sanitized 503.
+ * Four-state contract for `EDUCATION_VERIFICATION_MODE`:
+ * - `EDUCATION_VERIFICATION_MODE` is optional; absent or empty (after trim)
+ *   -> `opt-in` (production default).
+ * - Explicit `legacy` -> legacy behavior; `attendance` -> all-claim
+ *   attendance-request creation with legacy VOS school approval disabled;
+ *   `opt-in` -> claim creation as `AwaitingOptIn` rows without routing;
+ *   `frozen` -> reads stay available while education/request decision writes
+ *   return sanitized 503.
  * - Any other value throws at startup; never silently defaults to a
  *   permissive mode. Matching is exact lowercase (surrounding whitespace is
  *   trimmed); case variants such as `LEGACY` are rejected.
  * - The mode is read on every call and never memoized.
  *
- * Frozen-only rollback rule: after attendance-mode data exists, roll back
- * with `frozen`, never with `legacy`.
+ * Frozen-only rollback rule: after `opt-in` claims exist, roll back with
+ * `frozen`, not `attendance`, because claims would render as Pending and
+ * never route.
  */
-export type EducationVerificationMode = "legacy" | "attendance" | "frozen";
+export type EducationVerificationMode = "legacy" | "attendance" | "opt-in" | "frozen";
 
 const MODE_ENV_KEY = "EDUCATION_VERIFICATION_MODE";
 
@@ -26,7 +30,7 @@ export class EducationVerificationModeError extends Error {
   constructor(rawValue: string) {
     super(
       `Invalid ${MODE_ENV_KEY} value ${JSON.stringify(rawValue)}. ` +
-        `Expected "legacy", "attendance", or "frozen".`
+        `Expected "legacy", "attendance", "opt-in", or "frozen".`
     );
   }
 }
@@ -34,9 +38,9 @@ export class EducationVerificationModeError extends Error {
 function parseEducationVerificationMode(rawValue: string | undefined): EducationVerificationMode {
   const trimmed = rawValue?.trim() ?? "";
   if (trimmed === "") {
-    return "attendance";
+    return "opt-in";
   }
-  if (trimmed === "legacy" || trimmed === "attendance" || trimmed === "frozen") {
+  if (trimmed === "legacy" || trimmed === "attendance" || trimmed === "opt-in" || trimmed === "frozen") {
     return trimmed;
   }
   throw new EducationVerificationModeError(rawValue ?? "");
@@ -71,7 +75,8 @@ export class EducationFlowUnavailableError extends Error {
 
 /** True only when education writes must create/reuse a school-attendance request. */
 export function shouldCreateAttendanceRequest(): boolean {
-  return getEducationVerificationMode() === "attendance";
+  const mode = getEducationVerificationMode();
+  return mode === "attendance" || mode === "opt-in";
 }
 
 /** Throw the typed sanitized error when education writes are frozen. Reads stay allowed. */

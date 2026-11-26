@@ -21,48 +21,48 @@ export default function SchoolAddress({
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
               Province
             </span>
-            <p className="text-sm font-medium text-foreground">
+            <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
               {data.province || "—"}
             </p>
           </div>
 
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
               City / Municipality
             </span>
-            <p className="text-sm font-medium text-foreground">
+            <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
               {data.city_municipality || "—"}
             </p>
           </div>
 
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
               Barangay
             </span>
-            <p className="text-sm font-medium text-foreground">
+            <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
               {data.barangay || "—"}
             </p>
           </div>
 
-          <div className="space-y-1">
+          <div className="min-w-0 space-y-1">
             <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
               Postal Code
             </span>
-            <p className="text-sm font-medium text-foreground">
+            <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
               {data.postal_code || "—"}
             </p>
           </div>
         </div>
 
-        <div className="pt-4 border-t border-border space-y-1">
+        <div className="min-w-0 space-y-1 border-t border-border pt-4">
           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
             Campus Street Address / Building Details
           </span>
-          <p className="text-sm font-medium text-foreground">
+          <p className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
             {data.address_line || "—"}
           </p>
         </div>

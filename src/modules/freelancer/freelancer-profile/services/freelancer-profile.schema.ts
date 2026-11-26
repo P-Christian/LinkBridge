@@ -65,6 +65,8 @@ export const addEducationSchema = z.object({
     school_id: z.number().int().positive().nullable().optional(),
     school_name_raw: z.string().trim().min(1).max(255).nullable().optional(),
     course_name_raw: z.string().trim().min(1).max(255).nullable().optional(),
+    school_city_raw: z.string().trim().max(100).nullable().optional(),
+    school_province_raw: z.string().trim().max(100).nullable().optional(),
     // Verification status is server-owned: the boundary strips any client
     // value and persistence always writes Pending, so it is not accepted here.
     school_course_id: z.number().int().positive().nullable().optional(),

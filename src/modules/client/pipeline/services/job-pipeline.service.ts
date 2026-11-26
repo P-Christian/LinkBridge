@@ -16,6 +16,7 @@ import {
 } from "./pipeline.service";
 import { copyCompanyTasksToJobStage } from "./job-assessment-task.service";
 import { checkAssessmentGate, isQualifyingAssessmentMove, isValidAssessmentOutcome, recordAssessmentMoveOutcome } from "@/modules/client/assessment-review/services/gate";
+import { checkStageReadiness } from "./stage-readiness";
 import {
   deriveAssessmentDeadline,
   parseWindowDays,
@@ -906,7 +907,7 @@ export async function updateJobPipelineStage(
 export async function deleteJobPipelineStage(
   jobId: number,
   stageId: number
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; error?: string; statusCode?: number }> {
   try {
     const lockCheck = await canModifyJobPipeline(jobId);
     if (!lockCheck.canModify) {
@@ -921,6 +922,51 @@ export async function deleteJobPipelineStage(
 
     if (stage.is_system) {
       return { success: false, error: "System stages are required and cannot be deleted." };
+    }
+
+    const referenceChecks: Array<{ collection: string; fields: string; query: string; error: string }> = [
+      {
+        collection: "vs_job_application",
+        fields: "application_id",
+        query: `filter[current_stage_id][_eq]=${stageId}`,
+        error: "A candidate is currently in this stage. Move them before deleting it.",
+      },
+      {
+        collection: "vs_application_stage_history",
+        fields: "id",
+        query: `filter[_or][0][from_stage_id][_eq]=${stageId}&filter[_or][1][to_stage_id][_eq]=${stageId}`,
+        error: "This stage is referenced by candidate history and cannot be deleted.",
+      },
+      {
+        collection: "vs_application_assessment_attempts",
+        fields: "id",
+        query: `filter[job_stage_id][_eq]=${stageId}`,
+        error: "This stage has assessment attempts and cannot be deleted.",
+      },
+      {
+        collection: "vs_job_pipeline_assessment_tasks",
+        fields: "id",
+        query: `filter[job_stage_id][_eq]=${stageId}`,
+        error: "This stage has assessment tasks. Delete them before deleting the stage.",
+      },
+    ];
+    try {
+      for (const check of referenceChecks) {
+        const refRes = await fetch(
+          `${DIRECTUS_BASE}/items/${check.collection}?${check.query}&fields=${check.fields}&limit=1`,
+          { headers: getHeaders(), cache: "no-store" }
+        );
+        if (!refRes.ok) {
+          return { success: false, statusCode: 503, error: "Stage usage could not be verified. Please try again." };
+        }
+        const refJson = (await refRes.json()) as { data?: unknown[] };
+        if ((refJson.data ?? []).length > 0) {
+          return { success: false, statusCode: 409, error: check.error };
+        }
+      }
+    } catch (guardErr) {
+      console.error("[job-pipeline.service] deleteJobPipelineStage reference guard error:", guardErr);
+      return { success: false, statusCode: 503, error: "Stage usage could not be verified. Please try again." };
     }
 
     // 1. Delete associated transitions
@@ -1212,7 +1258,7 @@ async function resolveStageMoveContext(
 ): Promise<StageMoveResolution> {
   // 1. Fetch application
   const appRes = await fetch(
-    `${DIRECTUS_BASE}/items/vs_job_application/${applicationId}?fields=application_id,job_id,user_id,application_status,current_stage_id,client_notes`,
+    `${DIRECTUS_BASE}/items/vs_job_application/${applicationId}?fields=application_id,job_id,user_id,resume_id,application_status,current_stage_id,client_notes`,
     { headers: getHeaders(), cache: "no-store" }
   );
   if (!appRes.ok) {
@@ -1342,12 +1388,14 @@ export interface TransitionStageParams {
   changeReason?: string | null;
   notes?: string | null;
   assessmentOutcome?: string | null;
+  bypassReadiness?: { reason: string } | null;
 }
 
 export interface TransitionStageResult {
   success: boolean;
   error?: string;
   statusCode?: number;
+  code?: string;
   noop?: boolean;
   moved?: boolean;
   outcome?: "PASS" | "FAIL" | null;
@@ -1355,6 +1403,8 @@ export interface TransitionStageResult {
   fromStage?: JobPipelineStage;
   toStage?: JobPipelineStage;
   stageHistoryId?: number | null;
+  bypassed?: boolean;
+  waived?: string[];
 }
 
 async function hasStageTasks(stageId: number): Promise<boolean> {
@@ -1491,7 +1541,9 @@ export async function transitionApplicationStage({
   changeReason,
   notes,
   assessmentOutcome,
+  bypassReadiness,
 }: TransitionStageParams): Promise<TransitionStageResult> {
+  const bypass = Boolean(bypassReadiness?.reason?.trim());
   try {
     const nowPH = getPHTimeString();
 
@@ -1510,6 +1562,8 @@ export async function transitionApplicationStage({
         application: appData,
         fromStage,
         toStage,
+        bypassed: bypass,
+        waived: [],
       };
     }
 
@@ -1538,16 +1592,33 @@ export async function transitionApplicationStage({
     // 7b. ASSESSMENT progression gate: a configured (non-universal) move out
     // of a task-bearing ASSESSMENT stage requires a move-time
     // assessment_outcome. Universal REJECTED/WITHDRAWN exits and task-free
-    // stages always pass.
-    const gateError = await checkAssessmentGate({
+    // stages always pass. A readiness bypass skips this gate entirely.
+    if (!bypass) {
+      const gate = await checkAssessmentGate({
+        applicationId,
+        fromStage,
+        isUniversalExit,
+        hasConfiguredTransition,
+        assessmentOutcome,
+      });
+      if (gate) {
+        return { success: false, error: gate.error, statusCode: gate.statusCode, code: gate.code };
+      }
+    }
+
+    const readiness = await checkStageReadiness({
       applicationId,
-      fromStage,
+      jobId: Number(appData.job_id),
+      userId: Number(appData.user_id),
+      resumeId: appData.resume_id != null ? Number(appData.resume_id) : null,
+      stageId: fromStage.id,
+      stageType: fromStage.stage_type,
       isUniversalExit,
-      hasConfiguredTransition,
       assessmentOutcome,
     });
-    if (gateError) {
-      return { success: false, error: gateError, statusCode: 409 };
+    const waived = bypass && readiness ? readiness.missing : [];
+    if (readiness && !bypass) {
+      return { success: false, error: readiness.error, statusCode: readiness.statusCode, code: readiness.code };
     }
 
     // 7c. Record the move-time outcome on the latest attempt before
@@ -1556,7 +1627,7 @@ export async function transitionApplicationStage({
     // below guards a gratuitous one. FAIL records and STAYS (no transition,
     // no history write); PASS records then moves exactly as before.
     let moveOutcome: "PASS" | "FAIL" | null = null;
-    if (isValidAssessmentOutcome(assessmentOutcome)) {
+    if (!bypass && isValidAssessmentOutcome(assessmentOutcome)) {
       const qualifying = await isQualifyingAssessmentMove({
         fromStage,
         isUniversalExit,
@@ -1638,6 +1709,14 @@ export async function transitionApplicationStage({
             from_stage_type: fromStage.stage_type,
             to_stage_type: toStage.stage_type,
             job_pipeline_id: pipeline.id,
+            ...(bypass
+              ? {
+                  readiness_bypass: {
+                    reason: String(bypassReadiness?.reason ?? "").trim(),
+                    missing: waived,
+                  },
+                }
+              : {}),
           },
           created_at: nowPH,
         }),
@@ -1700,6 +1779,8 @@ export async function transitionApplicationStage({
       fromStage,
       toStage,
       stageHistoryId,
+      bypassed: bypass,
+      waived,
     };
   } catch (err) {
     console.error("[job-pipeline.service] transitionApplicationStage error:", err);

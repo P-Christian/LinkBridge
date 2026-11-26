@@ -7,6 +7,8 @@ import { JobReferralList } from './components/JobReferralList';
 import { ReferralWizardModal } from './components/ReferralWizardModal';
 import { ReferralSuccessModal } from './components/ReferralSuccessModal';
 import { ReferralHistoryDrawer } from './components/ReferralHistoryDrawer';
+import { ShareLinkDialog } from './components/ShareLinkDialog';
+import { ShareLinkSuccessDialog } from './components/ShareLinkSuccessDialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -99,6 +101,8 @@ function JobReferralsContent() {
       {/* Modals & Drawers */}
       <ReferralWizardModal />
       <ReferralSuccessModal />
+      <ShareLinkDialog />
+      <ShareLinkSuccessDialog />
       <ReferralHistoryDrawer />
     </div>
   );

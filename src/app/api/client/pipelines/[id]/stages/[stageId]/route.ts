@@ -171,7 +171,7 @@ export async function DELETE(
 
     const result = await deletePipelineStage(pipelineId, sId, companyId);
     if (!result.success) {
-      return NextResponse.json({ error: result.error || "Failed to delete stage." }, { status: 400 });
+      return NextResponse.json({ error: result.error || "Failed to delete stage." }, { status: result.statusCode || 400 });
     }
 
     return NextResponse.json({ success: true });

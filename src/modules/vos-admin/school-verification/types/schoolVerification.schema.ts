@@ -3,7 +3,6 @@ import { z } from "zod";
 
 export const VerificationActionSchema = z.enum([
   "approve",
-  "reject",
   "request_correction",
   "suspend",
 ]);

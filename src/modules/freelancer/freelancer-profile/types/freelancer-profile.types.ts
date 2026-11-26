@@ -90,6 +90,8 @@ export interface VsEducation {
     school_id: number | null;
     school_name_raw?: string | null;
     course_name_raw?: string | null;
+    school_city_raw?: string | null;
+    school_province_raw?: string | null;
     education_status?: 'Verified' | 'Pending' | 'Unverified';
     course_request_draft_key?: string | null;
     school_course_id: number | null;
@@ -105,6 +107,8 @@ export interface VsEducation {
         readonly remarks: string | null;
     } | null;
     attendance_rejected?: boolean;
+    attendance_rejection_reason?: string | null;
+    verification_state?: 'INVITED' | 'AWAITING_SCHOOL' | 'PENDING' | 'VERIFIED' | 'UNVERIFIED' | 'REJECTED' | 'COURSE_PENDING' | 'COURSE_REJECTED';
 }
 
 export interface VsCertification {

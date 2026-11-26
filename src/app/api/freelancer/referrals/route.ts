@@ -4,6 +4,7 @@ import { sendMail } from "@/lib/mail";
 import { createNotification } from "@/lib/notifications";
 import { authenticateRequest, isFreelancerSession } from "@/lib/authenticated-session";
 import { safeErrorMessage } from "@/lib/api-error";
+import { getReferralBaseUrl } from "@/lib/mail/templates/base-url";
 
 const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || "").replace(/\/$/, "");
 const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
         referrerName = `${u?.user_fname ?? ""} ${u?.user_lname ?? ""}`.trim() || referrerName;
       }
 
-      const inviteUrl = `${req.nextUrl.origin}/referral/${result.token}`;
+      const inviteUrl = `${getReferralBaseUrl()}/referral/${result.token}`;
 
       await sendMail({
         to: recipient_email,

@@ -86,6 +86,8 @@ function pendingEducationWrite(data: {
     readonly school_id?: number | null;
     readonly school_name_raw?: string | null;
     readonly course_name_raw?: string | null;
+    readonly school_city_raw?: string | null;
+    readonly school_province_raw?: string | null;
     readonly school_course_id?: number | null;
     readonly course_request_draft_key?: string | null;
     readonly start_date?: string | null;
@@ -102,6 +104,8 @@ function pendingEducationWrite(data: {
         school_id: schoolId,
         school_name_raw: schoolNameRaw,
         course_name_raw: schoolCourseId === null ? data.course_name_raw?.trim() ?? null : null,
+        school_city_raw: data.school_city_raw?.trim() ? data.school_city_raw.trim() : null,
+        school_province_raw: data.school_province_raw?.trim() ? data.school_province_raw.trim() : null,
         school_course_id: schoolCourseId,
         course_request_draft_key: data.course_request_draft_key ?? null,
         start_date: data.start_date ? formatToPHDate(data.start_date) : null,
@@ -114,12 +118,16 @@ export async function addEducationService(userId: number, payload: unknown) {
     const parsed = addEducationSchema.safeParse(payload);
     if (!parsed.success) throw new Error("Invalid education claim.");
 
-    const education = await createOrFetchPendingEducation(userId, {
+    const write = {
         ...pendingEducationWrite(parsed.data),
         course_request_draft_key: parsed.data.course_request_draft_key,
-    });
+    };
+    const education = await createOrFetchPendingEducation(userId, write);
     if (shouldCreateAttendanceRequest()) {
-        await ensureEducationAttendanceRequest(education);
+        await ensureEducationAttendanceRequest(education, {
+            city: write.school_city_raw,
+            province: write.school_province_raw,
+        });
     }
     return education;
 }
@@ -140,7 +148,10 @@ export async function updateEducationService(id: number, userId: number, payload
 
     const education = await updatePendingEducation(id, userId, write);
     if (shouldCreateAttendanceRequest()) {
-        await ensureEducationAttendanceRequest(education);
+        await ensureEducationAttendanceRequest(education, {
+            city: write.school_city_raw,
+            province: write.school_province_raw,
+        });
     }
     return education;
 }

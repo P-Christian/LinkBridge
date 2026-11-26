@@ -7,6 +7,9 @@ import {
   CreateReferralsPayload,
   StudentWorkExperienceItem,
   StudentJobPreferencesItem,
+  ReferralStatus,
+  CreatedShareLinkResult,
+  BlockedStudent,
 } from '../types/job-referrals.types';
 import {
   fetchActiveJobsRepo,
@@ -15,16 +18,49 @@ import {
   insertReferralsRepo,
   insertReferralHistoryBatchRepo,
   fetchReferralsByAdminRepo,
+  findActiveShareLinkRepo,
+  fetchClaimsByReferralIdsRepo,
+  fetchApplicationReferralIdsRepo,
+  expireStaleReferralsRepo,
+  fetchLiveReferralStudentIdsRepo,
 } from './job-referrals.repo';
 import {
   hashString,
   generateReferralToken,
   maskEmail,
   getExpirationDate,
-  markdownToHtml,
-  generateRecommendationPdfBuffer,
+  buildReferralInviteEmail,
 } from './job-referrals.helpers';
-import { escapeHtml, safeHttpUrl } from '@/lib/mail/templates/escape-html';
+
+export class ReferralBatchConflictError extends Error {
+  blocked: BlockedStudent[];
+  constructor(blocked: BlockedStudent[]) {
+    super("Some selected students cannot be referred to this job.");
+    this.name = "ReferralBatchConflictError";
+    this.blocked = blocked;
+  }
+}
+
+export class ReferralActionError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ReferralActionError";
+    this.status = status;
+  }
+}
+
+const DIRECTUS_BASE = (process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '');
+const DIRECTUS_TOKEN = process.env.DIRECTUS_STATIC_TOKEN;
+
+function getHeaders(): Record<string, string> {
+  const h: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json',
+  };
+  if (DIRECTUS_TOKEN) h['Authorization'] = `Bearer ${DIRECTUS_TOKEN}`;
+  return h;
+}
 
 export async function getActiveJobsService(): Promise<VsJobPosting[]> {
   return await fetchActiveJobsRepo();
@@ -110,9 +146,26 @@ export async function createBatchReferralsService(
     throw new Error(`Forbidden: Candidates do not belong to the authorized school.`);
   }
 
-  const targetCandidates = candidates.filter(
-    (c) => student_ids.includes(c.student_id) && !c.applied_job_ids?.includes(job_id)
-  );
+  const requested = candidates.filter((c) => student_ids.includes(c.student_id));
+
+  await expireStaleReferralsRepo(schoolId, job_id, student_ids);
+
+  const liveReferralIds = await fetchLiveReferralStudentIdsRepo(schoolId, job_id, student_ids);
+
+  const blocked: BlockedStudent[] = [];
+  for (const student of requested) {
+    const fullName = `${student.first_name} ${student.last_name}`.trim();
+    if (liveReferralIds.has(student.student_id)) {
+      blocked.push({ student_id: student.student_id, name: fullName, reason: "ALREADY_REFERRED" });
+    } else if (student.applied_job_ids?.includes(job_id)) {
+      blocked.push({ student_id: student.student_id, name: fullName, reason: "ALREADY_APPLIED" });
+    }
+  }
+  if (blocked.length > 0) {
+    throw new ReferralBatchConflictError(blocked);
+  }
+
+  const targetCandidates = requested;
 
   const expiresAt = getExpirationDate(expires_in_days);
   const tokenPairs: { token: string; tokenHash: string; student: VerifiedStudentCandidate }[] = [];
@@ -133,6 +186,9 @@ export async function createBatchReferralsService(
       display_hint: displayHint,
       status: 'CREATED',
       expires_at: expiresAt,
+      student_id: student.student_id,
+      school_id: schoolId,
+      referral_letter: payload.referral_letter ?? null,
     };
   });
 
@@ -201,99 +257,29 @@ export async function createBatchReferralsService(
       const url = `${baseUrl.replace(/\/$/, '')}/referral/${token}`;
 
       // Dispatch Email
+      let emailSent = false;
       if (student?.email) {
         try {
           const studentFullName = `${student.first_name} ${student.last_name}`.trim();
-          let pdfBuffer: Buffer | null = null;
-          if (payload.referral_letter) {
-            try {
-              pdfBuffer = generateRecommendationPdfBuffer({
-                schoolName,
-                studentName: studentFullName,
-                jobTitle,
-                companyName,
-                letterContent: payload.referral_letter,
-              });
-            } catch (pdfErr) {
-              console.warn('[job-referrals] Failed to generate PDF recommendation:', pdfErr);
-            }
-          }
-
-          const claimHref = safeHttpUrl(url) ?? '#';
-
-          const htmlBody = `
-            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 28px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px;">
-              <div style="text-align: center; margin-bottom: 24px;">
-                <h1 style="color: #6366f1; margin: 0; font-size: 24px; font-weight: 800;">LinkBridge</h1>
-                <p style="color: #64748b; margin: 4px 0 0; font-size: 13px;">Official Academic & Career Referral</p>
-              </div>
-
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 20px; margin-bottom: 20px;">
-                <h2 style="color: #0f172a; margin: 0 0 10px; font-size: 18px;">Congratulations, ${escapeHtml(student.first_name)}!</h2>
-                <p style="color: #334155; margin: 0; font-size: 14px; line-height: 1.5;">
-                  <strong>${escapeHtml(schoolName)}</strong> has officially endorsed and referred your verified freelancer profile for an active opportunity:
-                </p>
-                <div style="margin-top: 14px; padding: 14px; background: #ffffff; border-radius: 6px; border: 1px solid #cbd5e1;">
-                  <p style="margin: 0; font-weight: bold; font-size: 16px; color: #1e293b;">${escapeHtml(jobTitle)}</p>
-                  <p style="margin: 4px 0 0; font-size: 13px; color: #64748b;">${escapeHtml(companyName)}</p>
-                </div>
-              </div>
-
-              ${payload.referral_letter ? `
-                <div style="margin-bottom: 20px; padding: 18px 20px; background: #faf5ff; border: 1px solid #e9d5ff; border-left: 4px solid #9333ea; border-radius: 8px;">
-                  <div style="display: flex; align-items: center; margin-bottom: 12px;">
-                    <p style="margin: 0; font-weight: 700; font-size: 13px; color: #7e22ce; text-transform: uppercase; letter-spacing: 0.5px;">
-                      🎓 Official Institutional Recommendation
-                    </p>
-                  </div>
-                  <div style="font-size: 13.5px; color: #334155; line-height: 1.65;">
-                    <p style="margin: 0 0 12px; line-height: 1.6; color: #334155;">
-                      ${markdownToHtml(payload.referral_letter)}
-                    </p>
-                  </div>
-                </div>
-
-                ${pdfBuffer ? `
-                  <div style="margin-bottom: 24px; padding: 12px 16px; background: #f1f5f9; border: 1px dashed #94a3b8; border-radius: 8px; font-size: 13px; color: #334155;">
-                    📎 <strong>Official PDF Attached:</strong> An official letterhead copy of your recommendation letter is attached to this email. You can download and attach it when applying for the job.
-                  </div>
-                ` : ''}
-              ` : ''}
-
-              <div style="text-align: center; margin: 32px 0;">
-                <a href="${claimHref}" style="background-color: #4f46e5; color: #ffffff; padding: 14px 36px; font-size: 15px; font-weight: 600; text-decoration: none; border-radius: 8px; display: inline-block; box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);">
-                  View Opportunity & Claim Referral
-                </a>
-              </div>
-
-              <hr style="border: none; border-top: 1px solid #f1f5f9; margin: 24px 0;" />
-
-              <p style="color: #94a3b8; font-size: 12px; text-align: center; margin: 0; line-height: 1.5;">
-                This endorsement was officially issued by ${escapeHtml(schoolName)} on LinkBridge.<br/>
-                This referral link is unique to you and valid for ${expires_in_days} days.<br/>
-                <span style="color: #4f46e5; word-break: break-all; margin-top: 6px; display: inline-block;">${escapeHtml(url)}</span>
-              </p>
-            </div>
-          `;
+          const invite = buildReferralInviteEmail({
+            schoolName,
+            studentName: studentFullName,
+            studentEmail: student.email,
+            jobTitle,
+            companyName,
+            referralUrl: url,
+            referralLetter: payload.referral_letter ?? null,
+            expiresInDays: expires_in_days,
+          });
 
           const { sendMail } = await import('@/lib/mail');
-          const cleanSafeName = studentFullName.replace(/[^a-zA-Z0-9_-]/g, '_');
           await sendMail({
             to: student.email,
-            subject: `🎓 Official Job Referral: ${jobTitle} at ${companyName}`,
-            html: htmlBody,
-            ...(pdfBuffer
-              ? {
-                attachments: [
-                  {
-                    filename: `Recommendation_Letter_${cleanSafeName}.pdf`,
-                    content: pdfBuffer,
-                    contentType: 'application/pdf',
-                  },
-                ],
-              }
-              : {}),
+            subject: invite.subject,
+            html: invite.html,
+            ...(invite.attachments ? { attachments: invite.attachments } : {}),
           });
+          emailSent = true;
         } catch (mailErr) {
           console.warn(`[job-referrals] Failed to send email to ${student.email}:`, mailErr);
         }
@@ -307,8 +293,22 @@ export async function createBatchReferralsService(
         token: token,
         referral_url: url,
         status: rec.status,
+        email_sent: emailSent,
       };
     })
+  );
+
+  await Promise.allSettled(
+    createdDbRecords.map((record, index) =>
+      fetch(`${(process.env.NEXT_PUBLIC_API_BASE_URL || '').replace(/\/$/, '')}/items/vs_job_referral/${record.referral_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...(process.env.DIRECTUS_STATIC_TOKEN ? { Authorization: `Bearer ${process.env.DIRECTUS_STATIC_TOKEN}` } : {}) },
+        body: JSON.stringify({
+          email_status: results[index]?.email_sent ? 'SENT' : 'FAILED',
+          email_sent_at: new Date().toISOString(),
+        }),
+      })
+    )
   );
 
   return results;
@@ -316,8 +316,231 @@ export async function createBatchReferralsService(
 
 export async function getAdminReferralsService(adminUserId: number, baseUrl: string): Promise<VsJobReferral[]> {
   const records = await fetchReferralsByAdminRepo(adminUserId);
-  return records.map((r) => ({
-    ...r,
-    referral_url: `${baseUrl.replace(/\/$/, '')}/referral/${r.token_hash}`,
-  }));
+  if (!records.length) return [];
+
+  const referralIds = records
+    .map((r) => Number(r.referral_id))
+    .filter((id) => Number.isSafeInteger(id) && id > 0);
+
+  const [claims, appliedReferralIds] = await Promise.all([
+    fetchClaimsByReferralIdsRepo(referralIds),
+    fetchApplicationReferralIdsRepo(referralIds),
+  ]);
+
+  return records.map((r) => {
+    const id = Number(r.referral_id);
+    const claimants = claims
+      .filter((c) => c.referralId === id)
+      .sort((a, b) => a.consented_at.localeCompare(b.consented_at))
+      .map((c) => ({
+        name: c.name,
+        email: c.email,
+        consented_at: c.consented_at,
+        claim_status: c.claim_status,
+        applied: appliedReferralIds.has(id),
+      }));
+
+    return {
+      ...r,
+      referral_url: `${baseUrl.replace(/\/$/, '')}/referral/${r.token_hash}`,
+      claimants,
+      claim_count: claimants.length,
+    };
+  });
+}
+
+export async function createShareLinkService(
+  adminUserId: number,
+  jobId: number,
+  baseUrl: string,
+  expiresInDays: number
+): Promise<CreatedShareLinkResult> {
+  const origin = baseUrl.replace(/\/$/, '');
+
+  const existing = await findActiveShareLinkRepo(adminUserId, jobId);
+  if (existing) {
+    return {
+      referral_id: Number(existing.referral_id),
+      token: String(existing.token_hash),
+      referral_url: `${origin}/referral/${existing.token_hash}`,
+      status: existing.status as ReferralStatus,
+      expires_at: String(existing.expires_at),
+      reused: true,
+    };
+  }
+
+  const token = generateReferralToken();
+  const tokenHash = hashString(token);
+  const expiresAt = new Date(Date.now() + expiresInDays * 24 * 60 * 60 * 1000).toISOString();
+
+  const [created] = await insertReferralsRepo([
+    {
+      job_id: jobId,
+      referrer_user_id: adminUserId,
+      token_hash: tokenHash,
+      display_hint: "Public share link",
+      status: "CREATED",
+      expires_at: expiresAt,
+    },
+  ]);
+
+  await insertReferralHistoryBatchRepo([
+    {
+      referral_id: created.referral_id,
+      from_status: "NONE",
+      to_status: "CREATED",
+      actor: `admin:${adminUserId}`,
+      reason_category: "School Admin Share Link",
+    },
+  ]);
+
+  return {
+    referral_id: Number(created.referral_id),
+    token,
+    referral_url: `${origin}/referral/${token}`,
+    status: "CREATED",
+    expires_at: expiresAt,
+    reused: false,
+  };
+}
+
+export async function resendReferralEmailService(
+  adminUserId: number,
+  referralId: number,
+  baseUrl: string
+): Promise<{ email_sent: boolean }> {
+  const refRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_job_referral/${referralId}?fields=referrer_user_id,student_id,school_id,token_hash,status,expires_at,referral_letter,job_id`,
+    { headers: getHeaders(), cache: 'no-store' }
+  );
+  if (!refRes.ok) {
+    throw new ReferralActionError(404, "Referral not found.");
+  }
+  const refJson = (await refRes.json()) as { data?: Record<string, unknown> };
+  const referral = refJson.data;
+  if (!referral) {
+    throw new ReferralActionError(404, "Referral not found.");
+  }
+
+  if (Number(referral.referrer_user_id) !== adminUserId) {
+    throw new ReferralActionError(403, "Unauthorized access to this referral.");
+  }
+
+  if (referral.student_id === null || referral.student_id === undefined || String(referral.student_id).trim() === '') {
+    throw new ReferralActionError(400, "Share links do not have a recipient.");
+  }
+
+  const statusValue = String(referral.status ?? '').toUpperCase();
+  if (statusValue === 'REVOKED' || statusValue === 'EXPIRED') {
+    throw new ReferralActionError(400, "This invitation is no longer active.");
+  }
+  if (statusValue === 'CLAIMED' || statusValue === 'APPLIED') {
+    throw new ReferralActionError(400, "This invitation was already accepted.");
+  }
+
+  const expiresAtMs = referral.expires_at ? Date.parse(String(referral.expires_at)) : NaN;
+  if (!referral.expires_at || isNaN(expiresAtMs) || expiresAtMs <= Date.now()) {
+    throw new ReferralActionError(400, "This invitation has expired.");
+  }
+
+  const studentId = referral.student_id;
+  const studentRes = await fetch(
+    `${DIRECTUS_BASE}/items/vs_school_student/${studentId}?fields=first_name,last_name,email`,
+    { headers: getHeaders(), cache: 'no-store' }
+  );
+  if (!studentRes.ok) {
+    throw new ReferralActionError(404, "Recipient not found.");
+  }
+  const studentJson = (await studentRes.json()) as { data?: Record<string, unknown> };
+  const student = studentJson.data;
+  if (!student || !student.email || String(student.email).trim() === '') {
+    throw new ReferralActionError(404, "Recipient not found.");
+  }
+  const studentEmail = String(student.email);
+  const studentName = `${String(student.first_name ?? '')} ${String(student.last_name ?? '')}`.trim() || 'Student';
+
+  let jobTitle = "Job Opportunity";
+  let companyName = "Partner Company";
+  try {
+    const jobRes = await fetch(
+      `${DIRECTUS_BASE}/items/vs_job_posting/${referral.job_id}?fields=job_title,company_id.company_name`,
+      { headers: getHeaders(), cache: 'no-store' }
+    );
+    if (jobRes.ok) {
+      const jobJson = (await jobRes.json()) as { data?: Record<string, unknown> };
+      const job = jobJson.data;
+      if (job) {
+        if (job.job_title) jobTitle = String(job.job_title);
+        const companyRef = job.company_id;
+        if (companyRef && typeof companyRef === 'object') {
+          const companyObj = companyRef as Record<string, unknown>;
+          if (companyObj.company_name) companyName = String(companyObj.company_name);
+        } else if (typeof companyRef === 'string' && companyRef.trim() !== '') {
+          companyName = companyRef;
+        }
+      }
+    }
+  } catch {
+  }
+
+  let schoolName = "Your Academic Institution";
+  if (referral.school_id !== null && referral.school_id !== undefined && String(referral.school_id).trim() !== '') {
+    try {
+      const schoolRes = await fetch(
+        `${DIRECTUS_BASE}/items/vs_school/${referral.school_id}?fields=school_name`,
+        { headers: getHeaders(), cache: 'no-store' }
+      );
+      if (schoolRes.ok) {
+        const schoolJson = (await schoolRes.json()) as { data?: Record<string, unknown> };
+        if (schoolJson.data?.school_name) {
+          schoolName = String(schoolJson.data.school_name);
+        }
+      }
+    } catch {
+    }
+  }
+
+  const referralUrl = `${baseUrl.replace(/\/$/, "")}/referral/${referral.token_hash}`;
+  const expiresInDays = Math.max(1, Math.ceil((expiresAtMs - Date.now()) / 86400000));
+
+  const invite = buildReferralInviteEmail({
+    schoolName,
+    studentName,
+    studentEmail,
+    jobTitle,
+    companyName,
+    referralUrl,
+    referralLetter: referral.referral_letter ? String(referral.referral_letter) : null,
+    expiresInDays,
+  });
+
+  const { sendMail } = await import('@/lib/mail');
+  try {
+    await sendMail({
+      to: studentEmail,
+      subject: invite.subject,
+      html: invite.html,
+      ...(invite.attachments ? { attachments: invite.attachments } : {}),
+    });
+  } catch {
+    await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        email_status: "FAILED",
+        email_sent_at: new Date().toISOString(),
+      }),
+    });
+    return { email_sent: false };
+  }
+
+  await fetch(`${DIRECTUS_BASE}/items/vs_job_referral/${referralId}`, {
+    method: 'PATCH',
+    headers: getHeaders(),
+    body: JSON.stringify({
+      email_status: "SENT",
+      email_sent_at: new Date().toISOString(),
+    }),
+  });
+  return { email_sent: true };
 }

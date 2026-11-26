@@ -96,7 +96,10 @@ export interface CourseInput {
   readonly course_name: string;
   readonly degree: CourseDegree;
   readonly course_code: string | null;
+  readonly course_category: string | null;
 }
+
+export const UNCATEGORIZED_COURSE_CATEGORY = '__uncategorized__';
 
 export const EMPTY_COURSE_SELECTION: CourseSelection = {
   degree: "",
@@ -133,10 +136,12 @@ export function selectionToCourseInput(selection: CourseSelection): CourseInput 
   const courseName = selection.programTitle.trim().replace(/\s+/gu, " ");
   if (courseName.length < 2) return null;
   const courseCode = selection.courseCode.trim();
+  const category = selection.category?.trim() ?? "";
   return {
     course_name: courseName,
     degree: selection.degree,
     course_code: courseCode.length > 0 ? courseCode : null,
+    course_category: category.length > 0 ? category : null,
   };
 }
 
@@ -169,13 +174,16 @@ export function selectionFromExistingCourse(course: {
   readonly course_name: string;
   readonly degree: string | null;
   readonly course_code?: string | null;
+  readonly course_category?: string | null;
 }): CourseSelection {
   const storedDegree = isCourseDegree(course.degree) ? course.degree : "";
+  const storedCategory = course.course_category?.trim() ?? "";
+  const category = storedCategory.length > 0 ? storedCategory : null;
   const match = findCatalogProgramByTitle(storedDegree, course.course_name);
   if (match !== undefined) {
     return {
       degree: storedDegree === "" ? match.program.degree : storedDegree,
-      category: match.category,
+      category: category ?? match.category,
       programTitle: match.program.title,
       courseCode: course.course_code ?? match.program.code,
       isOther: false,
@@ -183,7 +191,7 @@ export function selectionFromExistingCourse(course: {
   }
   return {
     degree: storedDegree,
-    category: null,
+    category,
     programTitle: course.course_name,
     courseCode: course.course_code ?? "",
     isOther: true,

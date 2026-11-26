@@ -222,7 +222,7 @@ export async function DELETE(
     if (!result.success) {
       return NextResponse.json(
         { error: result.error || "Failed to delete stage." },
-        { status: 400 }
+        { status: result.statusCode || 400 }
       );
     }
 

@@ -5,6 +5,7 @@ export const REQUEST_STATUSES = [
   "Approved",
   "Rejected",
   "RoutedToSchool",
+  "AwaitingOptIn",
 ] as const;
 
 export type RequestStatus = (typeof REQUEST_STATUSES)[number];
@@ -75,6 +76,11 @@ export type RouteSchoolInput = {
 };
 
 export type GroupSchoolInput = {
+  readonly requestId: number;
+  readonly targetSchoolId: number;
+};
+
+export type MatchSchoolInput = {
   readonly requestId: number;
   readonly targetSchoolId: number;
 };

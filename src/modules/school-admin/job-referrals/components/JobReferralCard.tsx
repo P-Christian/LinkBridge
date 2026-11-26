@@ -16,6 +16,7 @@ import {
   Sparkles,
   ChevronDown,
   ChevronUp,
+  Link2,
 } from 'lucide-react';
 import { formatSalary, stripHtmlTags } from '../utils/formatting';
 import { sanitizeHtml } from '@/lib/sanitize-html';
@@ -23,6 +24,7 @@ import { sanitizeHtml } from '@/lib/sanitize-html';
 interface JobReferralCardProps {
   job: VsJobPosting;
   onRefer: (job: VsJobPosting) => void;
+  onShareLink: (job: VsJobPosting) => void;
 }
 
 function FormattedContent({
@@ -61,7 +63,7 @@ function FormattedContent({
   );
 }
 
-export function JobReferralCard({ job, onRefer }: JobReferralCardProps) {
+export function JobReferralCard({ job, onRefer, onShareLink }: JobReferralCardProps) {
   const [showFullQuals, setShowFullQuals] = useState(false);
   const formatJobType = (t: string) => t.replace('_', ' ');
 
@@ -179,7 +181,15 @@ export function JobReferralCard({ job, onRefer }: JobReferralCardProps) {
             Endorsement will issue an official verifiable institutional referral
           </span>
 
-          <div className="flex items-center gap-3 order-1 sm:order-2 shrink-0">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3 order-1 sm:order-2 shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => onShareLink(job)}
+              className="w-full sm:w-auto px-4 h-9 gap-2 text-xs font-medium"
+            >
+              <Link2 className="w-4 h-4" />
+              Create share link
+            </Button>
             <Button
               onClick={() => onRefer(job)}
               className="w-full sm:w-auto px-5 h-9 gap-2 shadow-xs font-semibold bg-gradient-to-r from-primary to-primary/90 hover:from-primary/90 hover:to-primary"

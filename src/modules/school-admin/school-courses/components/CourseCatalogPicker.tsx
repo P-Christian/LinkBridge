@@ -22,6 +22,7 @@ import {
 } from "../catalog/course-catalog";
 
 const DEGREE_LEVELS: readonly CourseDegree[] = ["Associate", "Bachelor", "Master", "Doctorate"];
+const NO_CATEGORY = "__none__";
 
 interface CourseCatalogPickerProps {
   readonly value: CourseSelection;
@@ -67,25 +68,27 @@ export function CourseCatalogPicker({
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor={`${id}-category`}>Field Category</Label>
-        <Select
-          value={value.category ?? ""}
+        <Label>Field Category</Label>
+        <SearchableSelect
+          options={[
+            { value: NO_CATEGORY, label: "No category" },
+            ...categories.map((name) => ({ value: name, label: name })),
+          ]}
+          value={value.category ?? NO_CATEGORY}
           onValueChange={(next) =>
-            onChange({ ...value, category: next, programTitle: "", courseCode: "" })
+            onChange({
+              ...value,
+              category: next === NO_CATEGORY ? null : next,
+              programTitle: "",
+              courseCode: "",
+            })
           }
-          disabled={disabled || value.isOther}
-        >
-          <SelectTrigger id={`${id}-category`} data-testid="catalog-category">
-            <SelectValue placeholder="Select field category" />
-          </SelectTrigger>
-          <SelectContent>
-            {categories.map((name) => (
-              <SelectItem key={name} value={name}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+          placeholder="Select field category"
+          searchPlaceholder="Search field categories..."
+          ariaLabel="Field category"
+          disabled={disabled}
+          triggerClassName="h-9"
+        />
       </div>
 
       {value.isOther ? (

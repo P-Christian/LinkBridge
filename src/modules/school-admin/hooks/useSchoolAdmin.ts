@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { SchoolWithStats, VsSchoolCourse, VsSchool } from '../types/school-admin.types';
+import { readJsonResponse, responseErrorMessage } from '@/lib/read-json-response';
 import { toast } from 'sonner';
 
 export function useSchoolAdmin() {
@@ -13,10 +14,12 @@ export function useSchoolAdmin() {
     setError(null);
     try {
       const res = await fetch('/api/school-admin/me');
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to fetch school details.');
-      setSchool(json.school);
-      return json.school;
+      const json = await readJsonResponse(res);
+      if (!res.ok) throw new Error(responseErrorMessage(json, `Failed to fetch school details (${res.status}).`));
+      const schoolData = json.school as SchoolWithStats | undefined;
+      if (!schoolData) throw new Error('School details response was malformed.');
+      setSchool(schoolData);
+      return schoolData;
     } catch (err: unknown) {
       const error = err as Error;
       setError(error.message || 'An error occurred while fetching school.');
@@ -30,9 +33,9 @@ export function useSchoolAdmin() {
     setLoading(true);
     try {
       const res = await fetch('/api/school-admin/school/courses');
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to fetch courses.');
-      setCourses(json.courses || []);
+      const json = await readJsonResponse(res);
+      if (!res.ok) throw new Error(responseErrorMessage(json, `Failed to fetch courses (${res.status}).`));
+      setCourses((json.courses as VsSchoolCourse[] | undefined) || []);
     } catch (err: unknown) {
       const error = err as Error;
       setError(error.message || 'An error occurred while fetching courses.');
@@ -48,9 +51,9 @@ export function useSchoolAdmin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to update school.');
-      setSchool(prev => prev ? { ...prev, ...json.school } : null);
+      const json = await readJsonResponse(res);
+      if (!res.ok) throw new Error(responseErrorMessage(json, `Failed to update school (${res.status}).`));
+      setSchool(prev => prev ? { ...prev, ...(json.school as Partial<SchoolWithStats>) } : null);
       return true;
     } catch (err: unknown) {
       const error = err as Error;
@@ -60,22 +63,24 @@ export function useSchoolAdmin() {
     }
   };
 
-  const addCourse = async (data: Partial<VsSchoolCourse>) => {
+  const addCourse = async (data: Partial<VsSchoolCourse>): Promise<VsSchoolCourse | null> => {
     try {
       const res = await fetch('/api/school-admin/school/courses', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...data, course_status: 'Active' }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to create course.');
-      setCourses(prev => [json.course, ...prev]);
-      return true;
+      const json = await readJsonResponse(res);
+      if (!res.ok) throw new Error(responseErrorMessage(json, `Failed to create course (${res.status}).`));
+      const created = json.course as VsSchoolCourse | undefined;
+      if (!created) throw new Error('Course creation response was malformed.');
+      setCourses(prev => [created, ...prev]);
+      return created;
     } catch (err: unknown) {
       const error = err as Error;
       setError(error.message || 'Failed to create course.');
       toast.error(error.message || 'Failed to create course.');
-      return false;
+      return null;
     }
   };
 
@@ -87,10 +92,11 @@ export function useSchoolAdmin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ course_status: newStatus }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to update course status.');
-      
-      setCourses(prev => prev.map(c => c.school_course_id === courseId ? { ...c, ...json.course } : c));
+      const json = await readJsonResponse(res);
+      if (!res.ok) throw new Error(responseErrorMessage(json, `Failed to update course status (${res.status}).`));
+      const updated = json.course as Partial<VsSchoolCourse> | undefined;
+      if (!updated) throw new Error('Course status response was malformed.');
+      setCourses(prev => prev.map(c => c.school_course_id === courseId ? { ...c, ...updated } : c));
       return true;
     } catch (err: unknown) {
       const error = err as Error;

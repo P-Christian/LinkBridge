@@ -30,6 +30,8 @@ import {
   MoreVertical,
   Edit3,
   ClipboardCheck,
+  Lock,
+  ShieldAlert,
 } from "lucide-react";
 import { Applicant, ApplicationStatus, STATUS_LABELS } from "../types";
 import { STAGE_COLOR_CLASSES } from "@/modules/client/pipeline/types";
@@ -69,6 +71,7 @@ interface ApplicantCardProps {
   onViewScheduledInterview?: (interviewId: number) => void;
   onViewDetails: (applicant: Applicant) => void;
   onReviewAssessment?: (applicant: Applicant) => void;
+  onOverride?: (applicant: Applicant) => void;
 }
 
 export default function ApplicantCard({
@@ -79,6 +82,7 @@ export default function ApplicantCard({
   onViewScheduledInterview,
   onViewDetails,
   onReviewAssessment,
+  onOverride,
 }: ApplicantCardProps) {
   const [imageError, setImageError] = useState(false);
   const rawImage = applicant.applicant_profile_image_url || applicant.profile_image_url;
@@ -346,6 +350,28 @@ export default function ApplicantCard({
                     Stage Progression
                   </DropdownMenuLabel>
 
+                  {applicant.stage_readiness?.blocking && (
+                    <div className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+                      <Lock className="h-3 w-3 shrink-0" />
+                      <span>
+                        Locked — {applicant.stage_readiness.missing.join(", ")}
+                      </span>
+                    </div>
+                  )}
+
+                  {applicant.stage_readiness?.blocking && onOverride && (
+                    <DropdownMenuItem
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onOverride(applicant);
+                      }}
+                      className="text-sm gap-2 cursor-pointer py-1.5 max-md:min-h-10 font-medium md:text-xs text-amber-700 focus:text-amber-700 dark:text-amber-400 dark:focus:text-amber-400"
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" />
+                      Advance without requirements…
+                    </DropdownMenuItem>
+                  )}
+
                   {isAssessmentStage && (
                     <>
                       <DropdownMenuItem
@@ -367,9 +393,19 @@ export default function ApplicantCard({
                     applicant.allowed_next_stages.map((stage) => {
                       const dotColor =
                         STAGE_COLOR_CLASSES[stage.color]?.dot || "bg-primary";
+                      const isUniversal =
+                        stage.stage_type === "REJECTED" ||
+                        stage.stage_type === "WITHDRAWN";
+                      const blocked =
+                        Boolean(applicant.stage_readiness?.blocking) && !isUniversal;
+                      const reason = applicant.stage_readiness?.missing?.length
+                        ? `Cannot advance candidate: ${applicant.stage_readiness.missing.join(", ")} required.`
+                        : "Cannot advance candidate: required items for the current stage have not been completed.";
                       return (
                         <DropdownMenuItem
                           key={stage.id}
+                          disabled={blocked}
+                          title={blocked ? reason : undefined}
                           onClick={(e) => {
                             e.stopPropagation();
                             if (onQuickStageUpdate) {
@@ -388,7 +424,9 @@ export default function ApplicantCard({
                               ? "text-rose-600 focus:text-rose-600"
                               : stage.stage_type === "HIRED"
                               ? "text-emerald-600 focus:text-emerald-600"
-                              : ""
+                              : "",
+                            blocked &&
+                              "data-[disabled]:pointer-events-auto data-[disabled]:cursor-not-allowed"
                           )}
                         >
                           <span
