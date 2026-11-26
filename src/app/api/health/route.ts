@@ -1,6 +1,15 @@
 import { NextResponse } from "next/server";
 
-export async function GET() {
+export async function GET(request: Request) {
+    // Lightweight liveness probe for the realtime client: answers from this Next
+    // server only and never calls Directus, so probing during an outage adds no load.
+    if (new URL(request.url).searchParams.get("probe") === "1") {
+        return NextResponse.json(
+            { server: true },
+            { status: 200, headers: { "Cache-Control": "no-store" } }
+        );
+    }
+
     const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
     let databaseOnline = false;
     let databaseLatencyMs = 0;

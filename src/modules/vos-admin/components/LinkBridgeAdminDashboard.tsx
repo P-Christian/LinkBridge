@@ -6,10 +6,14 @@ import { RefreshCw, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAdminDashboardData } from '../hooks/useAdminDashboardData';
 import { AdminMetricCards } from './dashboard/AdminMetricCards';
+import { AdminHiringMapCard } from './dashboard/AdminHiringMapCard';
 import { AdminVelocityChart } from './dashboard/AdminVelocityChart';
 import { AdminDistributionChart } from './dashboard/AdminDistributionChart';
 import { AdminPendingQueue } from './dashboard/AdminPendingQueue';
 import { AdminQuickShortcuts } from './dashboard/AdminQuickShortcuts';
+
+/** Feature flag to show or hide the Live Hiring Network preview */
+const SHOW_LIVE_HIRING_NETWORK = false;
 
 export function SchoolAdminDashboard() {
   const { data, isLoading, refetch } = useAdminDashboardData();
@@ -75,6 +79,13 @@ export function SchoolAdminDashboard() {
           geminiAvgLatencyMs: null,
         }} isLoading={isLoading} />
       </section>
+
+      {/* Live Hiring Network (preview + link to the full-screen map) */}
+      {SHOW_LIVE_HIRING_NETWORK && (
+        <section>
+          <AdminHiringMapCard />
+        </section>
+      )}
 
       {/* Visual Analytics Grid */}
       <section className="grid gap-6 grid-cols-1 lg:grid-cols-3">

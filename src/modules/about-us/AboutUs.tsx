@@ -378,7 +378,7 @@ export default function AboutUs() {
                 </p>
                 <div className="flex flex-col sm:flex-row gap-4 justify-center">
                   <Button asChild size="lg" className="bg-gradient-to-r from-primary to-sky-600 hover:brightness-110 text-white rounded-full px-8 cursor-pointer shadow-sm hover:shadow-md transition-all h-11 md:h-10">
-                    <Link href="/linkbridge/freelancer" className="flex items-center gap-2">
+                    <Link href="/linkbridge/freelancer/dashboard" className="flex items-center gap-2">
                       <UserCheck className="h-4 w-4" />
                       Go to Job Seeker Portal
                     </Link>

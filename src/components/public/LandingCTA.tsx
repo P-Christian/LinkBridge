@@ -28,7 +28,7 @@ export function LandingCTA() {
               </p>
               <div className="flex flex-col sm:flex-row gap-4 justify-center">
                 <Button asChild size="lg" className="text-sm sm:text-base rounded-full px-8 shadow-sm cursor-pointer">
-                  <Link href="/linkbridge/freelancer" className="flex items-center gap-2">
+                  <Link href="/linkbridge/freelancer/dashboard" className="flex items-center gap-2">
                     <UserCheck className="h-4 w-4" />
                     Go to Job Seeker Portal
                   </Link>

@@ -38,12 +38,8 @@ export type RealtimeCallback = (data: {
   data: Record<string, unknown>[];
 }) => void;
 
-export type RealtimeMode = "stream" | "polling";
-
 interface RealtimeContextType {
   isConnected: boolean;
-  mode: RealtimeMode;
-  setMode: (mode: RealtimeMode) => void;
   subscribe: (collection: string, callback: RealtimeCallback) => () => void;
   sendCustom: (payload: Record<string, unknown>) => void;
   reconnect: () => void;
@@ -51,8 +47,6 @@ interface RealtimeContextType {
 
 const RealtimeContext = createContext<RealtimeContextType>({
   isConnected: false,
-  mode: "stream",
-  setMode: () => {},
   subscribe: () => () => {},
   sendCustom: () => {},
   reconnect: () => {},
@@ -67,11 +61,21 @@ export function normalizeDirectusCollection(col: string): string {
   return col;
 }
 
-/**
- * 🎛️ CODE-LEVEL REALTIME MODE TOGGLE
- * Defaults to HTTPS Server-Sent Events (SSE) stream relay with seamless fallback to polling.
- */
-export const DEFAULT_REALTIME_MODE: RealtimeMode = "stream";
+// ─── Connection tuning ──────────────────────────────────────────────────────
+const TOAST_ID = "realtime-status";
+const HEARTBEAT_TIMEOUT_MS = 30000; // server pings every 20s + 10s grace
+const RECONNECT_BASE_MS = 2000;
+const RECONNECT_CAP_MS = 30000;
+const STREAM_REJECTED_AFTER_FAILURES = 3;
+const PROBE_TIMEOUT_MS = 4000;
+const PROBE_CACHE_MS = 5000;
+const CONNECT_PROBE_AFTER_MS = 5000; // a stream still connecting after this gets a probe
+const CONNECT_HARD_TIMEOUT_MS = 20000;
+const RESYNC_MIN_GAP_MS = 15000;
+const USER_RESYNC_MIN_GAP_MS = 5000;
+
+type ConnStatus = "connected" | "no-internet" | "server-unreachable" | "updates-off";
+type ProbeResult = "ok" | "server-unreachable";
 
 export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Ensure Service Worker is registered automatically across the entire app
@@ -81,23 +85,13 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // only crossing into/out of an auth page may tear the EventSource down.
   const onAuthRoute = isAuthRoute(usePathname());
 
-  const [mode, setModeState] = useState<RealtimeMode>(DEFAULT_REALTIME_MODE);
   const [isConnected, setIsConnected] = useState(false);
 
-  const eventSourceRef = useRef<EventSource | null>(null);
   const subscribersRef = useRef<Map<string, Set<RealtimeCallback>>>(new Map());
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const heartbeatTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const offlineDebounceRef = useRef<NodeJS.Timeout | null>(null);
-  const offlineProbeIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const wasOfflineRef = useRef(false);
   // Tracks the authenticated user's ID received from the SSE connected frame
   const sessionUserIdRef = useRef<string | null>(null);
-
-  const setMode = useCallback((newMode: RealtimeMode) => {
-    setModeState(newMode);
-    console.log(`🔄 [Realtime] Switched mode to '${newMode.toUpperCase()}'`);
-  }, []);
+  // Set by the connection effect so `reconnect` always reaches the live engine
+  const reconnectRef = useRef<() => void>(() => {});
 
   const notifySubscribers = useCallback(
     (collection: string, event: RealtimeEventType, data: Record<string, unknown>[]) => {
@@ -233,369 +227,447 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     [notifySubscribers]
   );
 
-  const connectStreamRef = useRef<() => void>(() => {});
-
-  const resetHeartbeatWatchdog = useCallback(() => {
-    if (heartbeatTimeoutRef.current) {
-      clearTimeout(heartbeatTimeoutRef.current);
-      heartbeatTimeoutRef.current = null;
-    }
-    // If the browser knows it's offline, mark disconnected immediately
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
-      setIsConnected(false);
-      return;
-    }
-    // 30-second watchdog (backend pings every 20s + 10s grace period)
-    heartbeatTimeoutRef.current = setTimeout(() => {
-      console.warn("⚠️ [Realtime Stream] Heartbeat missed (30s). Connection stalled. Reconnecting...");
-      setIsConnected(false);
-      wasOfflineRef.current = true;
-      toast.warning("Connection stalled. Reconnecting…", {
-        duration: 4000,
-      });
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      connectStreamRef.current();
-    }, 30000);
-  }, []);
-
-  const stopOfflineProbe = useCallback(() => {
-    if (offlineProbeIntervalRef.current) {
-      clearInterval(offlineProbeIntervalRef.current);
-      offlineProbeIntervalRef.current = null;
-    }
-  }, []);
-
-  // ─── Degraded refresh while the server-side relay is down ────────────────
-  // Kept separate from `mode`: the EventSource stays open so the relay can
-  // report its recovery, while subscribers refresh on a slower timer.
-  const degradedTickRef = useRef<NodeJS.Timeout | null>(null);
-
-  const stopDegradedRefresh = useCallback(() => {
-    if (degradedTickRef.current) {
-      clearInterval(degradedTickRef.current);
-      degradedTickRef.current = null;
-    }
-  }, []);
-
-  const applyRelayState = useCallback(
-    (raw: unknown) => {
-      if (raw !== "connected" && raw !== "connecting" && raw !== "down") return;
-      if (raw === "down") {
-        if (!degradedTickRef.current) {
-          degradedTickRef.current = setInterval(() => {
-            Array.from(subscribersRef.current.keys()).forEach((collection) => {
-              notifySubscribers(collection, "update", []);
-            });
-          }, 5000);
-        }
-        toast.warning("Live updates are unavailable. Content will refresh periodically.", {
-          id: "realtime-relay",
-          duration: 6000,
-        });
-      } else if (raw === "connected") {
-        const wasDegraded = degradedTickRef.current !== null;
-        stopDegradedRefresh();
-        if (wasDegraded) {
-          toast.success("Live updates restored.", { id: "realtime-relay", duration: 3000 });
-        }
-      }
-    },
-    [notifySubscribers, stopDegradedRefresh]
-  );
-
-  const startOfflineProbe = useCallback(() => {
-    if (offlineProbeIntervalRef.current) return;
-    offlineProbeIntervalRef.current = setInterval(async () => {
-      try {
-        const res = await fetch("/api/health", {
-          cache: "no-store",
-          signal: AbortSignal.timeout(2000),
-        });
-        if (res.ok) {
-          console.log("🟢 [Realtime] Active probe confirmed connection restored!");
-          stopOfflineProbe();
-          if (wasOfflineRef.current) {
-            toast.success("Back online. Connection restored.", {
-              duration: 3000,
-            });
-            wasOfflineRef.current = false;
-          }
-          if (eventSourceRef.current) {
-            eventSourceRef.current.close();
-            eventSourceRef.current = null;
-          }
-          connectStreamRef.current();
-        }
-      } catch {
-        // Still offline, probe continues
-      }
-    }, 2000);
-  }, [stopOfflineProbe]);
-
-  const connectStream = useCallback(() => {
+  // ─── Connection engine ────────────────────────────────────────────────────
+  // Everything below lives in one effect so its timers, flags and listeners share
+  // one lifetime and are all torn down together (auth routes, unmount, StrictMode).
+  useEffect(() => {
     if (typeof window === "undefined") return;
+
     if (onAuthRoute) {
+      toast.dismiss(TOAST_ID);
+      reconnectRef.current = () => {};
+      window.requestAnimationFrame(() => setIsConnected(false));
       return;
     }
-    if (eventSourceRef.current) return;
 
-    try {
-      console.log("🔌 [Realtime Stream] Connecting to SSE relay at /api/realtime/stream...");
-      const es = new EventSource("/api/realtime/stream", { withCredentials: true });
-      eventSourceRef.current = es;
+    let disposed = false;
+    let es: EventSource | null = null;
+    let streamUp = false;
 
-      es.onopen = () => {
-        setIsConnected(true);
-        resetHeartbeatWatchdog();
-        stopOfflineProbe();
-        if (offlineDebounceRef.current) {
-          clearTimeout(offlineDebounceRef.current);
-          offlineDebounceRef.current = null;
-        }
-        if (wasOfflineRef.current) {
-          toast.success("Back online. Connection restored.", {
+    // Conditions the visible status is derived from
+    let serverDown = false;
+    let relayDown = false;
+    let streamRejected = false;
+
+    let failCount = 0;
+    let attempt = 0;
+    let hasConnectedOnce = false;
+    let sawFailure = false;
+    let outageStart: number | null = null;
+
+    let lastStatus: ConnStatus | null = null;
+    let loadingToast = false;
+
+    let lastResync = 0;
+    let pendingResync = false;
+
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let resyncTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectProbeTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectHardTimer: ReturnType<typeof setTimeout> | null = null;
+
+    let probeCache: { at: number; result: ProbeResult } | null = null;
+    let probeInflight: Promise<ProbeResult> | null = null;
+
+    const isOnline = () => typeof navigator === "undefined" || navigator.onLine;
+
+    const clearTimer = (t: ReturnType<typeof setTimeout> | null) => {
+      if (t) clearTimeout(t);
+      return null;
+    };
+
+    // ── Status and toasts ──
+    // Only `navigator.onLine === false` ever means "no internet".
+    const computeStatus = (): ConnStatus | "reconnecting" => {
+      if (!isOnline()) return "no-internet";
+      if (serverDown) return "server-unreachable";
+      if (relayDown || streamRejected) return "updates-off";
+      return streamUp ? "connected" : "reconnecting";
+    };
+
+    const showStatusToast = (status: ConnStatus) => {
+      loadingToast = false;
+      switch (status) {
+        case "no-internet":
+          toast.error("No internet connection. Check your network. We'll reconnect automatically.", {
+            id: TOAST_ID,
+            duration: Infinity,
+          });
+          break;
+        case "server-unreachable":
+          toast.warning("Can't reach LinkBridge right now. We'll keep trying, or you can retry now.", {
+            id: TOAST_ID,
+            duration: Infinity,
+            action: {
+              label: "Retry",
+              onClick: (event) => {
+                event.preventDefault(); // keep the toast so it can swap to the loading state
+                retryNow();
+              },
+            },
+          });
+          break;
+        case "updates-off":
+          toast.warning(
+            "Live updates are paused, so what you see may be out of date. We'll catch up automatically when they're back.",
+            {
+              id: TOAST_ID,
+              duration: Infinity,
+              action: {
+                label: "Refresh data",
+                onClick: (event) => {
+                  event.preventDefault();
+                  refreshData();
+                },
+              },
+            }
+          );
+          break;
+        case "connected":
+          toast.success("Back online. Catching up on any changes…", {
+            id: TOAST_ID,
             duration: 3000,
           });
-          wasOfflineRef.current = false;
+          break;
+      }
+    };
+
+    // A loading toast has no expiry, so every attempt must end by settling it.
+    const settleLoadingToast = () => {
+      if (!loadingToast) return;
+      const status = computeStatus();
+      if (status === "reconnecting") return; // still trying; the toast text is accurate
+      if (status === "connected") {
+        loadingToast = false;
+        toast.dismiss(TOAST_ID);
+        return;
+      }
+      showStatusToast(status);
+    };
+
+    const reportStatus = () => {
+      const next = computeStatus();
+      if (next === "reconnecting") return; // brief drop: stay quiet
+      const prev = lastStatus;
+      if (next === prev) {
+        settleLoadingToast();
+        return;
+      }
+      lastStatus = next;
+      // A first, clean connect is silent
+      if (next === "connected" && prev === null) return;
+      showStatusToast(next);
+    };
+
+    // ── Probe: our own server only, never Directus ──
+    const probe = (): Promise<ProbeResult> => {
+      if (probeCache && Date.now() - probeCache.at < PROBE_CACHE_MS) {
+        return Promise.resolve(probeCache.result);
+      }
+      if (probeInflight) return probeInflight;
+
+      const run = (async (): Promise<ProbeResult> => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), PROBE_TIMEOUT_MS);
+        try {
+          const res = await fetch("/api/health?probe=1", {
+            cache: "no-store",
+            redirect: "manual", // an auth redirect must not count as OK
+            signal: ctrl.signal,
+          });
+          const body = res.ok ? ((await res.json()) as { server?: boolean }) : null;
+          return body?.server === true ? "ok" : "server-unreachable";
+        } catch {
+          // Same-origin failure while the device is online means our server is the problem
+          return "server-unreachable";
+        } finally {
+          clearTimeout(timer);
         }
-        console.log("🟢 [Realtime Stream] Connected successfully over HTTPS.");
+      })();
+
+      probeInflight = run;
+      void run
+        .then((result) => {
+          probeCache = { at: Date.now(), result };
+        })
+        .finally(() => {
+          probeInflight = null;
+        });
+      return run;
+    };
+
+    // ── Resync: at most one queued, spread out, wider after long outages ──
+    const takeOutageMs = () => {
+      const ms = outageStart ? Date.now() - outageStart : 0;
+      outageStart = null;
+      return ms;
+    };
+
+    const broadcastInit = () => {
+      Array.from(subscribersRef.current.keys()).forEach((collection) => {
+        notifySubscribers(collection, "init", []);
+      });
+    };
+
+    const scheduleResync = (opts?: { user?: boolean; outageMs?: number }) => {
+      if (disposed || resyncTimer) return; // at most one queued
+      const gap = opts?.user ? USER_RESYNC_MIN_GAP_MS : RESYNC_MIN_GAP_MS;
+      const jitterWindow = opts?.user
+        ? 1000
+        : Math.min(30000, Math.max(5000, (opts?.outageMs ?? 0) / 2));
+      const cooldown = Math.max(0, lastResync + gap - Date.now());
+      resyncTimer = setTimeout(() => {
+        resyncTimer = null;
+        if (document.hidden) {
+          pendingResync = true;
+          return;
+        }
+        lastResync = Date.now();
+        broadcastInit();
+        settleLoadingToast();
+      }, cooldown + Math.random() * jitterWindow);
+    };
+
+    // ── Stream lifecycle ──
+    const clearStreamTimers = () => {
+      watchdogTimer = clearTimer(watchdogTimer);
+      connectProbeTimer = clearTimer(connectProbeTimer);
+      connectHardTimer = clearTimer(connectHardTimer);
+    };
+
+    const closeStream = () => {
+      clearStreamTimers();
+      if (es) {
+        es.close();
+        es = null;
+      }
+      streamUp = false;
+    };
+
+    const nextDelay = () => {
+      const base = Math.min(RECONNECT_CAP_MS, RECONNECT_BASE_MS * 2 ** attempt++);
+      return base + Math.random() * base * 0.5;
+    };
+
+    const scheduleReconnect = (delay?: number) => {
+      if (disposed || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        openStream();
+      }, delay ?? nextDelay());
+    };
+
+    const handleStreamFailure = async (source: EventSource) => {
+      if (disposed || es !== source) return;
+      // Close it ourselves so the browser's own retry never runs next to our backoff
+      closeStream();
+      setIsConnected(false);
+      sawFailure = true;
+      outageStart ??= Date.now();
+      failCount += 1;
+
+      if (!isOnline()) {
+        reportStatus(); // the `online` event restarts the connection
+        return;
+      }
+
+      const result = await probe();
+      if (disposed) return;
+      serverDown = result !== "ok";
+      // Server reachable but the stream keeps being refused (401/500): a retry
+      // loop cannot fix it, so say updates are off instead of "server unreachable".
+      if (!serverDown) streamRejected = failCount >= STREAM_REJECTED_AFTER_FAILURES;
+      reportStatus();
+
+      if (!es) scheduleReconnect();
+    };
+
+    const resetWatchdog = (source: EventSource) => {
+      watchdogTimer = clearTimer(watchdogTimer);
+      if (!isOnline()) return;
+      watchdogTimer = setTimeout(() => {
+        console.warn("⚠️ [Realtime Stream] Heartbeat missed. Reconnecting quietly…");
+        void handleStreamFailure(source);
+      }, HEARTBEAT_TIMEOUT_MS);
+    };
+
+    // Returns whether the relay just changed state: "down", "up", or "same"
+    const setRelay = (raw: unknown): "down" | "up" | "same" => {
+      if (raw === "down") {
+        if (relayDown) return "same";
+        relayDown = true;
+        sawFailure = true;
+        outageStart ??= Date.now();
+        return "down";
+      }
+      if (raw === "connected") {
+        if (!relayDown) return "same";
+        relayDown = false;
+        return "up";
+      }
+      return "same";
+    };
+
+    function openStream() {
+      if (disposed || es) return;
+
+      if (!isOnline()) {
+        sawFailure = true;
+        outageStart ??= Date.now();
+        reportStatus(); // the `online` event restarts the connection
+        return;
+      }
+
+      console.log("🔌 [Realtime Stream] Connecting to SSE relay at /api/realtime/stream...");
+      const source = new EventSource("/api/realtime/stream", { withCredentials: true });
+      es = source;
+
+      // A stream stuck connecting gets one probe, so a dead server is named early
+      connectProbeTimer = setTimeout(async () => {
+        if (es !== source || source.readyState === EventSource.OPEN || !isOnline()) return;
+        const result = await probe();
+        if (disposed || es !== source || result === "ok") return;
+        serverDown = true;
+        reportStatus();
+      }, CONNECT_PROBE_AFTER_MS);
+      connectHardTimer = setTimeout(() => {
+        if (es === source && source.readyState !== EventSource.OPEN) {
+          void handleStreamFailure(source);
+        }
+      }, CONNECT_HARD_TIMEOUT_MS);
+
+      source.onopen = () => {
+        if (es !== source) return;
+        connectProbeTimer = clearTimer(connectProbeTimer);
+        connectHardTimer = clearTimer(connectHardTimer);
+        resetWatchdog(source);
       };
 
-      es.addEventListener("connected", (event: MessageEvent) => {
+      // The connected frame carries the userId and the relay's health
+      source.addEventListener("connected", (event: MessageEvent) => {
+        if (es !== source) return;
+        clearStreamTimers();
+        resetWatchdog(source);
+
+        streamUp = true;
+        serverDown = false;
+        streamRejected = false;
+        failCount = 0;
+        attempt = 0;
         setIsConnected(true);
-        resetHeartbeatWatchdog();
-        stopOfflineProbe();
-        if (offlineDebounceRef.current) {
-          clearTimeout(offlineDebounceRef.current);
-          offlineDebounceRef.current = null;
-        }
-        // Capture the authenticated userId so we can suppress self-notifications,
-        // and the relay's health so a dead data plane is not shown as a live one.
+
+        let relayChange: "down" | "up" | "same" = "same";
         try {
-          const data = JSON.parse(event.data) as {
-            userId?: string | number;
-            relay?: unknown;
-          };
-          if (data.userId != null) {
-            sessionUserIdRef.current = String(data.userId);
-          }
-          applyRelayState(data.relay);
+          const data = JSON.parse(event.data) as { userId?: string | number; relay?: unknown };
+          if (data.userId != null) sessionUserIdRef.current = String(data.userId);
+          relayChange = setRelay(data.relay);
         } catch (e) {
           console.warn("⚠️ [Realtime Stream] Could not parse the connected frame:", e);
         }
 
-        // If the user was offline, display a success toast and dismiss any offline alert
-        if (wasOfflineRef.current) {
-          toast.success("Back online. Connection restored.", {
-            duration: 3000,
-          });
-          wasOfflineRef.current = false;
+        // A first clean connect needs no resync (pages just fetched); a reconnect
+        // or a load during an outage does. A down relay resyncs when it comes back.
+        const needsResync = hasConnectedOnce || sawFailure || relayChange === "up";
+        hasConnectedOnce = true;
+
+        reportStatus();
+        if (!relayDown) {
+          const outageMs = takeOutageMs();
+          if (needsResync) scheduleResync({ outageMs });
         }
-
-        // Notify active subscribers to re-sync missing messages/events after blackout
-        const activeCollections = Array.from(subscribersRef.current.keys());
-        activeCollections.forEach((col) => {
-          notifySubscribers(col, "init", []);
-        });
+        console.log("🟢 [Realtime Stream] Connected successfully over HTTPS.");
       });
 
-      // Listen for explicit server ping events to reset heartbeat watchdog
-      es.addEventListener("ping", () => {
-        resetHeartbeatWatchdog();
+      source.addEventListener("ping", () => {
+        if (es === source) resetWatchdog(source);
       });
 
-      // The relay can die or recover while this stream stays open.
-      es.addEventListener("relay", (event: MessageEvent) => {
+      // The relay can die or recover while this stream stays open
+      source.addEventListener("relay", (event: MessageEvent) => {
+        if (es !== source) return;
         try {
-          applyRelayState((JSON.parse(event.data) as { relay?: unknown }).relay);
+          const change = setRelay((JSON.parse(event.data) as { relay?: unknown }).relay);
+          if (change === "same") return;
+          reportStatus();
+          if (change === "up") scheduleResync({ outageMs: takeOutageMs() });
         } catch (e) {
           console.warn("⚠️ [Realtime Stream] Could not parse relay state frame:", e);
         }
       });
 
-      es.onmessage = (event) => {
-        resetHeartbeatWatchdog();
+      source.onmessage = (event) => {
+        if (es !== source) return;
+        resetWatchdog(source);
         try {
-          const payload = JSON.parse(event.data) as RealtimeMessage;
-          handleIncomingStreamPayload(payload);
+          handleIncomingStreamPayload(JSON.parse(event.data) as RealtimeMessage);
         } catch (e) {
           console.error("❌ [Realtime Stream] Failed to parse message:", e);
         }
       };
 
-      es.onerror = (err) => {
-        console.warn("🟡 [Realtime Stream] SSE stream connection notice (auto-reconnecting):", err);
-        setIsConnected(false);
-        if (heartbeatTimeoutRef.current) {
-          clearTimeout(heartbeatTimeoutRef.current);
-          heartbeatTimeoutRef.current = null;
-        }
-
-        // If disconnected for >1.5s and not yet flagged, verify network before triggering offline toast
-        if (!offlineDebounceRef.current && !wasOfflineRef.current) {
-          offlineDebounceRef.current = setTimeout(async () => {
-            offlineDebounceRef.current = null;
-            if (eventSourceRef.current?.readyState !== EventSource.OPEN) {
-              // Quick probe to verify if device is truly offline vs unauthenticated / stream restart
-              try {
-                const res = await fetch("/api/health", {
-                  cache: "no-store",
-                  signal: AbortSignal.timeout(2000),
-                });
-                if (res.ok) {
-                  // Device IS online! Failure was 401 unauthenticated or temporary reconnect.
-                  // Do NOT show "You are offline"!
-                  return;
-                }
-              } catch {
-                // Fetch failed (network error / offline) -> genuinely offline!
-              }
-
-              wasOfflineRef.current = true;
-              toast.error("You are offline. Please check your internet connection.", {
-                duration: 5000,
-              });
-              startOfflineProbe();
-            }
-          }, 1500);
-        }
+      source.onerror = () => {
+        void handleStreamFailure(source);
       };
-    } catch (err) {
-      console.error("💥 [Realtime Stream] Exception initializing EventSource:", err);
-      if (typeof window !== "undefined") {
-        window.requestAnimationFrame(() => setIsConnected(false));
-      }
-    }
-  }, [onAuthRoute, handleIncomingStreamPayload, notifySubscribers, resetHeartbeatWatchdog, startOfflineProbe, stopOfflineProbe, applyRelayState]);
-
-  useEffect(() => {
-    connectStreamRef.current = connectStream;
-  }, [connectStream]);
-
-  // Handle Mode Switching (Stream vs Polling) & Route Transitions
-  useEffect(() => {
-    if (onAuthRoute) {
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-      stopDegradedRefresh();
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      if (typeof window !== "undefined") {
-        window.requestAnimationFrame(() => setIsConnected(false));
-      }
-      return;
     }
 
-    if (mode === "stream") {
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-      connectStream();
-    } else {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      if (typeof window !== "undefined") {
-        window.requestAnimationFrame(() => setIsConnected(true));
-      }
-
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-      pollingIntervalRef.current = setInterval(() => {
-        const activeCollections = Array.from(subscribersRef.current.keys());
-        activeCollections.forEach((collection) => {
-          notifySubscribers(collection, "update", []);
-        });
-      }, 3000);
-    }
-
-    return () => {
-      if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-      stopDegradedRefresh();
-      if (heartbeatTimeoutRef.current) {
-        clearTimeout(heartbeatTimeoutRef.current);
-        heartbeatTimeoutRef.current = null;
-      }
-      if (offlineDebounceRef.current) {
-        clearTimeout(offlineDebounceRef.current);
-        offlineDebounceRef.current = null;
-      }
-      stopOfflineProbe();
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-    };
-  }, [mode, onAuthRoute, connectStream, notifySubscribers, stopOfflineProbe, stopDegradedRefresh]);
-
-  const reconnect = useCallback(() => {
-    if (heartbeatTimeoutRef.current) {
-      clearTimeout(heartbeatTimeoutRef.current);
-      heartbeatTimeoutRef.current = null;
-    }
-    if (mode === "stream") {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
-      }
-      connectStream();
-    }
-  }, [mode, connectStream]);
-
-  // Network online/offline & tab visibility immediate reconnection listeners
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleOnline = () => {
-      console.log("🌐 [Realtime] Device came back online! Reconnecting stream immediately...");
-      setIsConnected(false);
-      stopOfflineProbe();
-      if (offlineDebounceRef.current) {
-        clearTimeout(offlineDebounceRef.current);
-        offlineDebounceRef.current = null;
-      }
-      if (wasOfflineRef.current) {
-        toast.success("Back online. Connection restored.", {
-          duration: 3000,
-        });
-        wasOfflineRef.current = false;
-      }
-      reconnect();
+    // ── User actions ──
+    const reconnectNow = () => {
+      reconnectTimer = clearTimer(reconnectTimer);
+      closeStream();
+      attempt = 0;
+      probeCache = null;
+      openStream();
     };
 
+    function retryNow() {
+      toast.loading("Reconnecting…", { id: TOAST_ID });
+      loadingToast = true;
+      failCount = 0;
+      reconnectNow();
+    }
+
+    function refreshData() {
+      toast.loading("Refreshing…", { id: TOAST_ID });
+      loadingToast = true;
+      scheduleResync({ user: true });
+    }
+
+    reconnectRef.current = reconnectNow;
+
+    // ── Browser events ──
     const handleOffline = () => {
       console.warn("🔌 [Realtime] Device went offline.");
+      sawFailure = true;
+      outageStart ??= Date.now();
+      reconnectTimer = clearTimer(reconnectTimer);
+      closeStream();
       setIsConnected(false);
-      wasOfflineRef.current = true;
-      if (offlineDebounceRef.current) {
-        clearTimeout(offlineDebounceRef.current);
-        offlineDebounceRef.current = null;
-      }
-      toast.error("You are offline. Please check your internet connection.", {
-        duration: 5000,
-      });
-      startOfflineProbe();
-      if (heartbeatTimeoutRef.current) {
-        clearTimeout(heartbeatTimeoutRef.current);
-        heartbeatTimeoutRef.current = null;
-      }
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      reportStatus();
+    };
+
+    // Do not clear the no-internet toast here: the success toast replaces it
+    // only once the stream is actually back.
+    const handleOnline = () => {
+      console.log("🌐 [Realtime] Device came back online. Reconnecting…");
+      attempt = 0;
+      failCount = 0;
+      probeCache = null;
+      if (!es) {
+        reconnectTimer = clearTimer(reconnectTimer);
+        scheduleReconnect(Math.random() * 1000);
       }
     };
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        console.log("👁️ [Realtime] Tab visible. Checking stream health...");
-        if (
-          !eventSourceRef.current ||
-          eventSourceRef.current.readyState === EventSource.CLOSED
-        ) {
-          handleOnline();
-        }
+      if (document.visibilityState !== "visible") return;
+      if (pendingResync) {
+        pendingResync = false;
+        scheduleResync(); // fresh jitter, so returning tabs do not fire together
+      }
+      if (!es && !reconnectTimer && isOnline()) {
+        attempt = 0;
+        scheduleReconnect(Math.random() * 1000);
       }
     };
 
@@ -603,21 +675,24 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     window.addEventListener("offline", handleOffline);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
+    openStream();
+
     return () => {
+      disposed = true;
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      if (heartbeatTimeoutRef.current) {
-        clearTimeout(heartbeatTimeoutRef.current);
-        heartbeatTimeoutRef.current = null;
-      }
-      if (offlineDebounceRef.current) {
-        clearTimeout(offlineDebounceRef.current);
-        offlineDebounceRef.current = null;
-      }
-      stopOfflineProbe();
+      reconnectTimer = clearTimer(reconnectTimer);
+      resyncTimer = clearTimer(resyncTimer);
+      closeStream();
+      toast.dismiss(TOAST_ID);
+      reconnectRef.current = () => {};
     };
-  }, [reconnect, startOfflineProbe, stopOfflineProbe]);
+  }, [onAuthRoute, handleIncomingStreamPayload, notifySubscribers]);
+
+  const reconnect = useCallback(() => {
+    reconnectRef.current();
+  }, []);
 
   const subscribe = useCallback(
     (collection: string, callback: RealtimeCallback) => {
@@ -643,7 +718,7 @@ export const RealtimeProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   return (
     <RealtimeContext.Provider
-      value={{ isConnected, mode, setMode, subscribe, sendCustom, reconnect }}
+      value={{ isConnected, subscribe, sendCustom, reconnect }}
     >
       {children}
     </RealtimeContext.Provider>

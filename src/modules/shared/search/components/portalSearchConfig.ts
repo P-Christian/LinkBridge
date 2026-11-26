@@ -13,9 +13,10 @@ import {
   MessageSquare,
   UserCircle,
   Bell,
-  ShieldCheck,
   Workflow,
   School,
+  ClipboardCheck,
+  Building2,
 } from "lucide-react";
 
 export type Portal = "client" | "freelancer" | "school-admin" | "admin";
@@ -51,8 +52,8 @@ export interface PortalSearchConfig {
 }
 
 /**
+ * Every href here must map to a real route group under src/app/(linkbridge)/linkbridge/.
  * NOTE: only the /linkbridge/client/* routes below are copied from your existing code.
- * Every route marked TODO(verify) is a guess — fix it to match your real routes.
  */
 export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
   client: {
@@ -106,7 +107,6 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     liveApplicants: false,
     logProfileViews: false,
     quickActions: [
-      // TODO(verify) all freelancer routes
       { label: "Browse jobs", href: "/linkbridge/freelancer/jobs", icon: Briefcase, iconClass: "text-blue-500", hint: "Find work", keywords: "find opportunities" },
       { label: "My applications", href: "/linkbridge/freelancer/applications", icon: FileText, iconClass: "text-amber-500", hint: "Track status" },
     ],
@@ -114,8 +114,7 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     pages: [
       { label: "Dashboard", href: "/linkbridge/freelancer/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
       { label: "My Profile", href: "/linkbridge/freelancer/profile", icon: UserCircle, iconClass: "text-muted-foreground", keywords: "resume portfolio" },
-      { label: "Interviews", href: "/linkbridge/freelancer/interviews", icon: Calendar, iconClass: "text-muted-foreground" },
-      { label: "Messages", href: "/linkbridge/freelancer/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
+      { label: "Messages", href: "/linkbridge/freelancer/messaging", icon: MessageSquare, iconClass: "text-muted-foreground" },
       { label: "Notifications", href: "/linkbridge/freelancer/notifications", icon: Bell, iconClass: "text-muted-foreground" },
       { label: "Settings", href: "/linkbridge/freelancer/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],
@@ -131,17 +130,16 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     liveApplicants: false,
     logProfileViews: false,
     quickActions: [
-      // TODO(verify) all school-admin routes
       { label: "View students", href: "/linkbridge/school-admin/students", icon: GraduationCap, iconClass: "text-emerald-500", hint: "Manage roster" },
-      { label: "Partner companies", href: "/linkbridge/school-admin/partners", icon: Building, iconClass: "text-violet-500", hint: "Hiring partners" },
+      { label: "Job referrals", href: "/linkbridge/school-admin/job-referrals", icon: Briefcase, iconClass: "text-violet-500", hint: "Student placements" },
     ],
     pagesHeading: "School Portal Pages",
     pages: [
-      { label: "Dashboard", href: "/linkbridge/school-admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
-      { label: "School Profile", href: "/linkbridge/school-admin/school-profile", icon: School, iconClass: "text-muted-foreground" },
+      { label: "Dashboard", href: "/linkbridge/school-admin", icon: LayoutDashboard, iconClass: "text-primary" },
+      { label: "My School", href: "/linkbridge/school-admin/profile", icon: School, iconClass: "text-muted-foreground" },
       { label: "Students", href: "/linkbridge/school-admin/students", icon: Users, iconClass: "text-emerald-500" },
-      { label: "Messages", href: "/linkbridge/school-admin/messages", icon: MessageSquare, iconClass: "text-muted-foreground" },
-      { label: "Notifications", href: "/linkbridge/school-admin/notifications", icon: Bell, iconClass: "text-muted-foreground" },
+      { label: "Courses", href: "/linkbridge/school-admin/courses", icon: GraduationCap, iconClass: "text-muted-foreground" },
+      { label: "Requests", href: "/linkbridge/school-admin/requests", icon: ClipboardCheck, iconClass: "text-muted-foreground" },
       { label: "Settings", href: "/linkbridge/school-admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],
   },
@@ -156,14 +154,13 @@ export const PORTAL_SEARCH_CONFIG: Record<Portal, PortalSearchConfig> = {
     liveApplicants: false,
     logProfileViews: false,
     quickActions: [
-      // TODO(verify) all admin routes
-      { label: "Review verifications", href: "/linkbridge/admin/verifications", icon: ShieldCheck, iconClass: "text-emerald-500", hint: "Pending accounts" },
+      { label: "Company Verification", href: "/linkbridge/admin/company-verification", icon: Building2, iconClass: "text-emerald-500", hint: "Pending employers" },
+      { label: "School Verification", href: "/linkbridge/admin/school-verification", icon: GraduationCap, iconClass: "text-blue-500", hint: "Pending institutions" },
     ],
     pagesHeading: "Admin Pages",
     pages: [
-      { label: "Dashboard", href: "/linkbridge/admin/dashboard", icon: LayoutDashboard, iconClass: "text-primary" },
+      { label: "Dashboard", href: "/linkbridge/admin", icon: LayoutDashboard, iconClass: "text-primary" },
       { label: "Users", href: "/linkbridge/admin/users", icon: Users, iconClass: "text-blue-500" },
-      { label: "Companies", href: "/linkbridge/admin/companies", icon: Building, iconClass: "text-violet-500" },
       { label: "Schools", href: "/linkbridge/admin/schools", icon: GraduationCap, iconClass: "text-emerald-500" },
       { label: "Settings", href: "/linkbridge/admin/settings", icon: Settings, iconClass: "text-muted-foreground" },
     ],

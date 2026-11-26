@@ -53,7 +53,7 @@ export default function RootLayout({
                     </ThemeSettingsProvider>
 
                     {/* Global toast host (Sonner / shadcn) */}
-                    <Toaster position="top-right" richColors />
+                    <Toaster position="top-right" />
                 </ThemeProvider>
             </body>
         </html>

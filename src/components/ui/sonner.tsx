@@ -1,5 +1,18 @@
 "use client"
 
+/**
+ * Global toast host (Sonner, shadcn wrapper).
+ * Always leave behind comments on all changes and development of workflows for efficient long-term coding
+ *
+ * Revisions:
+ * - FIX: the style vars were `var(--popover)`, but the theme tokens are bare HSL triplets
+ *   ("0 0% 100%"), which is not a valid colour on its own. They are now wrapped in hsl(...).
+ * - The visual design (neutral card, hairline border, tinted icon chip, title + subtitle) lives in
+ *   globals.css under "SONNER TOAST THEMING". Do NOT pass `richColors` to <Toaster>: it paints
+ *   error toasts pink with a red border and fights the neutral design.
+ * - Icons stay at size-4; globals.css wraps them in a 28px tinted chip per status.
+ */
+
 import {
   CircleCheckIcon,
   InfoIcon,
@@ -26,9 +39,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }}
       style={
         {
-          "--normal-bg": "var(--popover)",
-          "--normal-text": "var(--popover-foreground)",
-          "--normal-border": "var(--border)",
+          "--normal-bg": "hsl(var(--popover))",
+          "--normal-text": "hsl(var(--popover-foreground))",
+          "--normal-border": "hsl(var(--border))",
           "--border-radius": "var(--radius)",
         } as React.CSSProperties
       }
