@@ -35,6 +35,26 @@ const nextConfig: NextConfig = {
         destination: "/linkbridge/admin/:path*",
         permanent: false,
       },
+      {
+        source: "/client",
+        destination: "/linkbridge/client/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/client/:path*",
+        destination: "/linkbridge/client/:path*",
+        permanent: false,
+      },
+      {
+        source: "/linkbridge/client",
+        destination: "/linkbridge/client/dashboard",
+        permanent: false,
+      },
+      {
+        source: "/public/client/:path*",
+        destination: "/linkbridge/public/client/:path*",
+        permanent: false,
+      },
     ];
   },
 

@@ -6,22 +6,16 @@ import Link from "next/link";
 import Image from "next/image";
 import {
     Users,
-    Bot,
-    ClipboardList,
-    ShoppingCart,
     Bell,
     Settings2,
     MessageSquare,
     HelpCircle,
 } from "lucide-react";
 
-import { NavMain } from "./nav-main";
 import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import {
     Sidebar,
-    SidebarContent,
     SidebarFooter,
     SidebarHeader,
     SidebarMenu,
@@ -32,40 +26,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { DashboardSidebar, type SidebarConfig } from "@/components/shared/layout/DashboardSidebar";
 import { LayoutDashboard, Briefcase, FileText, User, CalendarDays, GraduationCap, ClipboardCheck, LogOut, ShieldCheck, Building2, Building, Share2, ShieldAlert, Search, Cpu, Target, TrendingUp, GitFork } from "lucide-react";
 import { useUserProfile } from "@/components/shared/providers/UserProfileProvider";
-
-const data = {
-    navMain: [
-        {
-            title: "Attendance Report",
-            url: "/employee-relations/attendance-report",
-            icon: Users,
-        },
-        {
-            title: "Application",
-            url: "#",
-            icon: Bot,
-            items: [
-                {
-                    title: "Overtime",
-                    url: "/employee-relations/application/overtime",
-                    icon: ClipboardList,
-                },
-                {
-                    title: "Undertime",
-                    url: "/employee-relations/application/undertime",
-                    icon: ClipboardList,
-                },
-                {
-                    title: "Leave",
-                    url: "/employee-relations/application/leave",
-                    icon: ShoppingCart,
-                },
-            ],
-        },
-        { title: "Memo", url: "/employee-relations/memo", icon: Users },
-        { title: "Announcement", url: "/employee-relations/announcement", icon: Users },
-    ],
-};
 
 // Module scope keeps `config.navItems` reference-stable; defined inside the
 // render body it was a fresh object each render, which re-ran DashboardSidebar's
@@ -258,25 +218,6 @@ export function AppSidebar({
             </SidebarHeader>
 
             <Separator />
-
-            <SidebarContent>
-                <div className="px-4 pt-3 pb-2 text-xs font-medium text-muted-foreground">
-                    Platform
-                </div>
-
-                <ScrollArea
-                    className={cn(
-                        "min-h-0 flex-1",
-                        "[&_[data-radix-scroll-area-viewport]>div]:block",
-                        "[&_[data-radix-scroll-area-viewport]>div]:w-full",
-                        "[&_[data-radix-scroll-area-viewport]>div]:min-w-0"
-                    )}
-                >
-                    <div className="w-full min-w-0">
-                        <NavMain items={data.navMain} />
-                    </div>
-                </ScrollArea>
-            </SidebarContent>
 
             <SidebarFooter className="p-0">
                 <Separator />

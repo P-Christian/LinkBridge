@@ -109,7 +109,7 @@ export function DashboardKpiStats({
 
             {/* Card 2: Top AI Match */}
             <Link
-                href="/linkbridge/freelancer/find-work"
+                href="/linkbridge/freelancer/jobs"
                 className="bg-white dark:bg-card border border-slate-200/90 dark:border-border border-t-4 border-t-indigo-500 rounded-2xl p-5 shadow-sm flex flex-col justify-between transition-all duration-200 ease-out hover:border-indigo-400 hover:shadow-md hover:-translate-y-0.5 group"
             >
                 <div className="flex items-center justify-between text-xs text-slate-500 dark:text-muted-foreground font-medium">

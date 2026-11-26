@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdministrator } from "@/lib/authenticated-session";
+import { requireAdministrator, authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { changeUserStatus } from "@/modules/vos-admin/account-status-management";
 import { safeErrorMessage } from "@/lib/api-error";
 
 
@@ -489,11 +490,14 @@ function resolveAssetUrl(idStr: unknown): string | null {
 
 export async function POST(req: NextRequest) {
   try {
-    const auth = await requireAdministrator(req);
-    if (!auth) {
+    // The owner activation below needs the acting admin's email, which the
+    // status history records as its actor; requireAdministrator does not surface it.
+    const session = await authenticateRequest(req);
+    if (!session || !isAdministratorSession(session)) {
       return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
     }
-    const adminId = auth.adminId;
+    const adminId = Number(session.userId);
+    const adminEmail = (session.payload.user_email as string) || "admin@vosync.com";
 
     if (!DIRECTUS_BASE) {
       return NextResponse.json(
@@ -611,21 +615,43 @@ export async function POST(req: NextRequest) {
 
         const uniqueUids = Array.from(new Set(uids.filter((id) => id > 0)));
         if (uniqueUids.length > 0) {
+          // vs_user has no verification columns — `status` is the only account
+          // state it carries, so it has to move through the status-management
+          // transition that bumps status_version and writes the history ledger.
+          // Read first: an owner already ACTIVE, LIMITED or suspended must not
+          // be re-activated by a company approval.
+          const ownerStatuses: Record<number, string> = {};
+          try {
+            const statusRes = await fetch(
+              `${DIRECTUS_BASE}/items/vs_user?filter[user_id][_in]=${uniqueUids.join(",")}&fields=user_id,status&limit=-1`,
+              { headers: getDirectusHeaders(), cache: "no-store" }
+            );
+            if (statusRes.ok) {
+              const statusJson = await statusRes.json();
+              (statusJson.data || []).forEach((u: Record<string, unknown>) => {
+                ownerStatuses[Number(u.user_id)] = String(u.status ?? "").toUpperCase();
+              });
+            } else {
+              warnings.push("The owners' account statuses could not be read, so none were activated.");
+            }
+          } catch (statusErr) {
+            console.warn("Failed to read owner account statuses:", statusErr);
+            warnings.push("The owners' account statuses could not be read, so none were activated.");
+          }
+
           await Promise.all(
             uniqueUids.map(async (uid) => {
               try {
-                const userPatchRes = await fetch(`${DIRECTUS_BASE}/items/vs_user/${uid}`, {
-                  method: "PATCH",
-                  headers: getDirectusHeaders(),
-                  body: JSON.stringify({
-                    verification_status: "VERIFIED",
-                    verified_at: nowPH,
-                    verified_by_user_id: adminId,
-                    updated_at: nowPH,
-                  }),
-                });
-                if (!userPatchRes.ok) {
-                  warnings.push(`Owner #${uid} was not marked verified.`);
+                if (ownerStatuses[uid] === "PENDING_VERIFICATION") {
+                  const activationWarnings = await changeUserStatus(
+                    uid,
+                    "ACTIVE",
+                    adminEmail,
+                    "COMPANY_VERIFIED",
+                    "Your company has been verified by an administrator.",
+                    `Auto-activated upon approval of company #${companyId}`
+                  );
+                  warnings.push(...activationWarnings);
                 }
 
                 const idVerFindUrl = `${DIRECTUS_BASE}/items/vs_identity_verifications?filter[user_id][_eq]=${uid}&sort=-submitted_at&limit=1`;

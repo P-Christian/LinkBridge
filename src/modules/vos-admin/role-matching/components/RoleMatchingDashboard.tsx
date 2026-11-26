@@ -115,7 +115,7 @@ export function MatchingIntelligenceDashboard() {
               Match Test Studio
             </Button>
           </Link>
-          <Link href="/vos-sync/vos-admin/job-roles/approval-queue">
+          <Link href="/linkbridge/admin/job-roles/approval-queue">
             <Button
               variant="outline"
               size="sm"

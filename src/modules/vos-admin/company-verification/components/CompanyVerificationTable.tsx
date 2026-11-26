@@ -86,9 +86,9 @@ export const CompanyVerificationTable: React.FC<CompanyVerificationTableProps> =
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: 0.2 }}
-      className="rounded-xl border border-border bg-card shadow-xs transition-all w-full overflow-hidden flex flex-col"
+      className="rounded-xl border border-border bg-card shadow-xs transition-all w-full flex flex-col"
     >
-      <div className="max-h-[560px] overflow-auto w-full relative">
+      <div className="h-full overflow-auto w-full relative">
         <Table className="min-w-[1100px] w-full border-collapse">
           <TableHeader className="sticky top-0 z-10 bg-muted/90 backdrop-blur-md shadow-xs">
             <TableRow className="bg-muted/80 hover:bg-muted/80 border-b border-border">

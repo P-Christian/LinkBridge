@@ -12,8 +12,7 @@ import { Conversation } from "./types";
 import { cn } from "@/lib/utils";
 import CompanyVerificationGuard from "../components/CompanyVerificationGuard";
 
-// TODO: point this at your real "Applicants" route
-const APPLICANTS_HREF = "/client/applicants";
+const APPLICANTS_HREF = "/linkbridge/client/applicants";
 
 interface Props {
   currentUserId: number;

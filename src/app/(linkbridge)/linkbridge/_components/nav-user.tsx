@@ -10,7 +10,6 @@ import {
     Settings,
     User,
     KeyRound,
-    ShieldCheck,
     Moon,
     Sun,
 } from "lucide-react"
@@ -108,9 +107,10 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
         }
     }, [loggingOut, onLogout])
 
-    // Compute dynamic URLs based on current portal path
-    let defaultProfileUrl = "#"
-    let defaultSettingsUrl = "#"
+    // Compute dynamic URLs based on current portal path. An empty profile URL
+    // means the portal has no profile page, and the menu item is hidden.
+    let defaultProfileUrl = ""
+    let defaultSettingsUrl = ""
 
     if (pathname.startsWith("/linkbridge/freelancer")) {
         defaultProfileUrl = "/linkbridge/freelancer/profile"
@@ -119,10 +119,9 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
         defaultProfileUrl = "/linkbridge/client/company-profile"
         defaultSettingsUrl = "/linkbridge/client/settings"
     } else if (pathname.startsWith("/linkbridge/school-admin")) {
-        defaultProfileUrl = "/linkbridge/school-admin/settings"
+        defaultProfileUrl = "/linkbridge/school-admin/profile"
         defaultSettingsUrl = "/linkbridge/school-admin/settings"
     } else if (pathname.startsWith("/linkbridge/admin")) {
-        defaultProfileUrl = "/linkbridge/admin/profile"
         defaultSettingsUrl = "/linkbridge/settings?portal=vos-admin"
     }
 
@@ -173,19 +172,23 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
                             {isDark ? "Light mode" : "Dark mode"}
                         </DropdownMenuItem>
 
-                        <DropdownMenuItem asChild>
-                            <Link href={finalProfileUrl} className="cursor-pointer text-xs py-2 rounded-lg">
-                                <User className="mr-2 size-4" />
-                                My Profile
-                            </Link>
-                        </DropdownMenuItem>
+                        {finalProfileUrl && (
+                            <DropdownMenuItem asChild>
+                                <Link href={finalProfileUrl} className="cursor-pointer text-xs py-2 rounded-lg">
+                                    <User className="mr-2 size-4" />
+                                    My Profile
+                                </Link>
+                            </DropdownMenuItem>
+                        )}
 
-                        <DropdownMenuItem asChild>
-                            <Link href={finalSettingsUrl} className="cursor-pointer text-xs py-2 rounded-lg">
-                                <Settings className="mr-2 size-4" />
-                                Settings
-                            </Link>
-                        </DropdownMenuItem>
+                        {finalSettingsUrl && (
+                            <DropdownMenuItem asChild>
+                                <Link href={finalSettingsUrl} className="cursor-pointer text-xs py-2 rounded-lg">
+                                    <Settings className="mr-2 size-4" />
+                                    Settings
+                                </Link>
+                            </DropdownMenuItem>
+                        )}
                     </DropdownMenuGroup>
                     <DropdownMenuSeparator className="my-1" />
                     <DropdownMenuItem
@@ -249,33 +252,30 @@ export function NavUser({ user: propUser, onLogout, profileUrl, settingsUrl, com
                                 {isDark ? "Light mode" : "Dark mode"}
                             </DropdownMenuItem>
 
-                            <DropdownMenuItem asChild>
-                                <Link href={finalProfileUrl} className="cursor-pointer">
-                                    <User className="mr-2 size-4" />
-                                    My Profile
-                                </Link>
-                            </DropdownMenuItem>
+                            {finalProfileUrl && (
+                                <DropdownMenuItem asChild>
+                                    <Link href={finalProfileUrl} className="cursor-pointer">
+                                        <User className="mr-2 size-4" />
+                                        My Profile
+                                    </Link>
+                                </DropdownMenuItem>
+                            )}
 
                             <DropdownMenuItem asChild>
-                                <Link href="/crm/change-password" className="cursor-pointer">
+                                <Link href="/linkbridge/change-password" className="cursor-pointer">
                                     <KeyRound className="mr-2 size-4" />
                                     Change Password
                                 </Link>
                             </DropdownMenuItem>
 
-                            <DropdownMenuItem asChild>
-                                <Link href="/crm/login-activity" className="cursor-pointer">
-                                    <ShieldCheck className="mr-2 size-4" />
-                                    Login Activity
-                                </Link>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuItem asChild>
-                                <Link href={finalSettingsUrl} className="cursor-pointer">
-                                    <Settings className="mr-2 size-4" />
-                                    Settings
-                                </Link>
-                            </DropdownMenuItem>
+                            {finalSettingsUrl && (
+                                <DropdownMenuItem asChild>
+                                    <Link href={finalSettingsUrl} className="cursor-pointer">
+                                        <Settings className="mr-2 size-4" />
+                                        Settings
+                                    </Link>
+                                </DropdownMenuItem>
+                            )}
                         </DropdownMenuGroup>
 
                         <DropdownMenuSeparator />

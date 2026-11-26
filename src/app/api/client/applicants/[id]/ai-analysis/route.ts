@@ -434,7 +434,14 @@ Portfolio: ${candidateProfile.portfolio_url}
      - "reasoning": "<1-2 sentence clear reasoning why the candidate fits or excels in this opening>"
    - Order "alternative_job_recommendations" from highest match_score to lowest (up to 4 jobs). If no other openings are listed or none meet 50% match, return [].
 5. Provide specific, insightful strengths and gap considerations for the applied role.
-6. Output ONLY a valid JSON object matching the exact schema below with NO markdown formatting around it.
+6. RECRUITER ACTION RECOMMENDATION GUIDELINES:
+   - Provide constructive, professional, and actionable recruiter advice for "recommendation".
+   - NEVER use blunt, negative, or dismissive veto language such as "Do not advance", "Reject", or "Unqualified".
+   - If the candidate is a strong or good fit: Recommend advancing to interview/technical screening and outline key competencies to validate.
+   - If the candidate has notable gaps: Recommend a focused screening or assessment on those specific gap areas before making a decision.
+   - If the candidate is mismatched with the applied role but has alternative openings listed: Recommend exploring cross-role opportunities or routing them to the matching open position (e.g. "Candidate's background is strongly aligned with [Role] rather than this opening; recommend considering them for that pipeline.").
+   - If the candidate is mismatched with no suitable open roles: Recommend retaining their profile in the company talent network for future opportunities that align with their background in [Field/Skill].
+7. Output ONLY a valid JSON object matching the exact schema below with NO markdown formatting around it.
 
 Expected JSON schema:
 {
@@ -451,7 +458,7 @@ Expected JSON schema:
     "Potential gap 2"
   ],
   "screening_assessment": "1-3 sentence review of candidate screening answers and technical depth shown.",
-  "recommendation": "Clear recruiter recommendation on next steps and targeted questions to ask.",
+  "recommendation": "Constructive recruiter advisory on next steps (never use 'Do not advance'; recommend next steps, screening focus, cross-role routing, or talent network retention).",
   "alternative_job_recommendations": [
     {
       "job_id": 123,
