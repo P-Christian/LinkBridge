@@ -2,7 +2,8 @@
 
 import { NextRequest } from "next/server";
 import { json } from "@/lib/server/route";
-import { authenticateRequest } from "@/lib/authenticated-session";
+import { authenticateRequest, isAdministratorSession } from "@/lib/authenticated-session";
+import { fetchHireByApplicationId } from "@/modules/vos-admin/server/hiring-map.server";
 import { safeDecryptMessage } from "@/lib/message-encryption";
 import {
   directusWsRelay,
@@ -95,11 +96,40 @@ export async function GET(req: NextRequest) {
                 break;
               case "vs_freelancer_notification":
               case "vs_employer_notification":
-              case "vs_job_application":
                 records = records.filter((rec) =>
                   sameId(rec.user_id, session.userId)
                 );
                 break;
+              case "vs_job_application": {
+                // If administrator, broadcast live hiring events to the Live Hiring Network map
+                if (
+                  isAdministratorSession(session) &&
+                  (payload.event === "update" || payload.event === "create")
+                ) {
+                  const hiredRows = payload.data.filter(
+                    (rec) => rec.application_status === "HIRED"
+                  );
+                  for (const rec of hiredRows) {
+                    const appId = Number(rec.application_id);
+                    if (Number.isSafeInteger(appId) && appId > 0) {
+                      try {
+                        const hire = await fetchHireByApplicationId(appId);
+                        if (hire) {
+                          controller.enqueue(
+                            encoder.encode(`event: hiring\ndata: ${JSON.stringify(hire)}\n\n`)
+                          );
+                        }
+                      } catch (hireErr) {
+                        console.error("[realtime] Failed to push hire event:", hireErr);
+                      }
+                    }
+                  }
+                }
+                records = records.filter((rec) =>
+                  sameId(rec.user_id, session.userId)
+                );
+                break;
+              }
               case "vs_interview": {
                 if (companyIds === null) {
                   companyIds = await resolveUserCompanyIds(session.userId);
