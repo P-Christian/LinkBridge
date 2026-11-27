@@ -79,7 +79,9 @@ export default function ReferModal({ jobId, jobTitle, open, onClose }: ReferModa
         throw new Error(data.error || "Failed to create referral");
       }
 
-      const generatedUrl = data.referral_url || `${window.location.origin}/referral/${data.referral?.token_hash || data.token}`;
+      const generatedUrl =
+        data.referral_url ||
+        `${window.location.origin}/referral/${data.token_hash || data.referral?.token_hash || data.token}`;
       setReferralLink(generatedUrl);
 
       if (referralMode === "CLOSED" && email.trim()) {

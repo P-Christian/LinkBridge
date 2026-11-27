@@ -129,6 +129,7 @@ export async function createReferralRecord(
   return {
     referral: created,
     token: plain,
+    token_hash: hash,
   };
 }
 
