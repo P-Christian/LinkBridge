@@ -440,8 +440,8 @@ export default function JobDetailPage({ jobId }: Props) {
 
         {/* Right Column: Actions / About Client Sidebar */}
         <div className="space-y-6">
-          {/* Strict Profile Completion Requirement Alert */}
-          {profileCompletion !== null && profileCompletion < 100 && (
+          {/* Minimum Profile Verification Requirement Alert */}
+          {profileCompletion !== null && profileCompletion < 80 && (
             <div className="rounded-2xl border border-amber-300 bg-amber-50/80 p-5 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/25 space-y-3">
               <div className="flex items-start gap-2.5">
                 <AlertCircle className="h-5 w-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -450,7 +450,7 @@ export default function JobDetailPage({ jobId }: Props) {
                     Profile Completion Required to Apply
                   </h4>
                   <p className="text-xs text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
-                    LinkBridge requires candidates to complete their profile (currently <strong>{profileCompletion}%</strong>) before submitting applications.
+                    LinkBridge requires at least 80% profile verification (currently <strong>{profileCompletion}%</strong>) before submitting applications.
                   </p>
                   <p className="text-xs text-amber-800/80 dark:text-amber-400/80 leading-relaxed">
                     Don&apos;t worry—this job has already been saved to your <strong>Bookmarked Jobs</strong> so you can easily apply right after completing your profile!
@@ -481,10 +481,10 @@ export default function JobDetailPage({ jobId }: Props) {
             <Button
               id="job-page-apply-btn"
               onClick={() => setApplyModalOpen(true)}
-              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 100)}
+              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 80)}
               title={
-                profileCompletion !== null && profileCompletion < 100
-                  ? "You must complete your profile (100%) before applying"
+                profileCompletion !== null && profileCompletion < 80
+                  ? "You must have at least 80% profile verification before applying"
                   : alreadyApplied
                     ? "Already Applied"
                     : "Apply for Job"

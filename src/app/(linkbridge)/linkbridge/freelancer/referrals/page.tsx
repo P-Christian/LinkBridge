@@ -32,6 +32,7 @@ interface ReferralItem {
   expires_at: string;
   token_hash: string;
   referral_type?: "CLOSED" | "OPEN";
+  referral_url?: string;
   application_count?: number;
   claimant_name?: string | null;
 }
@@ -92,14 +93,8 @@ export default function MyReferralsPage() {
     fetchReferrals();
   }, [fetchReferrals]);
 
-  const handleCopyLink = (referralId: number, tokenHash: string) => {
-    // Note: Since plain token is not stored, we generate/use a share link.
-    // If user creates a referral without email, the API returns the plain token.
-    // For already created ones, we store the sharing structure or token hash lookup path.
-    // However, to keep it simple, we redirect to landing which handles token lookup.
-    // If the token is hashed, we can fetch or let the user click copy when they create it.
-    // We can also let users copy the existing public landing URL.
-    const url = `${window.location.origin}/referral/${tokenHash}`;
+  const handleCopyLink = (referralId: number, tokenHash: string, referralUrl?: string) => {
+    const url = referralUrl || `${window.location.origin}/referral/${tokenHash}`;
     navigator.clipboard.writeText(url);
     setCopiedId(referralId);
     toast.success("Link copied", { description: "Referral URL copied to clipboard." });
@@ -281,8 +276,8 @@ export default function MyReferralsPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="ALL">All Types</SelectItem>
-                      <SelectItem value="CLOSED">Closed (1:1)</SelectItem>
-                      <SelectItem value="OPEN">Open (1:N)</SelectItem>
+                      <SelectItem value="CLOSED">Closed</SelectItem>
+                      <SelectItem value="OPEN">Open</SelectItem>
                     </SelectContent>
                   </Select>
 
@@ -352,11 +347,11 @@ export default function MyReferralsPage() {
                               <TableCell>
                                 {isOpen ? (
                                   <Badge variant="secondary" className="font-normal text-xs">
-                                    Open (1:N)
+                                    Open
                                   </Badge>
                                 ) : (
                                   <Badge variant="outline" className="font-normal text-xs">
-                                    Closed (1:1)
+                                    Closed
                                   </Badge>
                                 )}
                               </TableCell>
@@ -388,7 +383,7 @@ export default function MyReferralsPage() {
                                   <Button
                                     variant="outline"
                                     size="sm"
-                                    onClick={() => !isInactive && handleCopyLink(ref.referral_id, ref.token_hash)}
+                                    onClick={() => !isInactive && handleCopyLink(ref.referral_id, ref.token_hash, ref.referral_url)}
                                     disabled={isInactive}
                                     title={isInactive ? `Link is ${effectiveStatus.toLowerCase()}` : "Copy referral link"}
                                     className={`h-8 gap-1 max-md:min-h-11 ${

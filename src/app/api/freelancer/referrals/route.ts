@@ -48,6 +48,9 @@ export async function POST(req: NextRequest) {
       expires_at ? String(expires_at) : undefined
     );
 
+    const canonicalToken = result.token_hash || result.referral?.token_hash || result.token;
+    const inviteUrl = `${getReferralBaseUrl()}/referral/${canonicalToken}`;
+
     // If an email is supplied for closed referral, send the invite via SMTP
     if (type === "CLOSED" && recipient_email) {
       const jobRes = await fetch(`${DIRECTUS_BASE}/items/vs_job_posting/${job_id}?fields=job_title,company_id.company_name`, {
@@ -71,8 +74,6 @@ export async function POST(req: NextRequest) {
         const u = (await userRes.json()).data;
         referrerName = `${u?.user_fname ?? ""} ${u?.user_lname ?? ""}`.trim() || referrerName;
       }
-
-      const inviteUrl = `${getReferralBaseUrl()}/referral/${result.token}`;
 
       await sendMail({
         to: recipient_email,
@@ -109,7 +110,7 @@ export async function POST(req: NextRequest) {
               category: "Referrals",
               title: "New Job Referral Opportunity",
               message: `${referrerName} has referred you to the position: ${jobTitle}. Click to review details and accept.`,
-              action_url: `/referral/${result.token}`,
+              action_url: `/referral/${canonicalToken}`,
             });
           }
         }
@@ -118,7 +119,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, ...result });
+    const referralUrl = `${getReferralBaseUrl()}/referral/${canonicalToken}`;
+
+    return NextResponse.json({
+      success: true,
+      ...result,
+      token_hash: canonicalToken,
+      referral_url: referralUrl,
+    });
   } catch (err: unknown) {
     const errorMsg = safeErrorMessage(err, "Failed to create referral.");
     return NextResponse.json({ error: errorMsg }, { status: 500 });
@@ -202,6 +210,7 @@ export async function GET(req: NextRequest) {
       return {
         ...r,
         referral_type: referralType,
+        referral_url: `${getReferralBaseUrl()}/referral/${r.token_hash}`,
         application_count: appCountsMap[rId] ?? 0,
         claimant_name: claimsMap[rId] ?? null,
       };

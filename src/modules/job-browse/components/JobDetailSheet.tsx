@@ -495,7 +495,7 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
 
         {/* Sticky Apply Button and Requirements */}
         <div className="px-6 py-4 border-t bg-background shrink-0 flex flex-col gap-3">
-          {profileCompletion !== null && profileCompletion < 100 && (
+          {profileCompletion !== null && profileCompletion < 80 && (
             <div className="rounded-xl border border-amber-300 bg-amber-50/80 p-3.5 shadow-xs dark:border-amber-900/60 dark:bg-amber-950/25 space-y-2">
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
@@ -504,7 +504,7 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
                     Profile Completion Required to Apply ({profileCompletion}%)
                   </h5>
                   <p className="text-[11px] text-amber-900/90 dark:text-amber-300/90 leading-relaxed">
-                    You must complete your profile before applying. This job is saved in your bookmarks.
+                    LinkBridge requires at least 80% profile verification (currently {profileCompletion}%) before submitting applications. This job is saved in your bookmarks.
                   </p>
                   <div className="pt-1">
                     <a
@@ -545,10 +545,10 @@ export function JobDetailSheet({ job, open, onClose, onApply, appliedJobIds = []
             <Button
               id="job-detail-apply-btn"
               onClick={() => onApply(job)}
-              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 100)}
+              disabled={alreadyApplied || (profileCompletion !== null && profileCompletion < 80)}
               title={
-                profileCompletion !== null && profileCompletion < 100
-                  ? "You must complete your profile (100%) before applying"
+                profileCompletion !== null && profileCompletion < 80
+                  ? "You must have at least 80% profile verification before applying"
                   : alreadyApplied
                   ? "Already Applied"
                   : "Apply Now"
