@@ -118,7 +118,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    return NextResponse.json({ success: true, ...result });
+    const referralUrl = `${getReferralBaseUrl()}/referral/${result.referral?.token_hash || result.token}`;
+
+    return NextResponse.json({
+      success: true,
+      ...result,
+      referral_url: referralUrl,
+    });
   } catch (err: unknown) {
     const errorMsg = safeErrorMessage(err, "Failed to create referral.");
     return NextResponse.json({ error: errorMsg }, { status: 500 });
@@ -202,6 +208,7 @@ export async function GET(req: NextRequest) {
       return {
         ...r,
         referral_type: referralType,
+        referral_url: `${getReferralBaseUrl()}/referral/${r.token_hash}`,
         application_count: appCountsMap[rId] ?? 0,
         claimant_name: claimsMap[rId] ?? null,
       };

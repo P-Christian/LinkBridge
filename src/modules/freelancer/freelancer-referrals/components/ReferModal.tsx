@@ -79,7 +79,7 @@ export default function ReferModal({ jobId, jobTitle, open, onClose }: ReferModa
         throw new Error(data.error || "Failed to create referral");
       }
 
-      const generatedUrl = `${window.location.origin}/referral/${data.token}`;
+      const generatedUrl = data.referral_url || `${window.location.origin}/referral/${data.referral?.token_hash || data.token}`;
       setReferralLink(generatedUrl);
 
       if (referralMode === "CLOSED" && email.trim()) {
@@ -153,7 +153,7 @@ export default function ReferModal({ jobId, jobTitle, open, onClose }: ReferModa
                 >
                   <div className="flex items-center gap-1.5 font-semibold text-sm">
                     <UserCheck className="h-4 w-4 text-primary" />
-                    <span>Closed (1:1)</span>
+                    <span>Closed</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
                     Direct invite for a specific candidate. Single-use only.
@@ -172,7 +172,7 @@ export default function ReferModal({ jobId, jobTitle, open, onClose }: ReferModa
                 >
                   <div className="flex items-center gap-1.5 font-semibold text-sm">
                     <Users className="h-4 w-4 text-primary" />
-                    <span>Open (1:N)</span>
+                    <span>Open</span>
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-1 leading-snug">
                     Public share link. Multiple candidates can apply using this URL.
@@ -193,7 +193,12 @@ export default function ReferModal({ jobId, jobTitle, open, onClose }: ReferModa
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={referralMode === "OPEN" || loading}
-                className={cn("col-span-3 max-md:h-11", referralMode === "OPEN" && "bg-muted/50 cursor-not-allowed opacity-70")}
+                readOnly={referralMode === "OPEN"}
+                tabIndex={referralMode === "OPEN" ? -1 : undefined}
+                className={cn(
+                  "col-span-3 max-md:h-11",
+                  referralMode === "OPEN" && "bg-muted/50 cursor-not-allowed opacity-70 pointer-events-none select-none caret-transparent"
+                )}
               />
               <p className="text-[11px] text-muted-foreground">
                 {referralMode === "CLOSED"
